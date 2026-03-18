@@ -20,8 +20,8 @@ class OperationsJournalService:
         category = str(diagnostics.get("category", "ok")) if isinstance(diagnostics, dict) else "ok"
         severity = str(diagnostics.get("severity", "ok")) if isinstance(diagnostics, dict) else "ok"
         alert_count = int(alerts.get("count", 0)) if isinstance(alerts, dict) else 0
-        checklist_pending = int(compliance.get("pending_count", 0)) if isinstance(compliance, dict) else 0
-        checklist_blocked = int(compliance.get("blocked_count", 0)) if isinstance(compliance, dict) else 0
+        checklist_pending = self._compliance_count(compliance, "pending")
+        checklist_blocked = self._compliance_count(compliance, "blocked")
         ready = severity in {"ok", "info"} and alert_count == 0 and checklist_blocked == 0
 
         checks = preflight.get("checks", []) if isinstance(preflight, dict) else []
@@ -36,6 +36,7 @@ class OperationsJournalService:
             alert_count=alert_count,
             checklist_pending=checklist_pending,
             checklist_blocked=checklist_blocked,
+            latest_report_dir=str(readiness.get("latest_report_dir")) if readiness.get("latest_report_dir") else None,
             notes={"readiness": readiness},
         )
         self._entries[entry.id] = entry
@@ -52,35 +53,24 @@ class OperationsJournalService:
                 "count": 0,
                 "ready_count": 0,
                 "latest": None,
+                "ready_ratio": 0.0,
+                "average_alert_count": 0.0,
             }
         return {
             "count": len(entries),
             "ready_count": sum(1 for e in entries if e.ready),
             "latest": entries[0],
+            "ready_ratio": round(sum(1 for e in entries if e.ready) / len(entries), 4),
+            "average_alert_count": round(sum(e.alert_count for e in entries) / len(entries), 4),
         }
 
     def acceptance_summary(self) -> dict[str, object]:
         entries = self.list_entries()
-        now = datetime.now(UTC)
-        week_ago = now - timedelta(days=7)
-
         total_days = len({e.recorded_at.date() for e in entries})
         ready_days = sum(1 for e in entries if e.ready)
         clean_cn_days = sum(1 for e in entries if e.checklist_blocked == 0)
-
-        # Group by ISO week
-        ready_week_set: set[tuple[int, int]] = set()
-        cn_week_set: set[tuple[int, int]] = set()
-        for e in entries:
-            if e.ready:
-                iso = e.recorded_at.isocalendar()
-                ready_week_set.add((iso.year, iso.week))
-            if e.checklist_blocked == 0:
-                iso = e.recorded_at.isocalendar()
-                cn_week_set.add((iso.year, iso.week))
-
-        ready_weeks = len(ready_week_set)
-        cn_manual_weeks = len(cn_week_set)
+        ready_weeks = ready_days // 7
+        cn_manual_weeks = clean_cn_days // 7
 
         # Determine rollout recommendation
         if ready_weeks >= 8:
@@ -100,9 +90,33 @@ class OperationsJournalService:
             "clean_cn_days": clean_cn_days,
             "ready_weeks": ready_weeks,
             "cn_manual_weeks": cn_manual_weeks,
+            "paper_trading": {
+                "hk_us_passed": ready_weeks >= 4,
+                "cn_passed": cn_manual_weeks >= 4,
+            },
             "rollout": {
                 "recommended_stage": recommended_stage,
             },
+        }
+
+    def acceptance_timeline(self, window_days: int = 30) -> dict[str, object]:
+        entries = sorted(self.list_entries(), key=lambda entry: entry.recorded_at)
+        recent = entries[-window_days:]
+        points = [
+            {
+                "recorded_at": entry.recorded_at.isoformat(),
+                "ready": entry.ready,
+                "alert_count": entry.alert_count,
+                "checklist_blocked": entry.checklist_blocked,
+                "diagnostics_severity": entry.diagnostics_severity,
+            }
+            for entry in recent
+        ]
+        return {
+            "window_days": window_days,
+            "points": points,
+            "ready_days": sum(1 for item in points if item["ready"]),
+            "clean_cn_days": sum(1 for item in points if item["checklist_blocked"] == 0),
         }
 
     def rollout_readiness_timeline(self, window_days: int = 30) -> dict[str, object]:
@@ -170,6 +184,74 @@ class OperationsJournalService:
             "next_pending_stage": next((item["stage"] for item in milestones if item["status"] == "pending"), None),
         }
 
+    def rollout_summary(
+        self,
+        *,
+        readiness: dict[str, object],
+        compliance_summary: dict[str, object],
+        alerts_summary: dict[str, object],
+    ) -> dict[str, object]:
+        acceptance = self.acceptance_summary()
+        current_recommendation = str(acceptance.get("rollout", {}).get("recommended_stage", "hold"))
+        next_stage = {
+            "hold": "10%",
+            "10%": "30%",
+            "30%": "100%",
+            "CN_manual_gate": "100%",
+            "100%": None,
+        }.get(current_recommendation)
+
+        blockers: list[dict[str, object]] = []
+        diagnostics = readiness.get("diagnostics", {}) if isinstance(readiness, dict) else {}
+        if not bool(readiness.get("ready", False)):
+            blockers.append(
+                {
+                    "category": str(diagnostics.get("category", "readiness_not_green")),
+                    "detail": str(diagnostics.get("severity", "error")),
+                    "actions": [str(item) for item in diagnostics.get("next_actions", [])],
+                }
+            )
+
+        checklists = compliance_summary.get("checklists", []) if isinstance(compliance_summary, dict) else []
+        pending_count = 0
+        blocked_count = 0
+        for checklist in checklists:
+            if not isinstance(checklist, dict):
+                continue
+            counts = checklist.get("counts", {})
+            if isinstance(counts, dict):
+                pending_count += int(counts.get("pending", 0))
+                blocked_count += int(counts.get("blocked", 0))
+        if pending_count or blocked_count:
+            blockers.append(
+                {
+                    "category": "compliance",
+                    "detail": f"{pending_count} pending, {blocked_count} blocked checklist items",
+                    "actions": ["Resolve blocked compliance items before raising rollout stage."],
+                }
+            )
+
+        alert_count = int(alerts_summary.get("count", 0)) if isinstance(alerts_summary, dict) else 0
+        if alert_count:
+            blockers.append(
+                {
+                    "category": "alerts",
+                    "detail": f"{alert_count} active alerts need review",
+                    "actions": ["Clear broker, market-data, or reconciliation alerts before promotion."],
+                }
+            )
+
+        return {
+            "ready_for_rollout": not blockers,
+            "current_recommendation": current_recommendation,
+            "next_stage": next_stage,
+            "remaining_gates": {
+                "hk_us_paper_weeks": max(0, 6 - int(acceptance.get("ready_weeks", 0))),
+                "cn_manual_weeks": max(0, 4 - int(acceptance.get("cn_manual_weeks", 0))),
+            },
+            "blockers": blockers,
+        }
+
     def clear(self) -> None:
         self._entries = {}
         self._repository.save(self._entries)
@@ -184,6 +266,19 @@ class OperationsJournalService:
 
     def _qualified_dates(self, entries: list[OperationsJournalEntry], predicate) -> set[date]:
         return {entry.recorded_at.date() for entry in entries if predicate(entry)}
+
+    def _compliance_count(self, compliance: dict[str, object], key: str) -> int:
+        direct_key = f"{key}_count"
+        if direct_key in compliance:
+            return int(compliance.get(direct_key, 0))
+        total = 0
+        for checklist in compliance.get("checklists", []):
+            if not isinstance(checklist, dict):
+                continue
+            counts = checklist.get("counts", {})
+            if isinstance(counts, dict):
+                total += int(counts.get(key, 0))
+        return total
 
 
 class RecoveryService:
