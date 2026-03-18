@@ -1,0 +1,122 @@
+from datetime import UTC, datetime, timedelta
+
+from tradingcat.repositories.state import OperationsJournalRepository
+from tradingcat.services.operations import OperationsJournalService
+
+
+def test_operations_journal_records_and_summarizes(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    first = service.record(
+        {
+            "ready": True,
+            "diagnostics": {"category": "ready_for_validation", "severity": "info", "findings": [], "next_actions": []},
+            "alerts": {"count": 0},
+            "compliance": {"checklists": [{"counts": {"pending": 2, "blocked": 0}}]},
+            "latest_report_dir": "data/reports/one",
+        }
+    )
+    second = service.record(
+        {
+            "ready": False,
+            "diagnostics": {"category": "trade_channel_failed", "severity": "error", "findings": [], "next_actions": []},
+            "alerts": {"count": 2},
+            "compliance": {"checklists": [{"counts": {"pending": 1, "blocked": 1}}]},
+            "latest_report_dir": "data/reports/two",
+        }
+    )
+
+    summary = service.summary()
+
+    assert first.id != second.id
+    assert summary["count"] == 2
+    assert summary["ready_ratio"] == 0.5
+    assert summary["average_alert_count"] == 1
+    assert summary["latest"].latest_report_dir == "data/reports/two"
+
+
+def test_operations_acceptance_summary_tracks_paper_trading_thresholds(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for index in range(56):
+        entry = service.record(
+            {
+                "ready": True,
+                "diagnostics": {"category": "ready_for_validation", "severity": "info", "findings": [], "next_actions": []},
+                "alerts": {"count": 0},
+                "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+                "latest_report_dir": f"data/reports/{index}",
+            }
+        )
+        entry.recorded_at = base + timedelta(days=index)
+        service._entries[entry.id] = entry
+    service._repository.save(service._entries)
+
+    acceptance = service.acceptance_summary()
+
+    assert acceptance["paper_trading"]["hk_us_passed"] is True
+    assert acceptance["paper_trading"]["cn_passed"] is True
+    assert acceptance["ready_weeks"] == 8
+    assert acceptance["rollout"]["recommended_stage"] == "100%"
+
+
+def test_operations_rollout_summary_includes_blockers_and_remaining_gates(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for index in range(7):
+        entry = service.record(
+            {
+                "ready": True,
+                "diagnostics": {"category": "ready_for_validation", "severity": "info", "findings": [], "next_actions": []},
+                "alerts": {"count": 0},
+                "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+                "latest_report_dir": f"data/reports/{index}",
+            }
+        )
+        entry.recorded_at = base + timedelta(days=index)
+        service._entries[entry.id] = entry
+    service._repository.save(service._entries)
+
+    rollout = service.rollout_summary(
+        readiness={
+            "ready": False,
+            "diagnostics": {"category": "trade_channel_failed", "severity": "error", "next_actions": ["Reconnect OpenD"]},
+        },
+        compliance_summary={"checklists": [{"id": "broker_capabilities", "counts": {"pending": 1, "blocked": 1}}]},
+        alerts_summary={"count": 2},
+    )
+
+    assert rollout["ready_for_rollout"] is False
+    assert rollout["current_recommendation"] == "10%"
+    assert rollout["next_stage"] == "30%"
+    assert rollout["remaining_gates"]["hk_us_paper_weeks"] == 5
+    assert len(rollout["blockers"]) == 3
+
+
+def test_operations_acceptance_timeline_and_milestones(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for index in range(35):
+        entry = service.record(
+            {
+                "ready": index % 2 == 0,
+                "diagnostics": {"category": "ready_for_validation" if index % 2 == 0 else "trade_channel_failed", "severity": "info" if index % 2 == 0 else "error", "findings": [], "next_actions": []},
+                "alerts": {"count": 0 if index % 2 == 0 else 1},
+                "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+                "latest_report_dir": f"data/reports/{index}",
+            }
+        )
+        entry.recorded_at = base + timedelta(days=index)
+        service._entries[entry.id] = entry
+    service._repository.save(service._entries)
+
+    timeline = service.acceptance_timeline(window_days=14)
+    milestones = service.rollout_milestones()
+
+    assert timeline["window_days"] == 14
+    assert len(timeline["points"]) == 14
+    assert "current_recommendation" in milestones
+    assert len(milestones["milestones"]) == 4

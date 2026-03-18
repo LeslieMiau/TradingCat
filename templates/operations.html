@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TradingCat Operations</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">TradingCat Operations Console</p>
+          <h1>交易计划、总结与归档</h1>
+          <p class="hero-text">
+            每天要看的计划、总结、阻塞项和归档都集中在这里，即使当天没有交易，也会写清楚原因。
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-operations" class="button button-primary" type="button">刷新运营数据</button>
+          <a class="button" href="/dashboard">返回总览</a>
+          <a class="button" href="/dashboard/research">研究总览</a>
+          <a class="button" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel panel-highlight">
+          <div class="panel-header">
+            <h2>今日运营摘要</h2>
+            <span id="operations-updated" class="meta-text">加载中</span>
+          </div>
+          <div id="operations-overview-metrics" class="cards-grid four">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>最新交易计划</h2>
+            <span class="meta-text">来自自动归档</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>计划摘要</h3>
+              <p id="operations-plan-headline" class="detail-paragraph">加载中...</p>
+              <ul id="operations-plan-reasons" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>阻塞与动作</h3>
+              <ul id="operations-blockers" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>方向</th>
+                  <th>数量</th>
+                  <th>目标权重</th>
+                  <th>审批</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody id="operations-plan-table">
+                <tr><td colspan="8" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>最新交易总结</h2>
+            <span class="meta-text">来自自动归档和日报/周报</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>今日总结</h3>
+              <p id="operations-summary-headline" class="detail-paragraph">加载中...</p>
+              <ul id="operations-summary-highlights" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>下一步</h3>
+              <ul id="operations-next-actions" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>执行质量与上线状态</h2>
+            <span class="meta-text">直接看今天能不能推进，以及滑点、授权、异常率是否还在可控范围</span>
+          </div>
+          <div id="operations-quality-metrics" class="cards-grid four">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>上线阻塞</h3>
+              <ul id="operations-live-blockers" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>阶段建议</h3>
+              <ul id="operations-rollout-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>事件回放</h2>
+            <span class="meta-text">把告警、恢复和关键审计动作按时间排出来，快速复盘今天发生了什么</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>事件摘要</h3>
+              <ul id="operations-incident-summary" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>最近事件</h3>
+              <ul id="operations-incident-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>归档历史</h2>
+            <span class="meta-text">最近几天的计划和总结归档</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>计划归档</h3>
+              <ul id="operations-plan-history" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>总结归档</h3>
+              <ul id="operations-summary-history" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/operations.js"></script>
+  </body>
+</html>

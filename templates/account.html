@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TradingCat Account</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">TradingCat Account Review</p>
+          <h1 id="account-title">账户详情</h1>
+          <p id="account-subtitle" class="hero-text">加载中...</p>
+        </div>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/dashboard">返回总览</a>
+          <a class="button" href="/dashboard/research">研究总览</a>
+          <a class="button" href="/dashboard/operations">运营总览</a>
+          <a class="button" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel panel-highlight">
+          <div class="panel-header">
+            <h2>账户净值与风险</h2>
+            <span id="account-updated" class="meta-text">加载中</span>
+          </div>
+          <div class="hero-grid">
+            <div class="curve-card">
+              <div class="curve-header">
+                <h3 id="account-curve-title">账户净值曲线</h3>
+                <span class="meta-text">近 90 个本地快照点</span>
+              </div>
+              <svg id="account-nav-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div id="account-metrics" class="cards-grid six">
+              <article class="metric-tile loading"><span>加载中...</span></article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>账户配置与计划</h2>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>资产结构</h3>
+              <div id="account-allocation-bars" class="stack-bars"></div>
+              <ul id="account-summary-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>今日计划概览</h3>
+              <ul id="account-plan-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>持仓明细</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>资产</th>
+                  <th>市场</th>
+                  <th>类别</th>
+                  <th>数量</th>
+                  <th>均价</th>
+                  <th>市值</th>
+                  <th>配置</th>
+                  <th>浮盈亏</th>
+                  <th>收益</th>
+                </tr>
+              </thead>
+              <tbody id="account-positions-table">
+                <tr><td colspan="9" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>账户交易计划</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>标的</th>
+                  <th>方向</th>
+                  <th>数量</th>
+                  <th>目标权重</th>
+                  <th>参考价</th>
+                  <th>审批</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody id="account-plan-table">
+                <tr><td colspan="8" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>账户执行链路</h2>
+            <span class="meta-text">看这个账户今天的计划、订单和审批卡在哪一步</span>
+          </div>
+          <div id="account-execution-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>标的</th>
+                  <th>计划数量</th>
+                  <th>订单状态</th>
+                  <th>成交数量</th>
+                  <th>审批状态</th>
+                </tr>
+              </thead>
+              <tbody id="account-execution-table">
+                <tr><td colspan="6" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>执行卡点</h3>
+              <ul id="account-execution-blockers" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>执行进度</h3>
+              <ul id="account-execution-progress" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>账户策略暴露</h2>
+            <span class="meta-text">看这个账户当前主要被哪些策略驱动</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>计划单数</th>
+                  <th>目标暴露</th>
+                  <th>需要审批</th>
+                  <th>涉及标的</th>
+                </tr>
+              </thead>
+              <tbody id="account-strategy-exposure-table">
+                <tr><td colspan="5" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/account.js"></script>
+  </body>
+</html>

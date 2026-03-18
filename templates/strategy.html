@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TradingCat Strategy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">TradingCat Strategy Review</p>
+          <h1 id="strategy-title">策略详情</h1>
+          <p id="strategy-subtitle" class="hero-text">加载中...</p>
+        </div>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/dashboard">返回总览</a>
+          <a class="button" href="/dashboard/research">研究总览</a>
+          <a class="button" href="/dashboard/operations">运营总览</a>
+          <a class="button" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel panel-highlight">
+          <div class="panel-header">
+            <h2>收益与 Verdict</h2>
+            <span id="detail-updated" class="meta-text">加载中</span>
+          </div>
+          <div class="hero-grid">
+            <div class="curve-card">
+              <div class="curve-header">
+                <h3>策略净值曲线</h3>
+                <span class="meta-text">基于月度回测净值</span>
+              </div>
+              <svg id="strategy-nav-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div id="strategy-detail-metrics" class="cards-grid six">
+              <article class="metric-tile loading"><span>加载中...</span></article>
+            </div>
+          </div>
+          <div class="hero-grid">
+            <div class="curve-card">
+              <div class="curve-header">
+                <h3>回撤曲线</h3>
+                <span class="meta-text">观察回撤是否可承受</span>
+              </div>
+              <svg id="strategy-drawdown-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="summary-grid">
+              <article class="detail-card">
+                <h3>样本内 / 样本外</h3>
+                <ul id="sample-split-list" class="detail-list">
+                  <li class="detail-empty">加载中...</li>
+                </ul>
+              </article>
+              <article class="detail-card">
+                <h3>历史数据覆盖</h3>
+                <ul id="coverage-list" class="detail-list">
+                  <li class="detail-empty">加载中...</li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>策略画像</h2>
+            <span class="meta-text">先理解它在看什么、怎么赚钱、主要盯哪些工具和指标</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>核心假设</h3>
+              <p id="strategy-thesis" class="detail-paragraph">加载中...</p>
+              <ul id="strategy-meta-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>关注对象</h3>
+              <div id="strategy-focus-tags" class="tag-row">
+                <span class="detail-empty">加载中...</span>
+              </div>
+              <ul id="strategy-indicator-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>基准对比</h2>
+            <span class="meta-text">先看是否真跑赢可交易基准</span>
+          </div>
+          <div class="hero-grid">
+            <div class="curve-card">
+              <div class="curve-header">
+                <h3 id="benchmark-curve-title">基准净值曲线</h3>
+                <span class="meta-text">与策略同起点比较</span>
+              </div>
+              <svg id="strategy-benchmark-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="summary-grid">
+              <article class="detail-card">
+                <h3>基准指标</h3>
+                <ul id="benchmark-list" class="detail-list">
+                  <li class="detail-empty">加载中...</li>
+                </ul>
+              </article>
+              <article class="detail-card">
+                <h3>相对表现</h3>
+                <svg id="relative-performance-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+              </article>
+            </div>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>滚动超额收益</h3>
+              <svg id="rolling-excess-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none"></svg>
+            </article>
+            <article class="detail-card">
+              <h3>年度表现对比</h3>
+              <div class="table-wrap">
+                <table class="data-table compact-table">
+                  <thead>
+                    <tr>
+                      <th>年份</th>
+                      <th>策略</th>
+                      <th>基准</th>
+                      <th>超额</th>
+                    </tr>
+                  </thead>
+                  <tbody id="yearly-performance-table">
+                    <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>信号与理由</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>类别</th>
+                  <th>方向</th>
+                  <th>目标权重</th>
+                  <th>理由</th>
+                </tr>
+              </thead>
+              <tbody id="strategy-signals-table">
+                <tr><td colspan="6" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>今日落地情况</h2>
+            <span class="meta-text">看这条策略今天有没有形成计划、订单和持仓</span>
+          </div>
+          <div id="strategy-implementation-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>研究目标</th>
+                  <th>今日计划</th>
+                  <th>当前持仓</th>
+                  <th>订单状态</th>
+                  <th>审批</th>
+                </tr>
+              </thead>
+              <tbody id="strategy-implementation-table">
+                <tr><td colspan="6" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>落地摘要</h3>
+              <ul id="strategy-implementation-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>执行建议</h3>
+              <ul id="strategy-implementation-actions" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>账户影响快照</h2>
+            <span class="meta-text">直接看这条策略会打到哪些账户，以及相对当前配置偏离多少</span>
+          </div>
+          <div id="strategy-account-impact-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>当前权重</th>
+                  <th>策略目标</th>
+                  <th>偏离</th>
+                  <th>信号数</th>
+                </tr>
+              </thead>
+              <tbody id="strategy-account-impact-table">
+                <tr><td colspan="5" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>账户摘要</h3>
+              <ul id="strategy-account-impact-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>账户跳转</h3>
+              <div id="strategy-account-impact-links" class="tag-row">
+                <span class="detail-empty">加载中...</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Walk-forward 与假设</h2>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>回测窗口</h3>
+              <ul id="walk-forward-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>实现假设</h3>
+              <ul id="assumption-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>月度表现与 Verdict 理由</h2>
+            <span class="meta-text">更快判断该策略是否值得继续</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>月度收益热力图</h3>
+              <div id="monthly-heatmap" class="heatmap-grid"></div>
+            </article>
+            <article class="detail-card">
+              <h3>Verdict 理由</h3>
+              <ul id="verdict-reasons" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/strategy.js"></script>
+  </body>
+</html>

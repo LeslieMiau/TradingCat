@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TradingCat Research</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">TradingCat Research Console</p>
+          <h1>研究总览与策略筛选</h1>
+          <p class="hero-text">
+            这里专门看哪些策略值得继续研究、哪些只能 paper only、哪些应该淘汰。
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-research" class="button button-primary" type="button">刷新研究数据</button>
+          <a class="button" href="/dashboard">返回总览</a>
+          <a class="button" href="/dashboard/operations">运营总览</a>
+          <a class="button" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel panel-highlight">
+          <div class="panel-header">
+            <h2>研究概览</h2>
+            <span id="research-updated" class="meta-text">加载中</span>
+          </div>
+          <div id="research-overview-metrics" class="cards-grid four">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="panel-header">
+            <h2>Verdict 筛选</h2>
+            <span id="research-filter-note" class="meta-text">当前显示全部候选</span>
+          </div>
+          <div id="research-filter-tabs" class="tabs">
+            <button class="tab is-active" data-verdict="all" type="button">全部</button>
+            <button class="tab" data-verdict="deploy_candidate" type="button">deploy</button>
+            <button class="tab" data-verdict="paper_only" type="button">paper</button>
+            <button class="tab" data-verdict="reject" type="button">reject</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Top Picks</h2>
+            <span class="meta-text">当前最值得继续研究的候选</span>
+          </div>
+          <div id="research-top-cards" class="strategy-card-grid">
+            <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>策略落地影响</h2>
+            <span id="research-impact-note" class="meta-text">选择一个候选策略，查看会影响哪些账户和信号</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3 id="impact-title">未选择策略</h3>
+              <ul id="impact-accounts-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>账户跳转</h3>
+              <div id="impact-account-links" class="tag-row">
+                <span class="detail-empty">加载中...</span>
+              </div>
+              <ul id="impact-summary-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>当前权重</th>
+                  <th>策略目标</th>
+                  <th>偏离</th>
+                  <th>信号数</th>
+                </tr>
+              </thead>
+              <tbody id="impact-account-delta-table">
+                <tr><td colspan="5" class="table-empty">请选择策略。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>方向</th>
+                  <th>目标权重</th>
+                  <th>理由</th>
+                </tr>
+              </thead>
+              <tbody id="impact-signals-table">
+                <tr><td colspan="5" class="table-empty">请选择策略。</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>研究结论 vs 今日计划 vs 当前持仓</h2>
+            <span class="meta-text">直接看策略信号有没有转成计划，以及当前仓位是否已经到位</span>
+          </div>
+          <div id="impact-gap-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>研究目标</th>
+                  <th>今日计划</th>
+                  <th>当前持仓</th>
+                  <th>差异判断</th>
+                </tr>
+              </thead>
+              <tbody id="impact-gap-table">
+                <tr><td colspan="6" class="table-empty">请选择策略。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>偏离持仓</h3>
+              <ul id="impact-offtarget-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>执行建议</h3>
+              <ul id="impact-actions-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>计划执行状态</h2>
+            <span class="meta-text">看这个策略今天的计划单是否已经进入订单状态</span>
+          </div>
+          <div id="impact-execution-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>计划方向</th>
+                  <th>计划数量</th>
+                  <th>审批</th>
+                  <th>订单状态</th>
+                  <th>成交数量</th>
+                </tr>
+              </thead>
+              <tbody id="impact-execution-table">
+                <tr><td colspan="6" class="table-empty">请选择策略。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>断点定位</h3>
+              <ul id="impact-blockers-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>执行进度</h3>
+              <ul id="impact-progress-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>人工审批与最近动作</h2>
+            <span class="meta-text">看这个策略是不是卡在人工审批链路，以及最近审批动作是什么</span>
+          </div>
+          <div id="impact-approval-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>方向</th>
+                  <th>数量</th>
+                  <th>状态</th>
+                  <th>原因/动作</th>
+                </tr>
+              </thead>
+              <tbody id="impact-approval-table">
+                <tr><td colspan="6" class="table-empty">请选择策略。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>待审批重点</h3>
+              <ul id="impact-approval-pending-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>最近动作</h3>
+              <ul id="impact-approval-actions-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>策略链路时间线</h2>
+            <span class="meta-text">把研究信号、计划、审批、订单和成交按顺序串起来，定位卡点时间</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>链路摘要</h3>
+              <ul id="impact-timeline-summary-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>最近时间线</h3>
+              <ul id="impact-timeline-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>策略推进清单</h2>
+            <span class="meta-text">直接看这条策略离 deploy、paper、active 还差哪些门槛</span>
+          </div>
+          <div id="impact-readiness-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>推进状态</h3>
+              <ul id="impact-readiness-list" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>推进建议</h3>
+              <ul id="impact-readiness-actions" class="detail-list">
+                <li class="detail-empty">请选择策略。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>三组对照</h2>
+            <span class="meta-text">先横向看 deploy_candidate / paper_only / reject 的质量差距</span>
+          </div>
+          <div id="research-verdict-groups" class="cards-grid three">
+            <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>当前执行策略</h2>
+            <span class="meta-text">已经进入执行或 active review 的策略</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>动作</th>
+                  <th>年化收益</th>
+                  <th>夏普</th>
+                  <th>最大回撤</th>
+                  <th>稳定性</th>
+                </tr>
+              </thead>
+              <tbody id="research-active-table">
+                <tr><td colspan="6" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>候选池评分卡</h2>
+            <span class="meta-text">统一比较 deploy_candidate / paper_only / reject</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+              <h3>研究下一步</h3>
+              <ul id="research-actions" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <h3>候选池分布</h3>
+              <ul id="research-buckets" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>Verdict</th>
+                  <th>Profit Score</th>
+                  <th>年化收益</th>
+                  <th>夏普</th>
+                  <th>最大回撤</th>
+                  <th>容量</th>
+                  <th>相关性</th>
+                </tr>
+              </thead>
+              <tbody id="research-candidate-table">
+                <tr><td colspan="8" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>策略相关性矩阵</h2>
+            <span class="meta-text">先排除互相重复的赚钱逻辑</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead id="research-correlation-head">
+                <tr><th>策略</th></tr>
+              </thead>
+              <tbody id="research-correlation-table">
+                <tr><td class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>淘汰优先级</h2>
+            <span class="meta-text">优先砍掉最不值得继续投入研究资源的策略</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>首要原因</th>
+                  <th>原因数</th>
+                  <th>Profit Score</th>
+                  <th>相关性</th>
+                  <th>最大回撤</th>
+                </tr>
+              </thead>
+              <tbody id="research-reject-table">
+                <tr><td colspan="6" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/research.js"></script>
+  </body>
+</html>

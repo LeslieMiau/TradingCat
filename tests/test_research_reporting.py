@@ -1,0 +1,291 @@
+from datetime import date
+
+from tradingcat.adapters.market import StaticMarketDataAdapter
+from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
+from tradingcat.repositories.research import BacktestExperimentRepository
+from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.research import ResearchService
+from tradingcat.strategies.simple import DefensiveTrendStrategy, EquityMomentumStrategy, EtfRotationStrategy, MeanReversionStrategy, OptionHedgeStrategy
+
+
+def test_research_report_applies_walk_forward_thresholds(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+    ]
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert report["minimum_history_start"] == date(2018, 1, 1)
+    assert len(report["strategy_reports"]) == 3
+    assert "strategy_a_etf_rotation" in report["accepted_strategy_ids"]
+    assert report["portfolio_metrics"]["strategy_count"] >= 1
+
+    etf_report = next(item for item in report["strategy_reports"] if item["strategy_id"] == "strategy_a_etf_rotation")
+    assert etf_report["window_count"] >= 1
+    assert etf_report["metrics"]["sample_months"] >= 12
+    assert "annualized_return" in etf_report["metrics"]
+    assert "max_selected_correlation" in etf_report
+    option_report = next(item for item in report["strategy_reports"] if item["strategy_id"] == "strategy_c_option_overlay")
+    assert option_report["capacity_tier"] == "limited"
+
+
+def test_option_strategy_generates_research_only_option_signal():
+    strategy = OptionHedgeStrategy()
+
+    signals = strategy.generate_signals(date(2026, 3, 8))
+
+    assert len(signals) == 1
+    assert signals[0].instrument.asset_class.value == "option"
+    assert signals[0].metadata["execution_mode"] == "research_only"
+
+
+def test_research_experiment_prefers_historical_market_data(tmp_path):
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    strategy = EtfRotationStrategy()
+    as_of = date(2026, 3, 8)
+
+    experiment = service.run_experiment(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+
+    assert experiment.assumptions["data_source"] == "historical"
+    assert experiment.assumptions["history_symbols"] >= 1
+    assert experiment.assumptions["ledger_entries"] >= 1
+
+
+def test_research_experiment_records_replay_fingerprint_and_compare(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    strategy = EtfRotationStrategy()
+
+    first = service.run_experiment(strategy.strategy_id, date(2026, 3, 8), strategy.generate_signals(date(2026, 3, 8)))
+    second = service.run_experiment(strategy.strategy_id, date(2026, 3, 8), strategy.generate_signals(date(2026, 3, 8)))
+    third = service.run_experiment(strategy.strategy_id, date(2026, 3, 9), strategy.generate_signals(date(2026, 3, 9)))
+
+    assert first.assumptions["replay_fingerprint"] == second.assumptions["replay_fingerprint"]
+    comparison_same = service.compare_experiments(first.id, second.id)
+    comparison_changed = service.compare_experiments(first.id, third.id)
+
+    assert comparison_same["same_inputs"] is True
+    assert comparison_same["input_diff"] == {}
+    assert comparison_changed["same_inputs"] is False
+    assert "as_of" in comparison_changed["input_diff"]
+
+
+def test_research_recommendations_return_actions(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+    ]
+
+    report = service.recommend_strategy_actions(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert "recommendations" in report
+    assert "next_actions" in report
+    assert len(report["recommendations"]) == 3
+    option_recommendation = next(item for item in report["recommendations"] if item["strategy_id"] == "strategy_c_option_overlay")
+    assert option_recommendation["action"] in {"paper_only", "drop"}
+    assert "stability_bucket" in option_recommendation
+    assert "validation_pass_rate" in option_recommendation
+
+
+def test_research_recommendations_downgrade_partial_history_to_paper_only(tmp_path):
+    class PartialFailureAdapter(StaticMarketDataAdapter):
+        def fetch_bars(self, instrument, start, end):
+            if instrument.symbol in {"QQQ", "510300"}:
+                raise RuntimeError("history unavailable")
+            return super().fetch_bars(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=PartialFailureAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.recommend_strategy_actions(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    recommendation = report["recommendations"][0]
+    assert recommendation["action"] == "paper_only"
+    assert any("history coverage is incomplete" in reason.lower() for reason in recommendation["reasons"])
+
+
+def test_research_stability_report_returns_summary(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+    ]
+
+    report = service.summarize_strategy_stability(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert "strategy_stability" in report
+    assert len(report["strategy_stability"]) == 3
+    assert "average_validation_pass_rate" in report
+    assert "next_actions" in report
+
+
+def test_research_profit_scorecard_returns_verdicts(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+    ]
+
+    report = service.build_profit_scorecard(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert "rows" in report
+    assert len(report["rows"]) == 3
+    assert "profitability_score" in report["rows"][0]
+    assert report["rows"][0]["verdict"] in {"deploy_candidate", "paper_only", "reject"}
+
+
+def test_research_profit_scorecard_supports_candidate_pool(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+        MeanReversionStrategy(),
+        DefensiveTrendStrategy(),
+    ]
+
+    report = service.build_profit_scorecard(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert len(report["rows"]) == 5
+    ids = {item["strategy_id"] for item in report["rows"]}
+    assert "strategy_d_mean_reversion" in ids
+    assert "strategy_e_defensive_trend" in ids
+    assert "correlation_matrix" in report
+    assert "reject_summary" in report
+    assert "verdict_groups" in report
+
+
+def test_research_strategy_detail_returns_curve(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+
+    assert detail["strategy_id"] == strategy.strategy_id
+    assert "nav_curve" in detail
+    assert "drawdown_curve" in detail
+    assert len(detail["nav_curve"]) >= 2
+    assert "sample_split" in detail
+    assert "history_coverage" in detail
+    assert "monthly_table" in detail
+    assert "recommendation" in detail
+    assert "benchmark" in detail
+    assert "symbol" in detail["benchmark"]
+    assert "rolling_excess_curve" in detail["benchmark"]
+    assert "yearly_performance" in detail
+
+
+def test_research_suggest_experiments_returns_ideas(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategies = [
+        EtfRotationStrategy(),
+        EquityMomentumStrategy(),
+        OptionHedgeStrategy(),
+    ]
+
+    report = service.suggest_experiments(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies},
+    )
+
+    assert "experiment_ideas" in report
+    assert "next_actions" in report
+    assert len(report["experiment_ideas"]) >= 1
+
+
+def test_research_news_summary_extracts_topics(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+
+    payload = service.summarize_news(
+        [
+            {
+                "title": "Fed signals slower rate cuts while chip demand stays strong",
+                "body": "AI cloud spending lifted guidance for NVDA and broader software names.",
+                "symbols": ["NVDA", "QQQ"],
+            },
+            {
+                "title": "CSRC reviews exchange filing requirements",
+                "body": "New regulation may affect semi-automated CN workflows.",
+                "symbols": ["510300"],
+            },
+        ]
+    )
+
+    assert payload["item_count"] == 2
+    assert "macro" in payload["dominant_topics"]
+    assert "regulation" in payload["dominant_topics"]
+    assert "NVDA" in payload["impacted_symbols"]
+    assert payload["next_actions"]
+
+
+def test_research_news_summary_extracts_topics(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+
+    payload = service.summarize_news(
+        [
+            {
+                "title": "Fed signals slower rate cuts while chip demand stays strong",
+                "body": "AI cloud spending lifted guidance for NVDA and broader software names.",
+                "symbols": ["NVDA", "QQQ"],
+            },
+            {
+                "title": "CSRC reviews exchange filing requirements",
+                "body": "New regulation may affect semi-automated CN workflows.",
+                "symbols": ["510300"],
+            },
+        ]
+    )
+
+    assert payload["item_count"] == 2
+    assert "macro" in payload["dominant_topics"]
+    assert "regulation" in payload["dominant_topics"]
+    assert "NVDA" in payload["impacted_symbols"]
+    assert payload["next_actions"]

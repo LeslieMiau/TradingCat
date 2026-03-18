@@ -1,0 +1,238 @@
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function fmt(value, digits = 2) {
+  if (value == null) return "N/A";
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? value.toLocaleString()
+      : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+  }
+  return String(value);
+}
+
+function fmtPct(value) {
+  if (value == null) return "N/A";
+  return `${(Number(value) * 100).toFixed(2)}%`;
+}
+
+function money(value) {
+  if (value == null) return "N/A";
+  return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function statusTone(value) {
+  if (value === "filled" || value === "approved") return "ok";
+  if (value === "pending" || value === "manual" || value === "submitted") return "warning";
+  if (value === "rejected" || value === "expired" || value === "not_submitted" || value === "missing") return "blocked";
+  return "empty";
+}
+
+function metricTile(label, value, subvalue, tone = "empty") {
+  return `
+    <article class="metric-tile">
+      <span class="metric-label">${escapeHtml(label)}</span>
+      <span class="metric-value status-${tone}">${escapeHtml(value)}</span>
+      <div class="metric-subvalue">${escapeHtml(subvalue ?? "")}</div>
+    </article>
+  `;
+}
+
+function renderCurve(svgId, points) {
+  const svg = document.getElementById(svgId);
+  if (!svg || !points || !points.length) return;
+  const width = 640;
+  const height = 240;
+  const padding = 18;
+  const values = points.map((item) => Number(item.v));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min || 1;
+  const step = (width - padding * 2) / Math.max(points.length - 1, 1);
+  const coords = points.map((item, index) => {
+    const x = padding + step * index;
+    const y = height - padding - ((Number(item.v) - min) / spread) * (height - padding * 2);
+    return [x, y];
+  });
+  const line = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+  const area = `${line} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
+  svg.innerHTML = `
+    <path d="${area}" fill="rgba(0, 87, 184, 0.12)"></path>
+    <path d="${line}" fill="none" stroke="#0057b8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+  `;
+}
+
+async function loadAccountPage() {
+  const accountId = window.location.pathname.split("/").pop();
+  const response = await fetch("/dashboard/summary", { headers: { Accept: "application/json" } });
+  if (!response.ok) {
+    document.getElementById("account-title").textContent = "账户加载失败";
+    document.getElementById("account-subtitle").textContent = `${response.status}`;
+    return;
+  }
+  const payload = await response.json();
+  const account = payload.accounts?.[accountId];
+  if (!account) {
+    document.getElementById("account-title").textContent = "账户不存在";
+    document.getElementById("account-subtitle").textContent = accountId;
+    return;
+  }
+  document.getElementById("account-title").textContent = account.label;
+  document.getElementById("account-subtitle").textContent = `NAV ${money(account.nav)} / 持仓 ${fmt(account.position_count)} / 现金 ${money(account.cash)}`;
+  document.getElementById("account-updated").textContent = `As of ${payload.as_of}`;
+  document.getElementById("account-curve-title").textContent = `${account.label}净值曲线`;
+  document.getElementById("account-metrics").innerHTML = [
+    metricTile("NAV", money(account.nav), `现金 ${money(account.cash)}`, "ok"),
+    metricTile("持仓市值", money(account.position_value), `持仓数 ${fmt(account.position_count)}`, "ok"),
+    metricTile("现金占比", fmtPct(account.cash_weight), "Liquidity", "warning"),
+    metricTile("总收益", fmtPct(account.total_return), `回撤 ${fmtPct(account.drawdown)}`, (account.total_return ?? 0) >= 0 ? "ok" : "blocked"),
+    metricTile("日盈亏", money(account.daily_pnl), `周盈亏 ${money(account.weekly_pnl)}`, (account.daily_pnl ?? 0) >= 0 ? "ok" : "blocked"),
+    metricTile("市场", account.account, "Account", "empty"),
+  ].join("");
+  renderCurve("account-nav-curve", account.nav_curve || []);
+
+  const allocation = account.allocation_mix || {};
+  document.getElementById("account-allocation-bars").innerHTML = `
+    <div class="stack-row">
+      <label>Cash / Equity / Option</label>
+      <div class="stack-track">
+        <span class="stack-segment cash" style="width:${(allocation.cash ?? 0) * 100}%"></span>
+        <span class="stack-segment equity" style="width:${(allocation.equity ?? 0) * 100}%"></span>
+        <span class="stack-segment option" style="width:${(allocation.option ?? 0) * 100}%"></span>
+      </div>
+    </div>
+  `;
+  document.getElementById("account-summary-list").innerHTML = [
+    `现金: ${money(account.cash)}`,
+    `持仓市值: ${money(account.position_value)}`,
+    `现金占比: ${fmtPct(account.cash_weight)}`,
+    `总收益: ${fmtPct(account.total_return)}`,
+    `回撤: ${fmtPct(account.drawdown)}`,
+  ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+
+  const tradingPlan = payload.trading_plan || {};
+  const gate = tradingPlan.gate || {};
+  const recentOrders = payload.details?.recent_orders || [];
+  const recentApprovals = tradingPlan.recent_approvals || [];
+  const accountPlanItems = account.plan_items || [];
+  document.getElementById("account-plan-list").innerHTML = [
+    `计划条数: ${fmt(accountPlanItems.length)}`,
+    `Gate ready: ${gate.ready}`,
+    `Gate blocked: ${gate.should_block}`,
+    `Policy stage: ${fmt(gate.policy_stage)}`,
+  ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+
+  const positionsBody = document.getElementById("account-positions-table");
+  positionsBody.innerHTML = (account.positions || []).length
+    ? account.positions.map((row) => `
+        <tr>
+          <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
+          <td>${escapeHtml(row.market)}</td>
+          <td>${escapeHtml(row.asset_class)}</td>
+          <td>${escapeHtml(fmt(row.quantity, 4))}</td>
+          <td>${escapeHtml(money(row.average_cost))}</td>
+          <td>${escapeHtml(money(row.market_value))}</td>
+          <td>${escapeHtml(fmtPct(row.weight))}</td>
+          <td class="${row.unrealized_pnl >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(money(row.unrealized_pnl))}</td>
+          <td class="${(row.unrealized_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.unrealized_return))}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="9" class="table-empty">当前账户没有持仓。</td></tr>';
+
+  const planBody = document.getElementById("account-plan-table");
+  planBody.innerHTML = accountPlanItems.length
+    ? accountPlanItems.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.strategy_id)}</td>
+          <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.market)}</span></td>
+          <td>${escapeHtml(row.side)}</td>
+          <td>${escapeHtml(fmt(row.quantity, 4))}</td>
+          <td>${escapeHtml(row.target_weight == null ? "N/A" : fmtPct(row.target_weight))}</td>
+          <td>${escapeHtml(row.reference_price == null ? "N/A" : money(row.reference_price))}</td>
+          <td>${escapeHtml(row.requires_approval ? "manual" : "auto")}</td>
+          <td>${escapeHtml(row.reason ?? "")}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="8" class="table-empty">当前账户今日没有交易计划。</td></tr>';
+
+  const executionRows = accountPlanItems.map((row) => {
+    const order = recentOrders.find((item) => item.order_intent_id === row.intent_id);
+    const approval = recentApprovals.find((item) => item.intent_id === row.intent_id);
+    return {
+      ...row,
+      order_status: order?.status || (row.requires_approval ? "pending" : "not_submitted"),
+      filled_quantity: order?.filled_quantity ?? null,
+      approval_status: approval?.status || (row.requires_approval ? "pending" : "auto"),
+    };
+  });
+  const submittedCount = executionRows.filter((row) => row.order_status !== "not_submitted" && row.order_status !== "missing").length;
+  const filledCount = executionRows.filter((row) => row.order_status === "filled").length;
+  const pendingApprovalCount = executionRows.filter((row) => row.approval_status === "pending").length;
+  document.getElementById("account-execution-metrics").innerHTML = [
+    metricTile("计划单", fmt(executionRows.length), "today plan items", executionRows.length ? "ok" : "warning"),
+    metricTile("已出单", fmt(submittedCount), "recent orders", submittedCount ? "ok" : "warning"),
+    metricTile("已成交", fmt(filledCount), "filled orders", filledCount ? "ok" : "warning"),
+    metricTile("待审批", fmt(pendingApprovalCount), "manual review", pendingApprovalCount ? "warning" : "ok"),
+  ].join("");
+  document.getElementById("account-execution-table").innerHTML = executionRows.length
+    ? executionRows.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.strategy_id)}</td>
+          <td><strong>${escapeHtml(row.symbol)}</strong></td>
+          <td>${escapeHtml(fmt(row.quantity, 4))}</td>
+          <td class="status-${statusTone(row.order_status)}">${escapeHtml(row.order_status)}</td>
+          <td>${escapeHtml(row.filled_quantity == null ? "N/A" : fmt(row.filled_quantity, 4))}</td>
+          <td class="status-${statusTone(row.approval_status)}">${escapeHtml(row.approval_status)}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="6" class="table-empty">当前账户没有执行链路数据。</td></tr>';
+  const blockers = [];
+  if (pendingApprovalCount > 0) blockers.push(`${pendingApprovalCount} 笔计划单待人工审批。`);
+  if (executionRows.length > submittedCount) blockers.push(`${executionRows.length - submittedCount} 笔计划单还没转成订单状态。`);
+  if (!blockers.length) blockers.push("当前账户没有明显执行卡点。");
+  document.getElementById("account-execution-blockers").innerHTML = blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  document.getElementById("account-execution-progress").innerHTML = [
+    `计划单: ${fmt(executionRows.length)}`,
+    `已出单: ${fmt(submittedCount)}`,
+    `已成交: ${fmt(filledCount)}`,
+    `待审批: ${fmt(pendingApprovalCount)}`,
+  ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+
+  const exposureByStrategy = new Map();
+  accountPlanItems.forEach((row) => {
+    if (!exposureByStrategy.has(row.strategy_id)) {
+      exposureByStrategy.set(row.strategy_id, {
+        strategy_id: row.strategy_id,
+        plan_count: 0,
+        target_weight: 0,
+        manual_count: 0,
+        symbols: new Set(),
+      });
+    }
+    const item = exposureByStrategy.get(row.strategy_id);
+    item.plan_count += 1;
+    item.target_weight += Number(row.target_weight || 0);
+    item.manual_count += row.requires_approval ? 1 : 0;
+    item.symbols.add(row.symbol);
+  });
+  const exposureRows = [...exposureByStrategy.values()].sort((left, right) => right.target_weight - left.target_weight);
+  document.getElementById("account-strategy-exposure-table").innerHTML = exposureRows.length
+    ? exposureRows.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.strategy_id)}</td>
+          <td>${escapeHtml(fmt(row.plan_count))}</td>
+          <td>${escapeHtml(fmtPct(row.target_weight))}</td>
+          <td>${escapeHtml(fmt(row.manual_count))}</td>
+          <td>${escapeHtml([...row.symbols].join(", "))}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="5" class="table-empty">当前账户没有策略暴露。</td></tr>';
+}
+
+loadAccountPage();
