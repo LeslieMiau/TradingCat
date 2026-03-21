@@ -508,7 +508,7 @@ class TradingCatApplication:
         reader = csv.DictReader(StringIO(csv_text), delimiter=delimiter)
         return [ManualFill.model_validate(row) for row in reader]
 
-    def generate_daily_trading_plan(self, as_of: date) -> DailyTradingPlanNote:
+    def generate_daily_trading_plan(self, as_of: date, account: str = "total") -> DailyTradingPlanNote:
         try:
             preview = self.preview_execution(as_of)
             gate = self.execution_gate_summary(as_of)
@@ -517,6 +517,7 @@ class TradingCatApplication:
             reasons = list(gate["reasons"]) if gate["should_block"] else ["Execution gate is open for the current preview."]
             note = DailyTradingPlanNote(
                 as_of=as_of,
+                account=account,
                 status=status,
                 headline=headline,
                 reasons=reasons,
@@ -541,6 +542,7 @@ class TradingCatApplication:
         except RiskViolation as exc:
             note = DailyTradingPlanNote(
                 as_of=as_of,
+                account=account,
                 status="blocked",
                 headline="Execution preview blocked by current risk state.",
                 reasons=[str(exc)],
@@ -760,7 +762,7 @@ class TradingCatApplication:
         policy = self.rollout_policy.current()
         reasons = list(diagnostics["findings"])
         if not rollout["ready_for_rollout"]:
-            reasons.extend(blocker["detail"] for blocker in rollout["blockers"])
+            reasons.extend(blocker for blocker in rollout["blockers"])
         return {
             "as_of": evaluation_date,
             "ready": bool(diagnostics["ready"]) and rollout["ready_for_rollout"],
@@ -1388,7 +1390,7 @@ def execution_run(payload: ExecutionRunPayload):
     result = app_state.run_execution_cycle(as_of, enforce_gate=payload.enforce_gate)
     if "submitted_orders" not in result:
         app_state.audit.log(category="execution", action="run_partial", status="warning", details={"detail": "Execution gate blocked"})
-        return result
+        return {"gate": result}
     app_state.audit.log(
         category="execution",
         action="run_ok" if not result["failed_orders"] else "run_partial",
@@ -1480,7 +1482,7 @@ def reconcile_manual_fill_import(payload: ManualFillImportPayload):
 @app.get("/journal/plans/latest")
 def latest_plan(account: str = "total", as_of: date | None = None):
     note = app_state.trading_journal.latest_plan(account=account, as_of=as_of)
-    return note or app_state.generate_daily_trading_plan(as_of or date.today())
+    return note or app_state.generate_daily_trading_plan(as_of or date.today(), account=account)
 
 
 @app.get("/journal/plans")

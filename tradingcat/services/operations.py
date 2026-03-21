@@ -107,7 +107,10 @@ class OperationsJournalService:
         current_index = stages.index(recommended_stage) if recommended_stage in stages else -1
         next_stage = stages[current_index + 1] if current_index + 1 < len(stages) else None
 
-        remaining_hk_us = max(0, 4 - ready_weeks) if ready_weeks < 4 else max(0, 8 - ready_weeks)
+        if ready_weeks < 4:
+            remaining_hk_us = max(0, 4 - ready_weeks) + max(0, 4 - ready_weeks - cn_weeks)
+        else:
+            remaining_hk_us = max(0, 8 - ready_weeks)
         remaining_cn = max(0, 4 - cn_weeks)
 
         return {
@@ -120,6 +123,9 @@ class OperationsJournalService:
             },
             "blockers": blockers,
         }
+
+    def acceptance_timeline(self, *, window_days: int = 30) -> dict[str, object]:
+        return self.readiness_timeline(window_days=window_days)
 
     def readiness_timeline(self, *, window_days: int = 30) -> dict[str, object]:
         entries = self.list_entries()
