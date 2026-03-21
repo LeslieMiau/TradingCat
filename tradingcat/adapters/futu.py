@@ -216,7 +216,7 @@ class FutuBrokerAdapter:
 
     def place_order(self, intent: OrderIntent) -> ExecutionReport:
         context = self._context_for(intent.instrument.market)
-        order_type = self._ft.OrderType.NORMAL if intent.order_type.value == "limit" else self._ft.OrderType.MARKET
+        order_type = self._ft.OrderType.NORMAL if intent.order_type == "limit" else self._ft.OrderType.MARKET
         trd_side = self._ft.TrdSide.BUY if intent.side == OrderSide.BUY else self._ft.TrdSide.SELL
         price = intent.limit_price or 0.0
         ret, data = context.place_order(
