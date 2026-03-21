@@ -7,12 +7,35 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body>
+    <nav class="sidebar">
+      <div class="sidebar-logo">🐱</div>
+      <div class="sidebar-nav">
+        <a href="/dashboard" class="sidebar-item" title="Dashboard">
+          <span class="sidebar-icon">◉</span><span class="sidebar-label">Dashboard</span>
+        </a>
+        <a href="/dashboard/journal" class="sidebar-item" title="Journal">
+          <span class="sidebar-icon">☰</span><span class="sidebar-label">Journal</span>
+        </a>
+        <a href="/dashboard/research" class="sidebar-item is-active" title="Research">
+          <span class="sidebar-icon">◈</span><span class="sidebar-label">Research</span>
+        </a>
+        <a href="/dashboard/operations" class="sidebar-item" title="Operations">
+          <span class="sidebar-icon">⚙</span><span class="sidebar-label">Operations</span>
+        </a>
+        <a href="/docs" class="sidebar-item" title="API Docs" target="_blank">
+          <span class="sidebar-icon">⟨⟩</span><span class="sidebar-label">API Docs</span>
+        </a>
+      </div>
+      <div class="sidebar-status">
+        <span class="sidebar-status-dot ok" title="System OK"></span>
+      </div>
+    </nav>
     <div class="dashboard-shell">
       <header class="hero">
         <div class="hero-copy">
