@@ -39,7 +39,7 @@ function metricTile(label, value, subvalue, tone = "empty") {
   `;
 }
 
-function renderCurve(svgId, points, stroke = "#0057b8", fill = "rgba(0, 87, 184, 0.12)") {
+function renderCurve(svgId, points, stroke = "#5cc4ff", fill = "rgba(92, 196, 255, 0.12)") {
   const svg = document.getElementById(svgId);
   if (!svg || !points || !points.length) return;
   const width = 640;
@@ -157,7 +157,7 @@ async function loadStrategy() {
   const benchmark = payload.benchmark || {};
   document.getElementById("benchmark-curve-title").textContent = benchmark.symbol ? `基准净值曲线 (${benchmark.symbol})` : "基准净值曲线";
   renderCurve("strategy-benchmark-curve", benchmark.nav_curve || [], "#6941c6", "rgba(105, 65, 198, 0.12)");
-  renderCurve("relative-performance-curve", benchmark.relative_curve || [], "#0e8a61", "rgba(14, 138, 97, 0.12)");
+  renderCurve("relative-performance-curve", benchmark.relative_curve || [], "#34d399", "rgba(52, 211, 153, 0.12)");
   renderCurve("rolling-excess-curve", benchmark.rolling_excess_curve || [], "#f79009", "rgba(247, 144, 9, 0.12)");
   document.getElementById("strategy-thesis").textContent = metadata.thesis || "No strategy thesis available.";
   document.getElementById("strategy-meta-list").innerHTML = [

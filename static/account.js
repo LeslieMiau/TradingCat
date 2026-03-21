@@ -63,8 +63,10 @@ function renderCurve(svgId, points) {
   const line = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
   const area = `${line} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
   svg.innerHTML = `
-    <path d="${area}" fill="rgba(0, 87, 184, 0.12)"></path>
-    <path d="${line}" fill="none" stroke="#0057b8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(92,196,255,0.18)"/><stop offset="100%" stop-color="rgba(92,196,255,0.02)"/></linearGradient></defs>
+    <path d="${area}" fill="url(#cg)"></path>
+    <path d="${line}" fill="none" stroke="#5cc4ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#34d399" stroke="#0b0e13" stroke-width="2"></circle>
   `;
 }
 
