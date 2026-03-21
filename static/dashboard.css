@@ -341,6 +341,33 @@ body {
   box-shadow: 0 4px 20px rgba(92, 196, 255, 0.25);
 }
 
+.button-sm {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* Compact hero — reduced padding, smaller title */
+.hero-compact {
+  padding: 14px 22px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.hero-compact h1 {
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.2;
+}
+
+.hero-compact .eyebrow {
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+
+.hero-compact .hero-actions {
+  gap: 6px;
+}
+
 /* --------------------------------------------------------------------------
    10. Grid Layouts
    -------------------------------------------------------------------------- */
