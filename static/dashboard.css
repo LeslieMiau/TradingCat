@@ -435,6 +435,11 @@ body {
 .panel:nth-child(4) { animation-delay: 0.18s; }
 .panel:nth-child(5) { animation-delay: 0.24s; }
 .panel:nth-child(6) { animation-delay: 0.30s; }
+.panel:nth-child(7) { animation-delay: 0.36s; }
+.panel:nth-child(8) { animation-delay: 0.42s; }
+.panel:nth-child(9) { animation-delay: 0.48s; }
+.panel:nth-child(10) { animation-delay: 0.54s; }
+.panel:nth-child(n+11) { animation-delay: 0.6s; }
 
 .panel-highlight {
   background:
@@ -510,6 +515,16 @@ body {
   border-radius: var(--radius-md);
   background: var(--panel-strong);
   transition: all 0.2s ease;
+}
+
+.metric-tile:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.detail-card:hover {
+  border-color: var(--border-strong);
 }
 
 .curve-card,
