@@ -204,6 +204,18 @@ function renderAssets() {
     metricTile("总计划单", fmt(planItems.length), "planned intents", planItems.length ? "ok" : "warning"),
   ].join("");
   document.getElementById("cash-usage-table").innerHTML = usageRows.length
+    ? usageRows.map((row) => `
+        <tr>
+          <td><strong>${escapeHtml(row.label)}</strong></td>
+          <td>${escapeHtml(money(row.cash))}</td>
+          <td>${escapeHtml(money(row.planNotional))}</td>
+          <td>${escapeHtml(row.cashUsage != null ? fmtPct(row.cashUsage) : "N/A")}</td>
+          <td>${escapeHtml(fmt(row.planCount))}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="5" class="table-empty">当前没有现金使用数据。</td></tr>';
+}
+
 function labelSide(value) {
   if (value === "buy") return "买入";
   if (value === "sell") return "卖出";
@@ -615,6 +627,29 @@ function renderPlan() {
   );
   const gapRows = allPlanItems
     .map((item) => {
+      const key = `${item.market}:${item.symbol}`;
+      const currentWeight = currentWeightBySymbol.get(key) ?? 0;
+      const targetWeight = Number(item.target_weight || 0);
+      const gap = targetWeight - currentWeight;
+      return { symbol: item.symbol, market: item.market, currentWeight, targetWeight, gap, side: labelSide(item.side) };
+    })
+    .filter((row) => Math.abs(row.gap) > 0.0001)
+    .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
+    .slice(0, 10);
+  document.getElementById("plan-vs-holdings-table").innerHTML = gapRows.length
+    ? gapRows.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.symbol)}</td>
+          <td>${escapeHtml(row.market)}</td>
+          <td>${escapeHtml(fmtPct(row.currentWeight))}</td>
+          <td>${escapeHtml(fmtPct(row.targetWeight))}</td>
+          <td class="${row.gap >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.gap))}</td>
+          <td>${escapeHtml(row.side)}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="6" class="table-empty">当前没有计划与持仓偏差数据。</td></tr>';
+}
+
 function renderSignalFunnel() {
   const tradingPlan = state.summary?.trading_plan ?? {};
   const recentOrders = state.summary?.details?.recent_orders ?? [];
@@ -668,7 +703,7 @@ function renderExecutionBlockers() {
       type: "gate",
       count: gateReasons.length,
       tone: gateReasons.length ? "blocked" : "ok",
-      note: gateReasons.length ? gateReasons.map((item) => `${item.type}: ${item.detail}`).join(" | ") : "当前没有 execution gate 阻塞。",
+      note: gateReasons.length ? gateReasons.join(" | ") : "当前没有 execution gate 阻塞。",
     },
     {
       type: "approval",
@@ -691,46 +726,6 @@ function renderExecutionBlockers() {
   ];
 
   document.getElementById("execution-blocker-metrics").innerHTML = [
-}
-    verdictBuckets.get(verdict).rows.push(row);
-  });
-  const groupRows = [...verdictBuckets.values()].map((group) => {
-    const count = group.rows.length;
-    const average = (key) => {
-      if (!count) return null;
-      const total = group.rows.reduce((sum, row) => sum + Number(row[key] || 0), 0);
-      return total / count;
-    };
-    return {
-      label: group.label,
-      count,
-      avgProfitability: average("profitability_score"),
-      avgAnnualizedReturn: average("annualized_return"),
-      avgSharpe: average("sharpe"),
-      avgMaxDrawdown: average("max_drawdown"),
-    };
-  });
-  document.getElementById("candidate-group-metrics").innerHTML = [
-    metricTile("Deploy 组", fmt(groupRows.find((row) => row.label === "deploy")?.count ?? 0), "worth funding research", (groupRows.find((row) => row.label === "deploy")?.count ?? 0) ? "ok" : "warning"),
-    metricTile("Paper 组", fmt(groupRows.find((row) => row.label === "paper")?.count ?? 0), "monitor before funding", (groupRows.find((row) => row.label === "paper")?.count ?? 0) ? "warning" : "ok"),
-    metricTile("Reject 组", fmt(groupRows.find((row) => row.label === "reject")?.count ?? 0), "drop quickly", (groupRows.find((row) => row.label === "reject")?.count ?? 0) ? "blocked" : "ok"),
-    metricTile("总候选", fmt(rows.length), "candidate universe", rows.length ? "ok" : "warning"),
-  ].join("");
-  document.getElementById("candidate-groups-table").innerHTML = groupRows.length
-    ? groupRows.map((row) => `
-        <tr>
-          <td><span class="badge status-${badgeTone(row.label === "deploy" ? "ok" : row.label === "paper" ? "warning" : row.label === "reject" ? "blocked" : "empty")}">${escapeHtml(row.label)}</span></td>
-          <td>${escapeHtml(fmt(row.count))}</td>
-          <td>${escapeHtml(row.avgProfitability == null ? "N/A" : fmt(row.avgProfitability))}</td>
-          <td>${escapeHtml(row.avgAnnualizedReturn == null ? "N/A" : fmtPct(row.avgAnnualizedReturn))}</td>
-          <td>${escapeHtml(row.avgSharpe == null ? "N/A" : fmt(row.avgSharpe))}</td>
-          <td>${escapeHtml(row.avgMaxDrawdown == null ? "N/A" : fmtPct(row.avgMaxDrawdown))}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有研究分组数据。</td></tr>';
-}
-
-document.getElementById("execution-blocker-metrics").innerHTML = [
     metricTile("Gate 卡点", fmt(rows[0].count), "execution gate reasons", rows[0].tone),
     metricTile("审批卡点", fmt(rows[1].count), "pending approvals", rows[1].tone),
     metricTile("订单处理中", fmt(rows[2].count), "working broker orders", rows[2].tone),
@@ -911,35 +906,6 @@ function renderSummaries() {
     .filter((value) => value != null);
   const latencyRows = [
     {
-      label: "待审批",
-      count: approvals.length,
-      oldest: pendingApprovalAges.length ? `${fmt(Math.max(...pendingApprovalAges))} min` : "N/A",
-      note: approvals.length ? "最老 pending approval 的创建时间" : "当前没有待审批单。",
-      tone: approvals.length ? "warning" : "ok",
-    },
-    {
-      label: "处理中订单",
-      count: workingOrders,
-      oldest: workingOrderAges.length ? `${fmt(Math.max(...workingOrderAges))} min` : "N/A",
-      note: workingOrders ? "submitted / pending 订单里最老的一笔" : "当前没有处理中订单。",
-      tone: workingOrders ? "warning" : "ok",
-    },
-    {
-      label: "最近成交",
-      count: filledOrders,
-      oldest: filledOrderAges.length ? `${fmt(Math.max(...filledOrderAges))} min` : "N/A",
-      note: filledOrders ? "最近 filled 订单距离现在的时间" : "当前没有最近成交。",
-      tone: filledOrders ? "ok" : "empty",
-    },
-  ];
-  document.getElementById("latency-metrics").innerHTML = [
-    metricTile("待审批年龄", latencyRows[0].oldest, `count ${fmt(latencyRows[0].count)}`, latencyRows[0].tone),
-    metricTile("订单年龄", latencyRows[1].oldest, `count ${fmt(latencyRows[1].count)}`, latencyRows[1].tone),
-    metricTile("最近成交年龄", latencyRows[2].oldest, `count ${fmt(latencyRows[2].count)}`, latencyRows[2].tone),
-    metricTile("执行新鲜度", workingOrders || approvals.length ? "stalled" : "fresh", "approval/order latency snapshot", workingOrders || approvals.length ? "warning" : "ok"),
-  ].join("");
-  document.getElementById("latency-table").innerHTML = latencyRows.map((row) => `
-{
       label: "待审批",
       count: approvals.length,
       oldest: pendingApprovalAges.length ? `${fmt(Math.max(...pendingApprovalAges))} min` : "N/A",
