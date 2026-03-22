@@ -283,6 +283,40 @@ function renderStrategies() {
         )
         .join("")
     : '<tr><td colspan="7" class="table-empty">当前没有策略指标。</td></tr>';
+
+  const perfTop = rows.slice().sort((a, b) => (b.annualized_return ?? 0) - (a.annualized_return ?? 0)).slice(0, 5);
+  setList("strategy-perf-top-list", perfTop.map((r) => `${r.name}: 年化 ${fmtPct(r.annualized_return)} / 夏普 ${fmt(r.sharpe)}`), "暂无策略表现排名。");
+  const execTop = rows.filter((r) => r.action === "active" || r.action === "deploy").slice(0, 5);
+  setList("strategy-exec-top-list", execTop.map((r) => `${r.name}: ${r.action} / 年化 ${fmtPct(r.annualized_return)}`), "暂无执行中策略。");
+  setList("account-strategy-matrix-list", ["total", "CN", "HK", "US"].map((key) => {
+    const count = rows.filter((r) => (r.markets ?? []).includes(key) || key === "total").length;
+    return `${key}: ${fmt(count)} 条策略`;
+  }), "暂无账户-策略矩阵。");
+  const nextActions = state.summary?.strategies?.next_actions ?? [];
+  setList("research-group-summary-list", nextActions.length ? nextActions : ["暂无研究分组总览。"], "暂无研究分组总览。");
+
+  const planItems = state.summary?.trading_plan?.items ?? [];
+  const strategyFundMap = new Map();
+  planItems.forEach((item) => {
+    const sid = item.strategy_id || "unknown";
+    const notional = Number(item.reference_price || 0) * Number(item.quantity || 0);
+    strategyFundMap.set(sid, (strategyFundMap.get(sid) || 0) + notional);
+  });
+  const fundRows = [...strategyFundMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const totalFund = fundRows.reduce((s, r) => s + r[1], 0);
+  const fundTable = document.getElementById("strategy-fund-top-table");
+  if (fundTable) {
+    fundTable.innerHTML = fundRows.length
+      ? fundRows.map(([sid, notional]) => `
+          <tr>
+            <td>${escapeHtml(sid)}</td>
+            <td>${escapeHtml(money(notional))}</td>
+            <td>${escapeHtml(totalFund ? fmtPct(notional / totalFund) : "N/A")}</td>
+            <td>${escapeHtml(fmt(planItems.filter((i) => i.strategy_id === sid).length))}</td>
+          </tr>
+        `).join("")
+      : '<tr><td colspan="4" class="table-empty">当前没有策略资金占用数据。</td></tr>';
+  }
 }
 
 function renderStrategyPlanBreakdown() {
@@ -318,14 +352,14 @@ function renderStrategyPlanBreakdown() {
   });
 
   const rows = [...grouped.values()].sort((left, right) => right.notional - left.notional);
-  document.getElementById("market-plan-metrics").innerHTML = [
-    metricTile("涉及市场", fmt(rows.length), "markets touched by today's plan", rows.length ? "ok" : "warning"),
+  document.getElementById("strategy-plan-metrics").innerHTML = [
+    metricTile("涉及策略", fmt(rows.length), "strategies in today's plan", rows.length ? "ok" : "warning"),
     metricTile("总计划单", fmt(items.length), "planned intents", items.length ? "ok" : "warning"),
     metricTile("预估总金额", money(rows.reduce((sum, row) => sum + row.notional, 0)), "estimated gross notional", rows.length ? "ok" : "empty"),
-    metricTile("待审批市场", fmt(rows.filter((row) => row.approvalCount > 0).length), "markets needing manual step", approvals.length ? "warning" : "ok"),
+    metricTile("待审批策略", fmt(rows.filter((row) => row.approvalCount > 0).length), "strategies needing manual step", approvals.length ? "warning" : "ok"),
   ].join("");
 
-  document.getElementById("market-plan-table").innerHTML = rows.length
+  document.getElementById("strategy-plan-table").innerHTML = rows.length
     ? rows.map((row) => `
         <tr>
           <td><span class="badge status-${badgeTone(row.approvalCount ? "warning" : "ok")}">${escapeHtml(row.market)}</span></td>
@@ -335,7 +369,7 @@ function renderStrategyPlanBreakdown() {
           <td>${escapeHtml([...row.strategies].slice(0, 3).join(", ") || "N/A")}</td>
         </tr>
       `).join("")
-    : '<tr><td colspan="5" class="table-empty">今天还没有按市场拆分的计划。</td></tr>';
+    : '<tr><td colspan="5" class="table-empty">今天还没有按策略拆分的计划。</td></tr>';
 }
 
 function renderMarketPlanBreakdown() {
@@ -371,7 +405,7 @@ function renderMarketPlanBreakdown() {
   });
 
   const rows = [...grouped.values()].sort((left, right) => right.notional - left.notional);
-  document.getElementById("market-plan-table-2").innerHTML = rows.length
+  document.getElementById("market-plan-table").innerHTML = rows.length
     ? rows.map((row) => `
         <tr>
           <td><span class="badge status-${badgeTone(row.approvalCount ? "warning" : "ok")}">${escapeHtml(row.market)}</span></td>
@@ -804,7 +838,7 @@ function renderSummaries() {
   const details = state.summary?.details ?? {};
   const note = summaryNote();
   const blockers = [
-    ...(details.execution_gate?.reasons ?? []).map((item) => `${item.type}: ${item.detail}`),
+    ...(details.execution_gate?.reasons ?? []).map((item) => typeof item === "string" ? item : `${item.type}: ${item.detail}`),
     ...(details.live_acceptance?.blockers ?? []),
     ...(note.blockers ?? []),
   ];
@@ -819,6 +853,15 @@ function renderSummaries() {
   setList("weekly-highlights", weekly.highlights ?? [], "本周暂无摘要。");
   setList("blockers-list", blockers, "当前没有硬阻塞项。");
   setList("actions-list", actions, "当前没有待处理动作。");
+  const heroSummaryEl = document.getElementById("hero-summary-headline");
+  if (heroSummaryEl) heroSummaryEl.textContent = note.headline ?? "暂无总结。";
+  setList("hero-summary-body-list", [...(note.highlights ?? []), ...(note.blockers ?? []).map((b) => `阻塞：${b}`), ...(note.next_actions ?? []).map((a) => `下一步：${a}`)], "今天还没有总结正文。");
+  setList("hero-summary-metrics-list", [
+    `亮点 ${fmt((note.highlights ?? []).length)}`,
+    `阻塞 ${fmt((note.blockers ?? []).length)}`,
+    `下一步 ${fmt((note.next_actions ?? []).length)}`,
+    `执行 gate: ${details.execution_gate?.ready ? "就绪" : "未就绪"}`,
+  ], "暂无总结指标。");
   setList("global-blockers-list", blockers, "当前没有全局阻塞项。");
   setList(
     "global-incidents-list",
@@ -853,6 +896,21 @@ function renderSummaries() {
     ],
     "当前没有最近报告卡片。",
   );
+  setList("data-health-list", [
+    `data feeds: ${fmt(report.data_feed_status ?? "unknown")}`,
+    `last sync: ${fmt(report.last_sync_at ?? "N/A")}`,
+    `coverage: ${fmt(report.data_coverage ?? "N/A")}`,
+  ], "暂无数据健康信息。");
+  setList("launch-progress-list", [
+    `recommendation: ${fmt(reportCards.rollout?.current_recommendation ?? "N/A")}`,
+    `gate ready: ${fmt(reportCards.execution_gate?.ready ?? false)}`,
+    `live ready: ${fmt(reportCards.live_acceptance?.ready_for_live ?? false)}`,
+  ], "暂无上线推进信息。");
+  const summaryBodyEl = document.getElementById("summary-body-text");
+  if (summaryBodyEl) {
+    const bodyParts = [...(note.highlights ?? []), ...(note.blockers ?? []).map((b) => `阻塞: ${b}`), ...(note.next_actions ?? []).map((a) => `下一步: ${a}`)];
+    summaryBodyEl.textContent = bodyParts.length ? bodyParts.join(" | ") : "暂无总结正文。";
+  }
   const rawApprovals = state.summary?.trading_plan?.pending_approvals;
   const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
   const recentOrders = state.summary?.details?.recent_orders ?? [];
@@ -974,54 +1032,56 @@ async function loadSummary() {
 
 function renderError() {
   const message = state.error ?? "Unknown dashboard error";
-  document.getElementById("overview-cards").innerHTML = metricTile("Dashboard Error", "Unavailable", message, "blocked");
-  document.getElementById("assets-table").innerHTML = `<tr><td colspan="9" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("account-compare-table").innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("cash-usage-metrics").innerHTML = metricTile("Cash Usage", "Unavailable", message, "blocked");
-  document.getElementById("cash-usage-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("account-risk-table").innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("concentration-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("pnl-market-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("pnl-asset-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("rebalance-metrics").innerHTML = metricTile("Rebalance", "Unavailable", message, "blocked");
-  document.getElementById("rebalance-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("market-budget-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("strategies-table").innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("strategy-plan-metrics").innerHTML = metricTile("Strategy Plan Breakdown", "Unavailable", message, "blocked");
-  document.getElementById("strategy-plan-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("strategy-notional-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("strategy-execution-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("account-strategy-matrix-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("market-plan-metrics").innerHTML = metricTile("Market Plan Breakdown", "Unavailable", message, "blocked");
-  document.getElementById("market-plan-table").innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("candidate-group-metrics").innerHTML = metricTile("Research Groups", "Unavailable", message, "blocked");
-  document.getElementById("candidate-groups-table").innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("plan-table").innerHTML = `<tr><td colspan="8" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("plan-direction-metrics").innerHTML = metricTile("Plan Direction", "Unavailable", message, "blocked");
-  document.getElementById("plan-direction-table").innerHTML = `<tr><td colspan="3" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("plan-notional-top-table").innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("plan-vs-holdings-table").innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("signal-funnel-metrics").innerHTML = metricTile("Signal Funnel", "Unavailable", message, "blocked");
-  document.getElementById("signal-funnel-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("execution-blocker-metrics").innerHTML = metricTile("Execution Blockers", "Unavailable", message, "blocked");
-  document.getElementById("execution-blocker-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  document.getElementById("priority-actions-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
+  const errorCell = (cols) => `<tr><td colspan="${cols}" class="table-empty">${escapeHtml(message)}</td></tr>`;
+  const errorMetric = (label) => metricTile(label, "Unavailable", message, "blocked");
+  const el = (id) => document.getElementById(id);
+
+  if (el("overview-cards")) el("overview-cards").innerHTML = errorMetric("Dashboard Error");
+  if (el("assets-table")) el("assets-table").innerHTML = errorCell(9);
+  if (el("account-compare-table")) el("account-compare-table").innerHTML = errorCell(7);
+  if (el("cash-usage-metrics")) el("cash-usage-metrics").innerHTML = errorMetric("Cash Usage");
+  if (el("cash-usage-table")) el("cash-usage-table").innerHTML = errorCell(5);
+  if (el("account-risk-table")) el("account-risk-table").innerHTML = errorCell(6);
+  if (el("concentration-table")) el("concentration-table").innerHTML = errorCell(5);
+  if (el("pnl-market-table")) el("pnl-market-table").innerHTML = errorCell(4);
+  if (el("pnl-asset-table")) el("pnl-asset-table").innerHTML = errorCell(4);
+  if (el("rebalance-metrics")) el("rebalance-metrics").innerHTML = errorMetric("Rebalance");
+  if (el("rebalance-table")) el("rebalance-table").innerHTML = errorCell(5);
+  if (el("market-budget-table")) el("market-budget-table").innerHTML = errorCell(4);
+  if (el("strategies-table")) el("strategies-table").innerHTML = errorCell(7);
+  if (el("strategy-plan-metrics")) el("strategy-plan-metrics").innerHTML = errorMetric("Strategy Plan");
+  if (el("strategy-plan-table")) el("strategy-plan-table").innerHTML = errorCell(5);
+  if (el("candidate-metrics")) el("candidate-metrics").innerHTML = errorMetric("Candidates");
+  if (el("candidates-table")) el("candidates-table").innerHTML = errorCell(7);
+  if (el("candidate-group-metrics")) el("candidate-group-metrics").innerHTML = errorMetric("Research Groups");
+  if (el("candidate-groups-table")) el("candidate-groups-table").innerHTML = errorCell(6);
+  if (el("market-plan-table")) el("market-plan-table").innerHTML = errorCell(5);
+  if (el("plan-table")) el("plan-table").innerHTML = errorCell(8);
+  if (el("plan-direction-metrics")) el("plan-direction-metrics").innerHTML = errorMetric("Plan Direction");
+  if (el("plan-direction-table")) el("plan-direction-table").innerHTML = errorCell(3);
+  if (el("plan-notional-top-table")) el("plan-notional-top-table").innerHTML = errorCell(6);
+  if (el("plan-vs-holdings-table")) el("plan-vs-holdings-table").innerHTML = errorCell(6);
+  if (el("signal-funnel-metrics")) el("signal-funnel-metrics").innerHTML = errorMetric("Signal Funnel");
+  if (el("signal-funnel-table")) el("signal-funnel-table").innerHTML = errorCell(4);
+  if (el("execution-blocker-metrics")) el("execution-blocker-metrics").innerHTML = errorMetric("Execution Blockers");
+  if (el("execution-blocker-table")) el("execution-blocker-table").innerHTML = errorCell(4);
+  if (el("priority-actions-table")) el("priority-actions-table").innerHTML = errorCell(4);
   setList("daily-highlights", [], message);
   setList("weekly-highlights", [], message);
   setList("blockers-list", [], message);
   setList("actions-list", [], message);
   setList("global-blockers-list", [], message);
   setList("global-incidents-list", [], message);
-  document.getElementById("report-snapshot-metrics").innerHTML = metricTile("Report Snapshot", "Unavailable", message, "blocked");
+  if (el("report-snapshot-metrics")) el("report-snapshot-metrics").innerHTML = errorMetric("Report Snapshot");
   setList("report-snapshot-list", [], message);
   setList("report-snapshot-cards", [], message);
-  document.getElementById("queue-metrics").innerHTML = metricTile("Execution Queue", "Unavailable", message, "blocked");
+  if (el("queue-metrics")) el("queue-metrics").innerHTML = errorMetric("Execution Queue");
   setList("queue-approvals-list", [], message);
   setList("queue-orders-list", [], message);
   setList("filled-orders-list", [], message);
   setList("probe-orders-list", [], message);
-  document.getElementById("latency-metrics").innerHTML = metricTile("Latency", "Unavailable", message, "blocked");
-  document.getElementById("latency-table").innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(message)}</td></tr>`;
+  if (el("latency-metrics")) el("latency-metrics").innerHTML = errorMetric("Latency");
+  if (el("latency-table")) el("latency-table").innerHTML = errorCell(4);
 }
 
 function renderDashboard() {
