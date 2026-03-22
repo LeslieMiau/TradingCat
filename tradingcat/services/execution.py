@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from tradingcat.adapters.base import BrokerAdapter
 from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, OrderStatus, ReconciliationSummary
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
@@ -21,6 +23,7 @@ class ExecutionService:
         self._approvals = approvals
         self._repository = repository
         self._state_repository = state_repository
+        self._lock = threading.Lock()
         self._orders = repository.load()
         self._intents: dict[str, OrderIntent] = {}
         self._state_machine = OrderStateMachine()
@@ -43,93 +46,98 @@ class ExecutionService:
         }
 
     def register_expected_prices(self, intents: list[OrderIntent], prices: dict[str, float]) -> None:
-        updated = False
-        for intent in intents:
-            reference_price = prices.get(intent.instrument.symbol)
-            if reference_price is None or reference_price <= 0:
-                continue
-            self._expected_prices[intent.id] = {
-                "symbol": intent.instrument.symbol,
-                "market": intent.instrument.market.value,
-                "asset_class": intent.instrument.asset_class.value,
-                "reference_price": float(reference_price),
-            }
-            updated = True
-        if updated:
-            self._save_state()
+        with self._lock:
+            updated = False
+            for intent in intents:
+                reference_price = prices.get(intent.instrument.symbol)
+                if reference_price is None or reference_price <= 0:
+                    continue
+                self._expected_prices[intent.id] = {
+                    "symbol": intent.instrument.symbol,
+                    "market": intent.instrument.market.value,
+                    "asset_class": intent.instrument.asset_class.value,
+                    "reference_price": float(reference_price),
+                }
+                updated = True
+            if updated:
+                self._save_state()
 
     def submit(self, intent: OrderIntent) -> ExecutionReport:
-        self._intents[intent.id] = intent
-        self._register_intent_metadata(intent)
-        if intent.requires_approval:
-            approval = self._approvals.create_request(intent)
-            self._authorizations[intent.id] = {
-                "mode": "manual_pending",
-                "requires_approval": True,
-                "approval_request_id": approval.id,
-                "approval_status": approval.status.value,
-            }
-            report = self._manual_broker.place_order(intent)
-        else:
-            self._authorizations[intent.id] = {
-                "mode": "risk_approved",
-                "requires_approval": False,
-                "approval_request_id": None,
-                "approval_status": "not_required",
-            }
-            report = self._live_broker.place_order(intent)
-        self._orders[intent.id] = report
-        self._save_state()
-        return report
+        with self._lock:
+            self._intents[intent.id] = intent
+            self._register_intent_metadata(intent)
+            if intent.requires_approval:
+                approval = self._approvals.create_request(intent)
+                self._authorizations[intent.id] = {
+                    "mode": "manual_pending",
+                    "requires_approval": True,
+                    "approval_request_id": approval.id,
+                    "approval_status": approval.status.value,
+                }
+                report = self._manual_broker.place_order(intent)
+            else:
+                self._authorizations[intent.id] = {
+                    "mode": "risk_approved",
+                    "requires_approval": False,
+                    "approval_request_id": None,
+                    "approval_status": "not_required",
+                }
+                report = self._live_broker.place_order(intent)
+            self._orders[intent.id] = report
+            self._save_state()
+            return report
 
     def submit_approved(self, request_id: str) -> ExecutionReport:
-        request = self._approvals.get(request_id)
-        self._register_intent_metadata(request.order_intent)
-        self._authorizations[request.order_intent.id] = {
-            "mode": "manual_approved",
-            "requires_approval": True,
-            "approval_request_id": request.id,
-            "approval_status": request.status.value,
-            "decision_reason": request.decision_reason,
-        }
-        report = self._manual_broker.place_order(request.order_intent)
-        self._orders[request.order_intent.id] = report
-        self._save_state()
-        return report
+        with self._lock:
+            request = self._approvals.get(request_id)
+            self._register_intent_metadata(request.order_intent)
+            self._authorizations[request.order_intent.id] = {
+                "mode": "manual_approved",
+                "requires_approval": True,
+                "approval_request_id": request.id,
+                "approval_status": request.status.value,
+                "decision_reason": request.decision_reason,
+            }
+            report = self._manual_broker.place_order(request.order_intent)
+            self._orders[request.order_intent.id] = report
+            self._save_state()
+            return report
 
     def reconcile_manual_fill(self, fill: ManualFill) -> ExecutionReport:
-        report = ExecutionReport(
-            order_intent_id=fill.order_intent_id,
-            broker_order_id=fill.broker_order_id,
-            status=OrderStatus.FILLED,
-            filled_quantity=fill.filled_quantity,
-            average_price=fill.average_price,
-            message=fill.notes,
-        )
-        self._orders[fill.order_intent_id] = report
-        self._fill_fingerprints.add(self._fill_fingerprint(report))
-        self._authorizations.setdefault(
-            fill.order_intent_id,
-            {
-                "mode": "manual_fill_external",
-                "requires_approval": True,
-                "approval_request_id": None,
-                "approval_status": "external_fill",
-            },
-        )
-        self._save_state()
-        return report
+        with self._lock:
+            report = ExecutionReport(
+                order_intent_id=fill.order_intent_id,
+                broker_order_id=fill.broker_order_id,
+                status=OrderStatus.FILLED,
+                filled_quantity=fill.filled_quantity,
+                average_price=fill.average_price,
+                message=fill.notes,
+            )
+            self._orders[fill.order_intent_id] = report
+            self._fill_fingerprints.add(self._fill_fingerprint(report))
+            self._authorizations.setdefault(
+                fill.order_intent_id,
+                {
+                    "mode": "manual_fill_external",
+                    "requires_approval": True,
+                    "approval_request_id": None,
+                    "approval_status": "external_fill",
+                },
+            )
+            self._save_state()
+            return report
 
     def cancel(self, broker_order_id: str) -> ExecutionReport:
-        matching_order = next((order for order in self._orders.values() if order.broker_order_id == broker_order_id), None)
-        if matching_order and broker_order_id.startswith("manual-"):
-            report = self._manual_broker.cancel_order(broker_order_id)
-        else:
-            report = self._live_broker.cancel_order(broker_order_id)
-        key = matching_order.order_intent_id if matching_order else broker_order_id
-        self._orders[key] = report
-        self._save_state()
-        return report
+        with self._lock:
+            matching_order = next((order for order in self._orders.values() if order.broker_order_id == broker_order_id), None)
+            if matching_order and broker_order_id.startswith("manual-"):
+                report = self._manual_broker.cancel_order(broker_order_id)
+            else:
+                report = self._live_broker.cancel_order(broker_order_id)
+            key = matching_order.order_intent_id if matching_order else broker_order_id
+            self._orders[key] = report
+            self._save_state()
+            return report
 
     def list_orders(self) -> list[ExecutionReport]:
         return list(self._orders.values())
@@ -159,58 +167,60 @@ class ExecutionService:
         }
 
     def clear(self) -> None:
-        self._orders = {}
-        self._fill_fingerprints = set()
-        self._intent_metadata = {}
-        self._authorizations = {}
-        self._expected_prices = {}
-        self._save_state()
+        with self._lock:
+            self._orders = {}
+            self._fill_fingerprints = set()
+            self._intent_metadata = {}
+            self._authorizations = {}
+            self._expected_prices = {}
+            self._save_state()
 
     def reconcile_live_state(self) -> ReconciliationSummary:
-        order_updates = 0
-        fill_updates = 0
-        duplicate_fills = 0
-        unmatched_broker_orders = 0
-        applied_fill_order_ids: list[str] = []
+        with self._lock:
+            order_updates = 0
+            fill_updates = 0
+            duplicate_fills = 0
+            unmatched_broker_orders = 0
+            applied_fill_order_ids: list[str] = []
 
-        known_by_broker_order_id = {
-            report.broker_order_id: intent_id
-            for intent_id, report in self._orders.items()
-            if report.broker_order_id
-        }
+            known_by_broker_order_id = {
+                report.broker_order_id: intent_id
+                for intent_id, report in self._orders.items()
+                if report.broker_order_id
+            }
 
-        for broker_order in self._live_broker.get_orders():
-            intent_id = known_by_broker_order_id.get(broker_order.broker_order_id)
-            if intent_id is None:
-                unmatched_broker_orders += 1
-                continue
-            current = self._orders[intent_id]
-            merged = self._merge_report(current, broker_order)
-            if merged != current:
-                self._orders[intent_id] = merged
-                order_updates += 1
+            for broker_order in self._live_broker.get_orders():
+                intent_id = known_by_broker_order_id.get(broker_order.broker_order_id)
+                if intent_id is None:
+                    unmatched_broker_orders += 1
+                    continue
+                current = self._orders[intent_id]
+                merged = self._merge_report(current, broker_order)
+                if merged != current:
+                    self._orders[intent_id] = merged
+                    order_updates += 1
 
-        for fill in self._live_broker.reconcile_fills():
-            fingerprint = self._fill_fingerprint(fill)
-            if fingerprint in self._fill_fingerprints:
-                duplicate_fills += 1
-                continue
-            self._fill_fingerprints.add(fingerprint)
-            intent_id = known_by_broker_order_id.get(fill.broker_order_id, fill.order_intent_id)
-            existing = self._orders.get(intent_id)
-            self._orders[intent_id] = self._merge_report(existing, fill) if existing else fill
-            fill_updates += 1
-            applied_fill_order_ids.append(intent_id)
+            for fill in self._live_broker.reconcile_fills():
+                fingerprint = self._fill_fingerprint(fill)
+                if fingerprint in self._fill_fingerprints:
+                    duplicate_fills += 1
+                    continue
+                self._fill_fingerprints.add(fingerprint)
+                intent_id = known_by_broker_order_id.get(fill.broker_order_id, fill.order_intent_id)
+                existing = self._orders.get(intent_id)
+                self._orders[intent_id] = self._merge_report(existing, fill) if existing else fill
+                fill_updates += 1
+                applied_fill_order_ids.append(intent_id)
 
-        self._save_state()
-        return ReconciliationSummary(
-            order_updates=order_updates,
-            fill_updates=fill_updates,
-            duplicate_fills=duplicate_fills,
-            unmatched_broker_orders=unmatched_broker_orders,
-            state_counts=self.order_state_summary(),
-            applied_fill_order_ids=applied_fill_order_ids,
-        )
+            self._save_state()
+            return ReconciliationSummary(
+                order_updates=order_updates,
+                fill_updates=fill_updates,
+                duplicate_fills=duplicate_fills,
+                unmatched_broker_orders=unmatched_broker_orders,
+                state_counts=self.order_state_summary(),
+                applied_fill_order_ids=applied_fill_order_ids,
+            )
 
     def order_state_summary(self) -> dict[str, int]:
         counts: dict[str, int] = {}
