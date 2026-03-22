@@ -1045,22 +1045,47 @@ class TradingCatApplication:
                 "nav": snapshot.nav,
                 "cash": snapshot.cash,
                 "drawdown": snapshot.drawdown,
+                "daily_pnl": snapshot.daily_pnl,
+                "weekly_pnl": snapshot.weekly_pnl,
+                "position_count": len(snapshot.positions),
+                "total_position_value": round(sum(p.market_value for p in snapshot.positions), 4),
+                "cash_ratio": round(snapshot.cash / snapshot.nav, 4) if snapshot.nav else None,
             },
             "assets": {
-                "position_value": round(sum(position.market_value for position in snapshot.positions), 4),
+                "position_value": round(sum(p.market_value for p in snapshot.positions), 4),
                 "cash": snapshot.cash,
+                "positions": [p.model_dump(mode="json") for p in snapshot.positions],
             },
             "accounts": accounts,
             "strategies": {
                 "selection": selection_summary,
                 "allocations": allocation_summary,
+                "rows": selection_summary.get("rows", []),
+                "next_actions": selection_summary.get("next_actions", []),
+                "active_count": selection_summary.get("active_count", 0),
             },
             "candidates": {
+                "rows": candidate_scorecard["rows"],
                 "top_candidates": candidate_scorecard["rows"][:5],
+                "deploy_candidate_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "deploy_candidate"),
+                "paper_only_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "paper_only"),
+                "rejected_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "reject"),
+                "next_actions": candidate_scorecard.get("next_actions", []),
             },
             "trading_plan": {
+                "status": plan.status,
                 "headline": plan.headline,
-                "pending_approvals": sum(1 for request in approval_requests if request.status.value == "pending"),
+                "reasons": plan.reasons,
+                "counts": plan.counts,
+                "items": plan.items,
+                "signal_count": plan.counts.get("signal_count", 0),
+                "intent_count": plan.counts.get("intent_count", 0),
+                "manual_count": plan.counts.get("manual_count", 0),
+                "pending_approvals": [
+                    request.model_dump(mode="json")
+                    for request in approval_requests
+                    if request.status.value == "pending"
+                ],
                 "recent_approvals": [request.model_dump(mode="json") for request in approval_requests[:5]],
             },
             "journal": {

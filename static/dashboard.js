@@ -287,7 +287,8 @@ function renderStrategies() {
 
 function renderStrategyPlanBreakdown() {
   const items = state.summary?.trading_plan?.items ?? [];
-  const approvals = state.summary?.trading_plan?.pending_approvals ?? [];
+  const rawApprovals = state.summary?.trading_plan?.pending_approvals;
+  const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
   const grouped = new Map();
 
   const ensureRow = (strategyId) => {
@@ -339,7 +340,8 @@ function renderStrategyPlanBreakdown() {
 
 function renderMarketPlanBreakdown() {
   const items = state.summary?.trading_plan?.items ?? [];
-  const approvals = state.summary?.trading_plan?.pending_approvals ?? [];
+  const rawApprovals = state.summary?.trading_plan?.pending_approvals;
+  const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
   const grouped = new Map();
 
   const ensureRow = (market) => {
@@ -501,7 +503,7 @@ function renderPlan() {
     [
       `当前账户: ${account.label ?? "N/A"}`,
       `今日计划数: ${fmt(rows.length)}`,
-      `待审批: ${fmt((tradingPlan.pending_approvals ?? []).length)}`,
+      `待审批: ${fmt(Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals.length : tradingPlan.pending_approvals ?? 0)}`,
       `Gate ready: ${fmt(gate.ready)}`,
       `信号数: ${fmt(plan.counts?.signal_count)}`,
       `自动 / 手工: ${fmt(plan.counts?.automated_count)} / ${fmt(plan.counts?.manual_count)}`,
@@ -655,7 +657,7 @@ function renderSignalFunnel() {
   const recentOrders = state.summary?.details?.recent_orders ?? [];
   const signals = Number(tradingPlan.signal_count || 0);
   const intents = Number(tradingPlan.intent_count || 0);
-  const approvals = Number((tradingPlan.pending_approvals ?? []).length);
+  const approvals = Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals.length : Number(tradingPlan.pending_approvals || 0);
   const orders = recentOrders.length;
   const fills = recentOrders.filter((item) => item.status === "filled").length;
 
@@ -693,7 +695,7 @@ function renderExecutionBlockers() {
   const tradingPlan = state.summary?.trading_plan ?? {};
   const details = state.summary?.details ?? {};
   const gateReasons = details.execution_gate?.reasons ?? [];
-  const approvals = tradingPlan.pending_approvals ?? [];
+  const approvals = Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals : [];
   const recentOrders = details.recent_orders ?? [];
   const workingOrders = recentOrders.filter((item) => item.status && item.status !== "filled" && item.status !== "cancelled");
   const rejectedOrders = recentOrders.filter((item) => item.status === "rejected");
@@ -747,7 +749,7 @@ function renderPriorityActions() {
   const strategyActions = state.summary?.strategies?.next_actions ?? [];
   const candidateActions = state.summary?.candidates?.next_actions ?? [];
   const rebalanceRows = (state.rebalance?.rebalance_actions ?? []).filter((row) => row.action !== "hold");
-  const approvals = tradingPlan.pending_approvals ?? [];
+  const approvals = Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals : [];
   const gateReasons = details.execution_gate?.reasons ?? [];
 
   const actions = [];
@@ -851,7 +853,8 @@ function renderSummaries() {
     ],
     "当前没有最近报告卡片。",
   );
-  const approvals = state.summary?.trading_plan?.pending_approvals ?? [];
+  const rawApprovals = state.summary?.trading_plan?.pending_approvals;
+  const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
   const recentOrders = state.summary?.details?.recent_orders ?? [];
   const filledOrders = recentOrders.filter((item) => item.status === "filled").length;
   const workingOrders = recentOrders.filter((item) => item.status && item.status !== "filled" && item.status !== "cancelled").length;
@@ -1022,18 +1025,24 @@ function renderError() {
 }
 
 function renderDashboard() {
-  renderTabs();
-  renderOverview();
-  renderAssets();
-  renderStrategies();
-  renderStrategyPlanBreakdown();
-  renderMarketPlanBreakdown();
-  renderCandidates();
-  renderPlan();
-  renderSignalFunnel();
-  renderExecutionBlockers();
-  renderPriorityActions();
-  renderSummaries();
+  const sections = [
+    renderTabs,
+    renderOverview,
+    renderAssets,
+    renderStrategies,
+    renderStrategyPlanBreakdown,
+    renderMarketPlanBreakdown,
+    renderMarketBudget,
+    renderCandidates,
+    renderPlan,
+    renderSignalFunnel,
+    renderExecutionBlockers,
+    renderPriorityActions,
+    renderSummaries,
+  ];
+  for (const fn of sections) {
+    try { fn(); } catch (err) { console.warn(`[Dashboard] ${fn.name} failed:`, err.message); }
+  }
 }
 
 async function loadDashboard() {
