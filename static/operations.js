@@ -92,7 +92,7 @@ function renderOperations(payload) {
     "operations-blockers",
     [
       ...(latestSummary.blockers ?? []),
-      ...((dashboard.details?.execution_gate?.reasons ?? []).map((item) => `${item.type}: ${item.detail}`)),
+      ...(dashboard.details?.execution_gate?.reasons ?? []),
     ],
     "当前没有阻塞项。",
   );
