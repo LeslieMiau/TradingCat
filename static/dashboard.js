@@ -6,205 +6,6 @@ const state = {
   activeAccount: "total",
 };
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function fmt(value, digits = 2) {
-  if (value == null) return "N/A";
-  if (typeof value === "number") {
-    return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-  }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
-}
-
-function fmtPct(value) {
-  if (value == null) return "N/A";
-  return `${(Number(value) * 100).toFixed(2)}%`;
-}
-
-function money(value) {
-  if (value == null) return "N/A";
-  return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function badgeTone(kind) {
-  if (kind === true || kind === "ok" || kind === "keep" || kind === "active" || kind === "planned") return "ok";
-  if (kind === false || kind === "blocked" || kind === "drop" || kind === "rejected") return "blocked";
-  if (kind === "paper_only" || kind === "warning" || kind === "hold" || kind === "no_trade") return "warning";
-  return "empty";
-}
-
-function metricTile(label, value, subvalue, tone = "empty") {
-  return `
-    <article class="metric-tile">
-      <span class="metric-label">${escapeHtml(label)}</span>
-      <span class="metric-value status-${tone}">${escapeHtml(value)}</span>
-      <div class="metric-subvalue">${escapeHtml(subvalue ?? "")}</div>
-    </article>
-  `;
-}
-
-function setList(id, items, emptyText) {
-  const node = document.getElementById(id);
-Total output lines: 361
-
-  document.getElementById("cash-usage-table").innerHTML = usageRows.length
-    ? usageRows.map((row) => `
-        <tr>
-          <td><strong><a href="/dashboard/accounts/${encodeURIComponent(row.key)}">${escapeHtml(row.label)}</a></strong></td>
-          <td>${escapeHtml(money(row.cash))}</td>
-          <td>${escapeHtml(money(row.planNotional))}</td>
-          <td class="${Number(row.cashUsage || 0) <= 0.3 ? "status-ok" : Number(row.cashUsage || 0) <= 0.6 ? "status-warning" : "status-blocked"}">${escapeHtml(row.cashUsage == null ? "N/A" : fmtPct(row.cashUsage))}</td>
-          <td>${escapeHtml(fmt(row.planCount))}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="5" class="table-empty">当前没有资金使用率数据。</td></tr>';
-
-  const riskRows = usageRows.map((row) => {
-    const accountKey = row.key;
-    const accountItem = allAccounts[accountKey] || {};
-    const topPositionWeight = Math.max(...((accountItem.positions || []).map((position) => Number(position.weight || 0))), 0);
-    const drawdown = Number(accountItem.drawdown || 0);
-    const cashWeight = Number(accountItem.cash_weight || 0);
-    const pressure = Number(row.cashUsage || 0);
-    const severity = drawdown >= 0.15 || topPositionWeight >= 0.25 || pressure >= 0.6
-      ? "blocked"
-      : drawdown >= 0.08 || topPositionWeight >= 0.18 || pressure >= 0.3
-        ? "warning"
-        : "ok";
-    return {
-      ...row,
-      drawdown,
-      cashWeight,
-      topPositionWeight,
-      severity,
-    };
-  });
-  document.getElementById("account-risk-table").innerHTML = riskRows.length
-    ? riskRows.map((row) => `
-        <tr>
-          <td><strong><a href="/dashboard/accounts/${encodeURIComponent(row.key)}">${escapeHtml(row.label)}</a></strong></td>
-          <td class="${row.drawdown <= 0.08 ? "status-ok" : row.drawdown <= 0.15 ? "status-warning" : "status-blocked"}">${escapeHtml(fmtPct(row.drawdown))}</td>
-          <td>${escapeHtml(fmtPct(row.cashWeight))}</td>
-          <td>${escapeHtml(fmtPct(row.topPositionWeight))}</td>
-          <td>${escapeHtml(row.cashUsage == null ? "N/A" : fmtPct(row.cashUsage))}</td>
-          <td><span class="badge status-${badgeTone(row.severity)}">${escapeHtml(row.severity)}</span></td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有账户风险快照。</td></tr>';
-  const concentrationRows = totalPositions
-    .slice()
-    .sort((left, right) => Number(right.weight || 0) - Number(left.weight || 0))
-    .slice(0, 8);
-  document.getElementById("concentration-table").innerHTML = concentrationRows.length
-    ? concentrationRows.map((row) => `
-        <tr>
-          <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(fmtPct(row.weight))}</td>
-          <td>${escapeHtml(money(row.market_value))}</td>
-          <td class="${Number(row.unrealized_pnl || 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(money(row.unrealized_pnl))}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="5" class="table-empty">当前没有集中持仓数据。</td></tr>';
-
-  const aggregate = (items, key) => {
-    const grouped = new Map();
-    items.forEach((item) => {
-      const groupKey = item[key] || "unknown";
-      if (!grouped.has(groupKey)) {
-        grouped.set(groupKey, {
-          label: groupKey,
-          market_value: 0,
-          unrealized_pnl: 0,
-          cost_basis: 0,
-        });
-      }
-      const row = grouped.get(groupKey);
-      row.market_value += Number(item.market_value || 0);
-      row.unrealized_pnl += Number(item.unrealized_pnl || 0);
-      row.cost_basis += Number(item.cost_basis || 0);
-    });
-    return [...grouped.values()].map((row) => ({
-      ...row,
-      return_pct: row.cost_basis > 0 ? row.unrealized_pnl / row.cost_basis : null,
-    }));
-  };
-  const marketRows = aggregate(totalPositions, "market");
-  const assetRows = aggregate(totalPositions, "asset_class");
-  const renderPnlRows = (rows, emptyCols) => rows.length
-    ? rows.map((row) => `
-        <tr>
-          <td>${escapeHtml(row.label)}</td>
-          <td>${escapeHtml(money(row.market_value))}</td>
-          <td class="${row.unrealized_pnl >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(money(row.unrealized_pnl))}</td>
-          <td class="${(row.return_pct ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(row.return_pct == null ? "N/A" : fmtPct(row.return_pct))}</td>
-        </tr>
-      `).join("")
-    : `<tr><td colspan="${emptyCols}" class="table-empty">当前没有收益来源数据。</td></tr>`;
-  document.getElementById("pnl-market-table").innerHTML = renderPnlRows(marketRows, 4);
-  document.getElementById("pnl-asset-table").innerHTML = renderPnlRows(assetRows, 4);
-
-  const rebalance = state.rebalance || {};
-  const rebalanceRows = rebalance.rebalance_actions || [];
-  const buyCount = rebalanceRows.filter((row) => row.action === "buy").length;
-  const trimCount = rebalanceRows.filter((row) => row.action === "trim").length;
-  const holdCount = rebalanceRows.filter((row) => row.action === "hold").length;
-  document.getElementById("rebalance-metrics").innerHTML = [
-    metricTile("建议条数", fmt(rebalanceRows.length), "rebalance actions", rebalanceRows.length ? "ok" : "warning"),
-    metricTile("补仓", fmt(buyCount), "buy actions", buyCount ? "warning" : "ok"),
-    metricTile("减仓", fmt(trimCount), "trim actions", trimCount ? "warning" : "ok"),
-    metricTile("保持", fmt(holdCount), "hold actions", holdCount ? "ok" : "empty"),
-  ].join("");
-  document.getElementById("rebalance-table").innerHTML = rebalanceRows.length
-    ? rebalanceRows.slice(0, 10).map((row) => `
-        <tr>
-          <td>${escapeHtml(row.symbol)}</td>
-          <td>${escapeHtml(fmtPct(row.current_weight))}</td>
-          <td>${escapeHtml(fmtPct(row.target_weight))}</td>
-          <td class="${Math.abs(Number(row.delta || 0)) <= 0.02 ? "status-ok" : Number(row.delta || 0) > 0 ? "status-warning" : "status-blocked"}">${escapeHtml(fmtPct(row.delta))}</td>
-          <td><span class="badge status-${badgeTone(row.action === "hold" ? "ok" : "warning")}">${escapeHtml(row.action)}</span></td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="5" class="table-empty">当前没有再平衡建议。</td></tr>';
-
-  const budgetRows = ["CN", "HK", "US"].map((market) => {
-    const nav = Number(allAccounts[market]?.nav || 0);
-    const actualWeight = totalNav > 0 ? nav / totalNav : null;
-    const targetWeight = Number(rebalance.market_budget?.[market] ?? 0);
-    const delta = actualWeight == null ? null : actualWeight - targetWeight;
-    const action = delta == null
-      ? "unknown"
-      : Math.abs(delta) <= 0.02
-        ? "aligned"
-        : delta > 0
-          ? "overweight"
-          : "underweight";
-    return { market, actualWeight, targetWeight, delta, action };
-  });
-  document.getElementById("market-budget-table").innerHTML = budgetRows.length
-    ? budgetRows.map((row) => `
-        <tr>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(row.actualWeight == null ? "N/A" : fmtPct(row.actualWeight))}</td>
-          <td>${escapeHtml(fmtPct(row.targetWeight))}</td>
-          <td class="${Math.abs(Number(row.delta || 0)) <= 0.02 ? "status-ok" : Number(row.delta || 0) > 0 ? "status-warning" : "status-blocked"}">
-            ${escapeHtml(row.delta == null ? "N/A" : fmtPct(row.delta))}
-            <span class="badge status-${badgeTone(row.action === "aligned" ? "ok" : row.action === "overweight" ? "warning" : row.action === "underweight" ? "blocked" : "empty")}">${escapeHtml(row.action)}</span>
-          </td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="4" class="table-empty">当前没有市场预算数据。</td></tr>';
-}
 
 function accountData() {
   return state.summary?.accounts?.[state.activeAccount] ?? null;
@@ -478,7 +279,30 @@ function renderStrategyPlanBreakdown() {
   const grouped = new Map();
 
   const ensureRow = (strategyId) => {
-Total output lines: 321
+    if (!grouped.has(strategyId)) {
+      grouped.set(strategyId, {
+        market: strategyId,
+        itemCount: 0,
+        approvalCount: 0,
+        notional: 0,
+        strategies: new Set(),
+      });
+    }
+    return grouped.get(strategyId);
+  };
+
+  items.forEach((item) => {
+    const row = ensureRow(item.strategy_id || "unknown");
+    row.itemCount += 1;
+    row.notional += Number(item.reference_price || 0) * Number(item.quantity || 0);
+    row.strategies.add(item.market || "unknown");
+  });
+
+  approvals.forEach((item) => {
+    const row = ensureRow(item.strategy_id || "unknown");
+    row.approvalCount += 1;
+    row.strategies.add(item.market || "unknown");
+  });
 
   const rows = [...grouped.values()].sort((left, right) => right.notional - left.notional);
   document.getElementById("market-plan-metrics").innerHTML = [
@@ -533,7 +357,22 @@ function renderMarketPlanBreakdown() {
   });
 
   const rows = [...grouped.values()].sort((left, right) => right.notional - left.notional);
-document.getElementById("market-budget-table").innerHTML = budgetRows.length
+  document.getElementById("market-plan-table-2").innerHTML = rows.length
+    ? rows.map((row) => `
+        <tr>
+          <td><span class="badge status-${badgeTone(row.approvalCount ? "warning" : "ok")}">${escapeHtml(row.market)}</span></td>
+          <td>${escapeHtml(fmt(row.itemCount))}</td>
+          <td>${escapeHtml(money(row.notional))}</td>
+          <td>${escapeHtml(fmt(row.approvalCount))}</td>
+          <td>${escapeHtml([...row.strategies].slice(0, 3).join(", ") || "N/A")}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="5" class="table-empty">今天还没有按市场拆分的计划。</td></tr>';
+}
+
+function renderMarketBudget() {
+  const budgetRows = state.summary?.market_budget ?? [];
+  document.getElementById("market-budget-table").innerHTML = budgetRows.length
     ? budgetRows.map((row) => `
         <tr>
           <td>${escapeHtml(row.market)}</td>

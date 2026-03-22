@@ -1,47 +1,8 @@
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function fmt(value, digits = 2) {
-  if (value == null) return "N/A";
-  if (typeof value === "number") {
-    return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-  }
-  return String(value);
-}
-
-function fmtPct(value) {
-  if (value == null) return "N/A";
-  return `${(Number(value) * 100).toFixed(2)}%`;
-}
-
-function money(value) {
-  if (value == null) return "N/A";
-  return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 function statusTone(value) {
   if (value === "filled" || value === "approved") return "ok";
   if (value === "pending" || value === "manual" || value === "submitted") return "warning";
   if (value === "rejected" || value === "expired" || value === "not_submitted" || value === "missing") return "blocked";
   return "empty";
-}
-
-function metricTile(label, value, subvalue, tone = "empty") {
-  return `
-    <article class="metric-tile">
-      <span class="metric-label">${escapeHtml(label)}</span>
-      <span class="metric-value status-${tone}">${escapeHtml(value)}</span>
-      <div class="metric-subvalue">${escapeHtml(subvalue ?? "")}</div>
-    </article>
-  `;
 }
 
 function renderCurve(svgId, points) {

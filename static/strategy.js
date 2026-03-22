@@ -1,42 +1,8 @@
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function fmt(value, digits = 2) {
-  if (value == null) return "N/A";
-  if (typeof value === "number") {
-    return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-  }
-  return String(value);
-}
-
-function fmtPct(value) {
-  if (value == null) return "N/A";
-  return `${(Number(value) * 100).toFixed(2)}%`;
-}
-
 function statusTone(value) {
   if (value === "filled" || value === "approved" || value === "aligned") return "ok";
   if (value === "pending" || value === "warning" || value === "manual" || value === "working") return "warning";
   if (value === "rejected" || value === "expired" || value === "missing" || value === "not_submitted") return "blocked";
   return "empty";
-}
-
-function metricTile(label, value, subvalue, tone = "empty") {
-  return `
-    <article class="metric-tile">
-      <span class="metric-label">${escapeHtml(label)}</span>
-      <span class="metric-value status-${tone}">${escapeHtml(value)}</span>
-      <div class="metric-subvalue">${escapeHtml(subvalue ?? "")}</div>
-    </article>
-  `;
 }
 
 function renderCurve(svgId, points, stroke = "#5cc4ff", fill = "rgba(92, 196, 255, 0.12)") {
@@ -62,16 +28,6 @@ function renderCurve(svgId, points, stroke = "#5cc4ff", fill = "rgba(92, 196, 25
     <path d="${area}" fill="${fill}"></path>
     <path d="${line}" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
   `;
-}
-
-function heatTone(value) {
-  if (value == null) return "rgba(22, 32, 43, 0.05)";
-  if (value >= 0.03) return "rgba(14, 138, 97, 0.34)";
-  if (value >= 0.01) return "rgba(14, 138, 97, 0.22)";
-  if (value > 0) return "rgba(14, 138, 97, 0.12)";
-  if (value <= -0.03) return "rgba(180, 35, 24, 0.34)";
-  if (value <= -0.01) return "rgba(180, 35, 24, 0.22)";
-  return "rgba(180, 35, 24, 0.12)";
 }
 
 function renderMonthlyHeatmap(rows) {
