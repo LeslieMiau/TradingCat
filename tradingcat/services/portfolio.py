@@ -28,7 +28,8 @@ class PortfolioService:
             self._daily_pnl = snapshot.daily_pnl
             self._weekly_pnl = snapshot.weekly_pnl
 
-    def snapshot(self) -> PortfolioSnapshot:
+    def current_snapshot(self) -> PortfolioSnapshot:
+        """Return an in-memory snapshot without persisting (safe for GET)."""
         nav = self._cash + sum(position.market_value for position in self._positions)
         for position in self._positions:
             position.cost_basis = round(position.quantity * position.average_cost, 4)
@@ -38,7 +39,7 @@ class PortfolioService:
                 if position.cost_basis > 0
                 else None
             )
-        snapshot = PortfolioSnapshot(
+        return PortfolioSnapshot(
             timestamp=datetime.now(UTC),
             nav=nav,
             cash=self._cash,
@@ -47,10 +48,14 @@ class PortfolioService:
             weekly_pnl=self._weekly_pnl,
             positions=list(self._positions),
         )
-        self._repository.save(snapshot)
-        self._history[snapshot.timestamp.isoformat()] = snapshot
+
+    def snapshot(self) -> PortfolioSnapshot:
+        """Build snapshot AND persist it (use for write paths)."""
+        snap = self.current_snapshot()
+        self._repository.save(snap)
+        self._history[snap.timestamp.isoformat()] = snap
         self._history_repository.save(self._history)
-        return snapshot
+        return snap
 
     def set_risk_state(self, drawdown: float, daily_pnl: float, weekly_pnl: float) -> None:
         self._drawdown = drawdown

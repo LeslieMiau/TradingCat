@@ -6,8 +6,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from io import StringIO
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -429,7 +429,7 @@ class TradingCatApplication:
     def preview_execution(self, as_of: date) -> dict[str, object]:
         signals = self._execution_signals_with_fallback(as_of)
         prices = self._load_prices(signals)
-        snapshot = self.portfolio.snapshot()
+        snapshot = self.portfolio.current_snapshot()
         intents = self.risk.check(
             signals,
             portfolio_nav=snapshot.nav,
@@ -500,7 +500,7 @@ class TradingCatApplication:
     ):
         resolved = self._instrument_for_order(order_intent_id)
         if resolved is None or average_price is None or average_price <= 0:
-            return self.portfolio.snapshot()
+            return self.portfolio.current_snapshot()
         instrument, inferred_side = resolved
         return self.portfolio.apply_fill(instrument, side or inferred_side, filled_quantity, average_price)
 
@@ -938,7 +938,7 @@ class TradingCatApplication:
         )
 
     def rebalance_plan(self, as_of: date) -> dict[str, object]:
-        snapshot = self.portfolio.snapshot()
+        snapshot = self.portfolio.current_snapshot()
         allocation_summary = self.allocations.summary()
         active_allocations = allocation_summary["active"]
         current_weights = {position.instrument.symbol: round(position.weight, 6) for position in snapshot.positions}
@@ -1023,7 +1023,7 @@ class TradingCatApplication:
 
     def dashboard_summary(self, as_of: date | None = None) -> dict[str, object]:
         evaluation_date = as_of or date.today()
-        snapshot = self.portfolio.snapshot()
+        snapshot = self.portfolio.current_snapshot()
         plan = self.trading_journal.latest_plan(as_of=evaluation_date) or self.generate_daily_trading_plan(evaluation_date)
         summary_note = self.trading_journal.latest_summary(as_of=evaluation_date) or self.generate_daily_trading_summary(evaluation_date)
         selection_summary = self.selection.summary()
@@ -1247,6 +1247,25 @@ app = FastAPI(title="TradingCat V1 Control Panel", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+# ---------------------------------------------------------------------------
+# Unified error response
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(RiskViolation)
+async def _risk_violation_handler(_request: Request, exc: RiskViolation) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"ok": False, "error": str(exc), "code": "risk_violation"})
+
+
+@app.exception_handler(ValueError)
+async def _value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "code": "bad_request"})
+
+
+@app.exception_handler(Exception)
+async def _generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"ok": False, "error": str(exc), "code": "internal_error"})
+
+
 def _read_template(name: str) -> HTMLResponse:
     return HTMLResponse((TEMPLATE_DIR / name).read_text(encoding="utf-8"))
 
@@ -1306,7 +1325,7 @@ def dashboard_summary(as_of: date | None = None):
 
 @app.get("/portfolio")
 def portfolio():
-    return app_state.portfolio.snapshot()
+    return app_state.portfolio.current_snapshot()
 
 
 @app.post("/portfolio/risk-state")
