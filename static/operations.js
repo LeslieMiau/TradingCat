@@ -1,24 +1,22 @@
 async function loadPayloads() {
-  const [summaryResp, planResp, summaryListResp, liveResp, rolloutResp, qualityResp, incidentsResp] = await Promise.all([
-    fetch("/dashboard/summary", { headers: { Accept: "application/json" } }),
-    fetch("/journal/plans", { headers: { Accept: "application/json" } }),
-    fetch("/journal/summaries", { headers: { Accept: "application/json" } }),
-    fetch("/ops/live-acceptance", { headers: { Accept: "application/json" } }),
-    fetch("/ops/rollout", { headers: { Accept: "application/json" } }),
-    fetch("/ops/execution-metrics", { headers: { Accept: "application/json" } }),
-    fetch("/ops/incidents/replay?window_days=7", { headers: { Accept: "application/json" } }),
+  const [summaryRes, planRes, summaryListRes, liveRes, rolloutRes, qualityRes, incidentsRes] = await Promise.all([
+    apiFetch("/dashboard/summary"),
+    apiFetch("/journal/plans"),
+    apiFetch("/journal/summaries"),
+    apiFetch("/ops/live-acceptance"),
+    apiFetch("/ops/rollout"),
+    apiFetch("/ops/execution-metrics"),
+    apiFetch("/ops/incidents/replay?window_days=7"),
   ]);
-  if (!summaryResp.ok || !planResp.ok || !summaryListResp.ok || !liveResp.ok || !rolloutResp.ok || !qualityResp.ok || !incidentsResp.ok) {
-    throw new Error("operations endpoints unavailable");
-  }
+  if (!summaryRes.ok) throw new Error(summaryRes.error);
   return {
-    dashboard: await summaryResp.json(),
-    plans: await planResp.json(),
-    summaries: await summaryListResp.json(),
-    liveAcceptance: await liveResp.json(),
-    rollout: await rolloutResp.json(),
-    executionQuality: await qualityResp.json(),
-    incidents: await incidentsResp.json(),
+    dashboard: summaryRes.data,
+    plans: planRes.data ?? [],
+    summaries: summaryListRes.data ?? [],
+    liveAcceptance: liveRes.data ?? {},
+    rollout: rolloutRes.data ?? {},
+    executionQuality: qualityRes.data ?? {},
+    incidents: incidentsRes.data ?? {},
   };
 }
 

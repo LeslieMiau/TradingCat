@@ -84,17 +84,17 @@ function accountLabel(market) {
 
 async function loadStrategy() {
   const strategyId = window.location.pathname.split("/").pop();
-  const [response, summaryResponse] = await Promise.all([
-    fetch(`/research/strategies/${strategyId}`, { headers: { Accept: "application/json" } }),
-    fetch("/dashboard/summary", { headers: { Accept: "application/json" } }),
+  const [strategyRes, summaryRes] = await Promise.all([
+    apiFetch(`/research/strategies/${strategyId}`),
+    apiFetch("/dashboard/summary"),
   ]);
-  if (!response.ok) {
+  if (!strategyRes.ok) {
     document.getElementById("strategy-title").textContent = "策略加载失败";
-    document.getElementById("strategy-subtitle").textContent = `${response.status}`;
+    document.getElementById("strategy-subtitle").textContent = strategyRes.error;
     return;
   }
-  const payload = await response.json();
-  const summary = summaryResponse.ok ? await summaryResponse.json() : {};
+  const payload = strategyRes.data;
+  const summary = summaryRes.data ?? {};
   const recommendation = payload.recommendation || {};
   const metadata = payload.metadata || {};
   document.getElementById("strategy-title").textContent = payload.strategy_id;

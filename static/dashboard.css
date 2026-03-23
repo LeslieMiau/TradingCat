@@ -187,6 +187,18 @@ body {
   overflow-y: auto;
 }
 
+.sidebar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  flex-shrink: 0;
+}
+
+.sidebar-icon svg {
+  display: block;
+}
+
 .sidebar-item {
   display: flex;
   align-items: center;
@@ -1010,4 +1022,401 @@ h1, h2, h3, h4, h5, h6 {
 
 svg .curve-hit:hover {
   fill: rgba(92, 196, 255, 0.15);
+}
+
+/* --------------------------------------------------------------------------
+   Toast Notifications
+   -------------------------------------------------------------------------- */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  min-width: 260px;
+  max-width: 420px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text);
+  animation: toastSlideIn 0.3s ease;
+}
+
+.toast-info { border-left-color: var(--accent); }
+.toast-success { border-left-color: var(--ok); }
+.toast-warning { border-left-color: var(--warn); }
+.toast-error { border-left-color: var(--block); }
+
+.toast-msg { flex: 1; }
+
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.toast-close:hover { color: var(--text); }
+
+.toast-out {
+  animation: toastFadeOut 0.3s ease forwards;
+}
+
+@keyframes toastSlideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes toastFadeOut {
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   Error State
+   -------------------------------------------------------------------------- */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.error-state__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--block-soft);
+  color: var(--block);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error-state__msg {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Trend Icons
+   -------------------------------------------------------------------------- */
+.trend-icon {
+  font-size: 14px;
+  font-weight: 600;
+  margin-left: 4px;
+  display: inline-block;
+}
+
+.trend-up { color: var(--ok); }
+.trend-down { color: var(--block); }
+.trend-flat { color: var(--muted); }
+
+/* --------------------------------------------------------------------------
+   Freshness Indicator
+   -------------------------------------------------------------------------- */
+.freshness-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.freshness-fresh {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+  animation: freshPulse 2s ease-in-out infinite;
+}
+
+.freshness-stale { background: var(--warn); }
+.freshness-expired { background: var(--block); }
+
+@keyframes freshPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* --------------------------------------------------------------------------
+   Unified Empty State
+   -------------------------------------------------------------------------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.empty-state__icon {
+  color: var(--muted);
+  font-size: 20px;
+  opacity: 0.5;
+}
+
+.empty-state__msg {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* --------------------------------------------------------------------------
+   Button Loading State
+   -------------------------------------------------------------------------- */
+.button--loading {
+  pointer-events: none;
+  opacity: 0.7;
+  position: relative;
+}
+
+.button--loading::after {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 6px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btnSpin 0.6s linear infinite;
+}
+
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* --------------------------------------------------------------------------
+   Metric Tile Micro-interactions
+   -------------------------------------------------------------------------- */
+.metric-tile:active {
+  transform: scale(0.97);
+  transition-duration: 0.08s;
+}
+
+/* --------------------------------------------------------------------------
+   Table Enhancements: Sticky header, focused row
+   -------------------------------------------------------------------------- */
+.table-wrap--scroll {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.table-wrap--scroll .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-strong);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.data-table tbody tr.is-focused td {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Table Search Input
+   -------------------------------------------------------------------------- */
+.table-search {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.table-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.table-search::placeholder {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Sidebar Tooltip (collapsed state)
+   -------------------------------------------------------------------------- */
+.sidebar-item {
+  position: relative;
+}
+
+.sidebar:not(:hover) .sidebar-item::after {
+  content: attr(title);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 200;
+}
+
+.sidebar:not(:hover) .sidebar-item:hover::after {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Keyboard Shortcut Overlay
+   -------------------------------------------------------------------------- */
+.shortcut-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  animation: fadeSlideUp 0.2s ease;
+}
+
+.shortcut-overlay__card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  min-width: 320px;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+}
+
+.shortcut-overlay__card h3 {
+  margin: 0 0 18px;
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+.shortcut-overlay__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.shortcut-row kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   Panel Transition for Tab Switching
+   -------------------------------------------------------------------------- */
+.panel--updating {
+  opacity: 0.5;
+  transform: scale(0.995);
+  transition: all 0.12s ease;
+}
+
+/* --------------------------------------------------------------------------
+   Lazy Section Fade-in
+   -------------------------------------------------------------------------- */
+.panel--lazy {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.panel--lazy.panel--loaded {
+  animation: fadeSlideUp 0.35s ease forwards;
+}
+
+/* --------------------------------------------------------------------------
+   Mobile Table Cards
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .data-table.mobile-cards thead { display: none; }
+  .data-table.mobile-cards,
+  .data-table.mobile-cards tbody,
+  .data-table.mobile-cards tr,
+  .data-table.mobile-cards td { display: block; width: 100%; }
+
+  .data-table.mobile-cards tr {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .data-table.mobile-cards td {
+    padding: 4px 0;
+    border-bottom: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .data-table.mobile-cards td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+    margin-right: 12px;
+  }
+
+  .toast-container {
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+  }
+
+  .toast { min-width: unset; }
 }

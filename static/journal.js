@@ -30,36 +30,29 @@ function labelAccount(value) {
   return value == null ? "N/A" : String(value);
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`${url} -> ${response.status}`);
-  return response.json();
-}
-
 async function loadJournal() {
   const account = encodeURIComponent(journalState.account);
-  try {
-    const [latestPlan, latestSummary, plans, summaries] = await Promise.all([
-      fetchJson(`/journal/plans/latest?account=${account}`),
-      fetchJson(`/journal/summaries/latest?account=${account}`),
-      fetchJson(`/journal/plans?account=${account}`),
-      fetchJson(`/journal/summaries?account=${account}`),
-    ]);
-    journalState.latestPlan = latestPlan;
-    journalState.latestSummary = latestSummary;
-    journalState.plans = plans ?? [];
-    journalState.summaries = summaries ?? [];
-    journalState.selectedPlanIndex = 0;
-    journalState.selectedSummaryIndex = 0;
-    journalState.error = null;
-  } catch (error) {
-    journalState.error = error.message;
+  const [latestPlanRes, latestSummaryRes, plansRes, summariesRes] = await Promise.all([
+    apiFetch(`/journal/plans/latest?account=${account}`),
+    apiFetch(`/journal/summaries/latest?account=${account}`),
+    apiFetch(`/journal/plans?account=${account}`),
+    apiFetch(`/journal/summaries?account=${account}`),
+  ]);
+  if (!latestPlanRes.ok && !plansRes.ok) {
+    journalState.error = latestPlanRes.error || plansRes.error;
     journalState.latestPlan = null;
     journalState.latestSummary = null;
     journalState.plans = [];
     journalState.summaries = [];
+    return;
   }
+  journalState.latestPlan = latestPlanRes.data;
+  journalState.latestSummary = latestSummaryRes.data;
+  journalState.plans = plansRes.data ?? [];
+  journalState.summaries = summariesRes.data ?? [];
+  journalState.selectedPlanIndex = 0;
+  journalState.selectedSummaryIndex = 0;
+  journalState.error = null;
 }
 
 function renderTabs() {

@@ -100,15 +100,10 @@ async function loadStrategyImpact(strategyId) {
   if (state.strategyDetailCache[strategyId]) {
     return state.strategyDetailCache[strategyId];
   }
-  const response = await fetch(`/research/strategies/${encodeURIComponent(strategyId)}`, {
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new Error(`strategy detail unavailable: ${strategyId}`);
-  }
-  const payload = await response.json();
-  state.strategyDetailCache[strategyId] = payload;
-  return payload;
+  const result = await apiFetch(`/research/strategies/${encodeURIComponent(strategyId)}`);
+  if (!result.ok) throw new Error(`strategy detail unavailable: ${strategyId}`);
+  state.strategyDetailCache[strategyId] = result.data;
+  return result.data;
 }
 
 function renderImpact(detail) {
@@ -483,18 +478,16 @@ function renderImpact(detail) {
 }
 
 async function loadPayloads() {
-  const [dashboardResp, activeResp, candidateResp] = await Promise.all([
-    fetch("/dashboard/summary", { headers: { Accept: "application/json" } }),
-    fetch("/research/scorecard/run", { method: "POST", headers: { Accept: "application/json" } }),
-    fetch("/research/candidates/scorecard", { method: "POST", headers: { Accept: "application/json" } }),
+  const [dashboardRes, activeRes, candidateRes] = await Promise.all([
+    apiFetch("/dashboard/summary"),
+    apiFetch("/research/scorecard/run", { method: "POST" }),
+    apiFetch("/research/candidates/scorecard", { method: "POST" }),
   ]);
-  if (!dashboardResp.ok || !activeResp.ok || !candidateResp.ok) {
-    throw new Error("research endpoints unavailable");
-  }
+  if (!dashboardRes.ok) throw new Error(dashboardRes.error);
   return {
-    dashboard: await dashboardResp.json(),
-    active: await activeResp.json(),
-    candidates: await candidateResp.json(),
+    dashboard: dashboardRes.data,
+    active: activeRes.data ?? {},
+    candidates: candidateRes.data ?? {},
   };
 }
 
