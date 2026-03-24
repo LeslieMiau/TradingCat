@@ -1,0 +1,31 @@
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# TradingCat is trusted for normal development work, but trading actions still
+# require explicit user direction and are constrained by the repo AGENTS.md.
+
+[profiles.tradingcat_safe]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+approval_policy = "untrusted"
+sandbox_mode = "read-only"
+
+[profiles.tradingcat_dev]
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[profiles.tradingcat_review]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+approval_policy = "untrusted"
+sandbox_mode = "read-only"
+
+# Add project-specific MCP servers only when a real recurring workflow needs
+# live external context.
+# [mcp_servers.example]
+# command = "..."
