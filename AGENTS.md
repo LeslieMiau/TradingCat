@@ -14,8 +14,10 @@
 
 ## Standard Workflow
 - Read the relevant code paths and the nearby tests before editing.
+- If a request will likely require more than 100 lines of code changes or is clearly multi-step, plan first before implementation.
 - If behavior changes, add or update tests in `tests/`.
 - Run the smallest relevant check first. Default to `pytest` unless a narrower check is clearly enough.
+- After functional changes, run the relevant tests, confirm they pass, then push the branch to the remote.
 - End each task with what changed, what was verified, and any remaining risk or unverified path.
 
 ## Setup And Safe Commands
