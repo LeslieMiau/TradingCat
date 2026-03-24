@@ -71,12 +71,13 @@ function renderOverview() {
     metricTile("当前账户 NAV", money(account.nav), `${account.label ?? ""} / 现金 ${money(account.cash)}`, "ok"),
     metricTile("持仓市值", money(account.position_value), `持仓数 ${fmt(account.position_count)}`, "ok"),
     metricTile("现金占比", fmtPct(account.cash_weight), `现金 ${money(account.cash)}`, "warning"),
-    metricTile("总收益", fmtPct(account.total_return ?? overview.total_return), `回撤 ${fmtPct(account.drawdown ?? overview.drawdown)}`, (account.total_return ?? overview.total_return) >= 0 ? "ok" : "blocked"),
-    metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? overview.daily_pnl)} / ${money(account.weekly_pnl ?? overview.weekly_pnl)}`, "PnL", (account.daily_pnl ?? overview.daily_pnl) >= 0 ? "ok" : "blocked"),
+    metricTile("总收益", `${fmtPct(account.total_return ?? overview.total_return)} ${trendIcon(account.total_return ?? overview.total_return)}`, `回撤 ${fmtPct(account.drawdown ?? overview.drawdown)}`, (account.total_return ?? overview.total_return) >= 0 ? "ok" : "blocked"),
+    metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? overview.daily_pnl)} ${trendIcon(account.daily_pnl ?? overview.daily_pnl)} / ${money(account.weekly_pnl ?? overview.weekly_pnl)}`, "PnL", (account.daily_pnl ?? overview.daily_pnl) >= 0 ? "ok" : "blocked"),
     metricTile("运行状态", live.ready_for_live ? "Live Ready" : gate.should_block ? "Blocked" : "Warning", `Gate ${gate.policy_stage ?? "N/A"} / Live ${fmt(live.ready_for_live)}`, tone),
   ];
   document.getElementById("overview-cards").innerHTML = cards.join("");
-  document.getElementById("topline-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  const now = new Date();
+  document.getElementById("topline-updated").innerHTML = `Updated ${now.toLocaleString()} ${freshnessIndicator(now)}`;
   document.getElementById("curve-title").textContent = `${account.label ?? "总账户"}净值曲线`;
   renderCurve(account.nav_curve ?? []);
 }
@@ -94,15 +95,15 @@ function renderAssets() {
       .map(
         (row) => `
           <tr>
-            <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
-            <td>${escapeHtml(row.market)}</td>
-            <td>${escapeHtml(row.asset_class)}</td>
-            <td>${escapeHtml(fmt(row.quantity, 4))}</td>
-            <td>${escapeHtml(money(row.average_cost))}</td>
-            <td>${escapeHtml(money(row.market_value))}</td>
-            <td>${escapeHtml(fmtPct(row.weight))}</td>
-            <td class="${row.unrealized_pnl >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(money(row.unrealized_pnl))}</td>
-            <td class="${(row.unrealized_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.unrealized_return))}</td>
+            <td data-label="资产"><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
+            <td data-label="市场">${escapeHtml(row.market)}</td>
+            <td data-label="类别">${escapeHtml(row.asset_class)}</td>
+            <td data-label="数量">${escapeHtml(fmt(row.quantity, 4))}</td>
+            <td data-label="均价">${escapeHtml(money(row.average_cost))}</td>
+            <td data-label="市值">${escapeHtml(money(row.market_value))}</td>
+            <td data-label="配置">${escapeHtml(fmtPct(row.weight))}</td>
+            <td data-label="浮盈亏" class="${row.unrealized_pnl >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(money(row.unrealized_pnl))} ${trendIcon(row.unrealized_pnl)}</td>
+            <td data-label="收益" class="${(row.unrealized_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.unrealized_return))}</td>
           </tr>
         `,
       )
@@ -1005,29 +1006,35 @@ function renderSummaries() {
 }
 
 async function loadSummary() {
-  try {
-    const [response, incidentsResponse, rebalanceResponse] = await Promise.all([
-      fetch("/dashboard/summary", { headers: { Accept: "application/json" } }),
-      fetch("/ops/incidents/replay?window_days=7", { headers: { Accept: "application/json" } }),
-      fetch("/portfolio/rebalance-plan", {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }),
-    ]);
-    if (!response.ok) throw new Error(`/dashboard/summary -> ${response.status}`);
-    if (!incidentsResponse.ok) throw new Error(`/ops/incidents/replay -> ${incidentsResponse.status}`);
-    if (!rebalanceResponse.ok) throw new Error(`/portfolio/rebalance-plan -> ${rebalanceResponse.status}`);
-    state.summary = await response.json();
-    state.incidents = await incidentsResponse.json();
-    state.rebalance = await rebalanceResponse.json();
-    state.error = null;
-  } catch (error) {
-    state.error = error.message;
+  /* Phase 1: fetch critical summary first for fast first-paint */
+  const summaryResult = await apiFetch("/dashboard/summary");
+  if (!summaryResult.ok) {
+    state.error = summaryResult.error;
     state.summary = null;
     state.incidents = null;
     state.rebalance = null;
+    return;
   }
+  state.summary = summaryResult.data;
+  state.error = null;
+
+  /* Render immediately with primary data */
+  renderDashboard();
+
+  /* Phase 2: fetch secondary data in parallel, update affected sections */
+  const [incidentsResult, rebalanceResult] = await Promise.all([
+    apiFetch("/ops/incidents/replay?window_days=7"),
+    apiFetch("/portfolio/rebalance-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  ]);
+  state.incidents = incidentsResult.ok ? incidentsResult.data : null;
+  state.rebalance = rebalanceResult.ok ? rebalanceResult.data : null;
+  /* Re-render sections that depend on secondary data */
+  try { renderSummaries(); } catch (e) { console.warn("[Dashboard] renderSummaries re-render:", e.message); }
+  try { renderPriorityActions(); } catch (e) { console.warn("[Dashboard] renderPriorityActions re-render:", e.message); }
 }
 
 function renderError() {
@@ -1105,13 +1112,25 @@ function renderDashboard() {
   }
 }
 
+let _dashboardLoading = false;
+
 async function loadDashboard() {
+  if (_dashboardLoading) return;
+  _dashboardLoading = true;
+  const btn = document.getElementById("refresh-dashboard");
+  if (btn) { btn.classList.add("button--loading"); btn.disabled = true; btn.textContent = "加载中..."; }
+
   await loadSummary();
   if (state.error) {
     renderError();
-    return;
+    showToast(state.error, "error");
+  } else {
+    /* renderDashboard already called inside loadSummary for fast first-paint */
+    showToast("数据已刷新", "success", 2000);
   }
-  renderDashboard();
+
+  if (btn) { btn.classList.remove("button--loading"); btn.disabled = false; btn.textContent = "刷新数据"; }
+  _dashboardLoading = false;
 }
 
 document.getElementById("refresh-dashboard")?.addEventListener("click", () => {
@@ -1122,7 +1141,10 @@ document.querySelectorAll("#account-tabs .tab").forEach((node) => {
   node.addEventListener("click", () => {
     state.activeAccount = node.dataset.account;
     renderTabs();
-    renderDashboard();
+    /* Smooth transition on tab switch */
+    const grid = document.querySelector(".dashboard-grid");
+    if (grid) { grid.classList.add("panel--updating"); requestAnimationFrame(() => { renderDashboard(); requestAnimationFrame(() => grid.classList.remove("panel--updating")); }); }
+    else { renderDashboard(); }
   });
 });
 
@@ -1153,4 +1175,17 @@ function enableTableSort() {
   });
 }
 
-loadDashboard().then(() => enableTableSort());
+/* Keyboard shortcuts */
+registerShortcut("r", "刷新数据", () => loadDashboard());
+registerShortcut("1", "切换到总账户", () => { state.activeAccount = "total"; renderTabs(); renderDashboard(); });
+registerShortcut("2", "切换到A股", () => { state.activeAccount = "CN"; renderTabs(); renderDashboard(); });
+registerShortcut("3", "切换到港股", () => { state.activeAccount = "HK"; renderTabs(); renderDashboard(); });
+registerShortcut("4", "切换到美股", () => { state.activeAccount = "US"; renderTabs(); renderDashboard(); });
+registerShortcut("/", "聚焦搜索框", () => { const s = document.querySelector(".table-search"); if (s) { s.focus(); s.scrollIntoView({ behavior: "smooth", block: "center" }); } });
+initKeyboardShortcuts();
+
+loadDashboard().then(() => {
+  enableTableSort();
+  enableTableSearch("search-assets", "assets-table");
+  enableTableSearch("search-candidates", "candidates-table");
+});
