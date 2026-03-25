@@ -211,7 +211,7 @@ def test_research_scorecard_and_strategy_detail_endpoints():
 
     candidate_scorecard = client.post("/research/candidates/scorecard", params={"as_of": "2026-03-08"})
     assert candidate_scorecard.status_code == 200
-    assert len(candidate_scorecard.json()["rows"]) == 5
+    assert len(candidate_scorecard.json()["rows"]) == 6
     assert "correlation_matrix" in candidate_scorecard.json()
     assert "reject_summary" in candidate_scorecard.json()
     assert "verdict_groups" in candidate_scorecard.json()
