@@ -1,3 +1,23 @@
+
+// --- TradingCat UX Redesign Patch ---
+// Gracefully absorb null elements for components removed from the dashboard layout.
+const _originalGetElementById = document.getElementById.bind(document);
+document.getElementById = function(id) {
+    const el = _originalGetElementById(id);
+    if (!el) {
+        return {
+            innerHTML: '',
+            textContent: '',
+            value: '',
+            appendChild: () => {},
+            addEventListener: () => {},
+            classList: { add: ()=>{}, remove: ()=>{}, toggle: ()=>{} },
+            style: {}
+        };
+    }
+    return el;
+};
+// ------------------------------------
 const state = {
   summary: null,
   incidents: null,
