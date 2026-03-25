@@ -72,13 +72,16 @@ body {
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.5;
+  font-variant-numeric: tabular-nums;
   background:
     /* Subtle noise via repeating SVG data-URI */
     url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
     /* Depth gradients */
-    radial-gradient(ellipse at 10% 0%, rgba(92, 196, 255, 0.06), transparent 50%),
-    radial-gradient(ellipse at 85% 5%, rgba(52, 211, 153, 0.04), transparent 45%),
+    radial-gradient(ellipse at 10% 0%, rgba(92, 196, 255, 0.08), transparent 50%),
+    radial-gradient(ellipse at 85% 5%, rgba(52, 211, 153, 0.05), transparent 45%),
+    radial-gradient(ellipse at 50% 80%, rgba(226, 167, 39, 0.03), transparent 50%),
     var(--bg);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -117,7 +120,7 @@ body {
 @keyframes fadeSlideUp {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -132,6 +135,12 @@ body {
   100% {
     background-position: 200% 0;
   }
+}
+
+@keyframes stackShine {
+  0% { left: -100%; }
+  20% { left: 200%; }
+  100% { left: 200%; }
 }
 
 /* --------------------------------------------------------------------------
@@ -331,14 +340,18 @@ body {
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .button:hover {
   background: var(--panel-hover);
   color: var(--text);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+.button:active {
+  transform: scale(0.96);
 }
 
 .button-primary {
@@ -346,11 +359,12 @@ body {
   color: #fff;
   background: linear-gradient(135deg, #3ba8e8 0%, #5cc4ff 100%);
   font-weight: 600;
+  box-shadow: 0 2px 8px rgba(92, 196, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.2);
 }
 
 .button-primary:hover {
   background: linear-gradient(135deg, #4cb5f0 0%, #72cfff 100%);
-  box-shadow: 0 4px 20px rgba(92, 196, 255, 0.25);
+  box-shadow: 0 6px 20px rgba(92, 196, 255, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3);
 }
 
 .button-sm {
@@ -430,14 +444,17 @@ body {
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--panel);
-  box-shadow: none;
+  background: rgba(20, 25, 34, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06), 0 4px 16px rgba(0, 0, 0, 0.1);
   animation: fadeSlideUp 0.4s ease both;
-  transition: border-color 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .panel:hover {
-  border-color: var(--border-strong);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
 /* Staggered entrance delays for panels */
@@ -455,9 +472,9 @@ body {
 
 .panel-highlight {
   background:
-    radial-gradient(ellipse at 0% 0%, rgba(92, 196, 255, 0.06), transparent 40%),
-    radial-gradient(ellipse at 100% 0%, rgba(52, 211, 153, 0.04), transparent 35%),
-    var(--panel);
+    radial-gradient(ellipse at 0% 0%, rgba(92, 196, 255, 0.08), transparent 40%),
+    radial-gradient(ellipse at 100% 0%, rgba(52, 211, 153, 0.06), transparent 35%),
+    rgba(20, 25, 34, 0.65);
 }
 
 .panel-header {
@@ -526,17 +543,20 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--panel-strong);
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.02);
 }
 
 .metric-tile:hover {
   border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(92, 196, 255, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.1);
 }
 
 .detail-card:hover {
   border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.05);
 }
 
 .curve-card,
@@ -707,6 +727,17 @@ body {
 .stack-segment {
   height: 100%;
   float: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.stack-segment::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: stackShine 3s ease-in-out infinite;
 }
 
 .stack-segment.cash {
@@ -715,10 +746,12 @@ body {
 
 .stack-segment.equity {
   background: linear-gradient(135deg, #34d399 0%, #2abf8a 100%);
+  animation-delay: 0.2s;
 }
 
 .stack-segment.option {
   background: linear-gradient(135deg, #e2a727 0%, #d49520 100%);
+  animation-delay: 0.4s;
 }
 
 /* --------------------------------------------------------------------------
@@ -800,11 +833,16 @@ body {
 }
 
 .data-table tbody tr {
-  transition: background 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
 
 .data-table tbody tr:hover td {
-  background: var(--panel-hover);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 /* Subtle alternating rows */
@@ -813,7 +851,7 @@ body {
 }
 
 .data-table tbody tr:nth-child(even):hover td {
-  background: var(--panel-hover);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .data-table tbody tr.is-selected td {
