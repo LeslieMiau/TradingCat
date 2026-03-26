@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+import logging
+import math
+from datetime import UTC, date, datetime, timedelta
 
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OptionContract
 
@@ -60,7 +64,9 @@ class YFinanceMarketDataAdapter:
         for idx, row in df.iterrows():
             ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
             if not isinstance(ts, datetime):
-                ts = datetime.combine(ts, datetime.min.time())
+                ts = datetime.combine(ts, datetime.min.time(), tzinfo=UTC)
+            elif ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
             bars.append(
                 Bar(
                     instrument=instrument,
@@ -80,13 +86,19 @@ class YFinanceMarketDataAdapter:
             ticker = _to_yahoo_ticker(instrument)
             try:
                 info = yf.Ticker(ticker).fast_info
-                quotes[instrument.symbol] = float(info["lastPrice"])
+                price = info["lastPrice"]
+                if price is None or (isinstance(price, float) and math.isnan(price)):
+                    logger.warning("YFinance returned NaN/None price for %s, using 0.0", ticker)
+                    quotes[instrument.symbol] = 0.0
+                else:
+                    quotes[instrument.symbol] = float(price)
             except Exception:
+                logger.warning("YFinance fetch_quotes failed for %s", ticker, exc_info=True)
                 quotes[instrument.symbol] = 0.0
         return quotes
 
-    def fetch_option_chain(self, underlying: str, as_of: date) -> list[OptionContract]:
-        # Yahoo Finance option chain support is US-only and limited
+    def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
+        logger.info("YFinance option chain not implemented; returning empty list for %s", underlying)
         return []
 
     def fetch_corporate_actions(self, instrument: Instrument, start: date, end: date) -> list[dict]:
@@ -107,4 +119,5 @@ class YFinanceMarketDataAdapter:
                     })
             return actions
         except Exception:
+            logger.warning("YFinance fetch_corporate_actions failed for %s", ticker, exc_info=True)
             return []

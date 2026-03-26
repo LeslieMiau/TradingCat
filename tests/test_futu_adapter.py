@@ -78,7 +78,8 @@ class _FakeTradeContext:
         return 0, _FakeTable([{"order_id": "1001", "order_status": "SUBMITTED", "dealt_qty": 0, "price": 10.5}])
 
     def position_list_query(self, trd_env):
-        code = "US.SPY" if self.market == "US" else "HK.0700"
+        code_map = {"US": "US.SPY", "HK": "HK.0700", "CN": "SH.510300"}
+        code = code_map.get(self.market, "US.SPY")
         return 0, _FakeTable([{"code": code, "qty": 10, "market_val": 1000}])
 
     def deal_list_query(self, trd_env):
@@ -100,6 +101,7 @@ class _FakeFt:
     class TrdMarket:
         HK = "HK"
         US = "US"
+        CN = "CN"
 
     class TrdEnv:
         SIMULATE = "SIMULATE"
@@ -178,9 +180,9 @@ def test_futu_broker_adapter_routes_cancel_and_probes(fake_futu_sdk):
     assert health["healthy"] is True
     assert placed.broker_order_id == "1002"
     assert cancelled.status.value == "cancelled"
-    assert len(orders) == 2
-    assert len(positions) == 2
-    assert cash == 100000
-    assert len(fills) == 2
+    assert len(orders) == 3
+    assert len(positions) == 3
+    assert cash == 150000
+    assert len(fills) == 3
     assert probe["status"] == "ok"
-    assert probe["orders"] == 2
+    assert probe["orders"] == 3

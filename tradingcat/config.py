@@ -41,6 +41,8 @@ class FutuConfig(BaseModel):
     environment: str = "SIMULATE"
     hk_trade_market: str = "HK"
     us_trade_market: str = "US"
+    cn_trade_market: str = "CN"
+    adapter_init_timeout: float = 3.0
     unlock_trade_password: str | None = None
 
     @classmethod
@@ -54,6 +56,8 @@ class FutuConfig(BaseModel):
             environment=_getenv("TRADINGCAT_FUTU_ENVIRONMENT", "SIMULATE", env_values).upper(),
             hk_trade_market=_getenv("TRADINGCAT_FUTU_HK_TRADE_MARKET", "HK", env_values).upper(),
             us_trade_market=_getenv("TRADINGCAT_FUTU_US_TRADE_MARKET", "US", env_values).upper(),
+            cn_trade_market=_getenv("TRADINGCAT_FUTU_CN_TRADE_MARKET", "CN", env_values).upper(),
+            adapter_init_timeout=float(_getenv("TRADINGCAT_FUTU_ADAPTER_INIT_TIMEOUT", "3.0", env_values)),
             unlock_trade_password=os.getenv(
                 "TRADINGCAT_FUTU_UNLOCK_TRADE_PASSWORD",
                 env_values.get("TRADINGCAT_FUTU_UNLOCK_TRADE_PASSWORD"),

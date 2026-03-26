@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OptionContract
 
@@ -18,7 +18,7 @@ class StaticMarketDataAdapter:
             bars.append(
                 Bar(
                     instrument=instrument,
-                    timestamp=datetime.combine(current, datetime.min.time()),
+                    timestamp=datetime.combine(current, datetime.min.time(), tzinfo=UTC),
                     open=price * 0.99,
                     high=price * 1.01,
                     low=price * 0.98,
@@ -48,7 +48,7 @@ class StaticMarketDataAdapter:
             bars.append(
                 Bar(
                     instrument=instrument,
-                    timestamp=datetime.combine(sample_date, datetime.min.time()),
+                    timestamp=datetime.combine(sample_date, datetime.min.time(), tzinfo=UTC),
                     open=price * 0.99,
                     high=price * 1.01,
                     low=price * 0.98,
@@ -62,7 +62,7 @@ class StaticMarketDataAdapter:
     def fetch_quotes(self, instruments: list[Instrument]) -> dict[str, float]:
         return {instrument.symbol: 100.0 for instrument in instruments}
 
-    def fetch_option_chain(self, underlying: str, as_of: date) -> list[OptionContract]:
+    def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
         return [
             OptionContract(
                 symbol=f"{underlying}-P-100",

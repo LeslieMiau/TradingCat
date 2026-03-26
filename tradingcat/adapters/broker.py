@@ -51,6 +51,9 @@ class SimulatedBrokerAdapter:
     def reconcile_fills(self) -> list[ExecutionReport]:
         return list(self._orders)
 
+    def health_check(self) -> dict[str, object]:
+        return {"healthy": True, "detail": "Simulated broker is active"}
+
     def probe(self) -> dict:
         return {
             "status": "ok",

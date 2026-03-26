@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import socket
 import time
 from contextlib import suppress
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Callable, TypeVar
+
+logger = logging.getLogger(__name__)
 
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter
@@ -66,7 +69,9 @@ class AdapterFactory:
             },
         }
 
-    def _create_with_timeout(self, factory: Callable[[], T], timeout: float = 3.0) -> T:
+    def _create_with_timeout(self, factory: Callable[[], T], timeout: float | None = None) -> T:
+        if timeout is None:
+            timeout = self._config.futu.adapter_init_timeout
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(factory)
         try:
@@ -85,20 +90,28 @@ class AdapterFactory:
         if self._config.futu.enabled:
             try:
                 self._ensure_futu_endpoint()
-                return self._create_with_timeout(lambda: FutuMarketDataAdapter(self._config.futu))
-            except FutuAdapterUnavailable:
-                pass
+                adapter = self._create_with_timeout(lambda: FutuMarketDataAdapter(self._config.futu))
+                logger.info("Using Futu market data adapter")
+                return adapter
+            except FutuAdapterUnavailable as exc:
+                logger.warning("Futu market data unavailable, falling back: %s", exc)
         if self._config.yfinance.enabled:
+            logger.info("Using YFinance market data adapter")
             return YFinanceMarketDataAdapter()
+        logger.info("Using Static (fallback) market data adapter")
         return StaticMarketDataAdapter()
 
     def create_live_broker_adapter(self):
         if not self._config.futu.enabled:
+            logger.info("Using Simulated broker (Futu disabled)")
             return SimulatedBrokerAdapter()
         try:
             self._ensure_futu_endpoint()
-            return self._create_with_timeout(lambda: FutuBrokerAdapter(self._config.futu))
-        except FutuAdapterUnavailable:
+            adapter = self._create_with_timeout(lambda: FutuBrokerAdapter(self._config.futu))
+            logger.info("Using Futu live broker adapter")
+            return adapter
+        except FutuAdapterUnavailable as exc:
+            logger.warning("Futu broker unavailable, falling back to simulated: %s", exc)
             return SimulatedBrokerAdapter()
 
     def create_manual_broker_adapter(self):

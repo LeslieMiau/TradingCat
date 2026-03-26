@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import UTC, date, datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from tradingcat.config import FutuConfig
 from tradingcat.domain.models import (
@@ -152,13 +155,20 @@ class FutuMarketDataAdapter:
         if ret != self._ft.RET_OK:
             raise RuntimeError(f"Futu quote snapshot failed: {data}")
         snapshots = data.to_dict("records")
+        if len(codes) != len(snapshots):
+            logger.warning(
+                "Futu snapshot count mismatch: requested %d codes, got %d rows",
+                len(codes), len(snapshots),
+            )
         return {
             code.split(".", 1)[1]: float(row["last_price"])
-            for code, row in zip(codes, snapshots, strict=False)
+            for code, row in zip(codes, snapshots)
         }
 
-    def fetch_option_chain(self, underlying: str, as_of: date) -> list[OptionContract]:
-        market = Market.US if underlying.isalpha() else Market.HK
+    def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
+        if market is None:
+            market = Market.US if underlying.isalpha() else Market.HK
+            logger.debug("Inferred market=%s for option chain underlying=%s", market.value, underlying)
         code = f"{market.value}.{underlying}"
         ret, data = self._quote_ctx.get_option_chain(code=code, start=as_of.isoformat(), end=as_of.isoformat())
         if ret != self._ft.RET_OK:
@@ -190,6 +200,7 @@ class FutuMarketDataAdapter:
         for row in data.to_dict("records"):
             row_date = _parse_date(_first_value(row, "ex_div_date", "record_date", "effective_date"))
             if row_date is None:
+                logger.debug("Skipping corporate action record with no parseable date: %s", row)
                 continue
             if start <= row_date <= end:
                 actions.append(row)
@@ -200,10 +211,19 @@ class FutuBrokerAdapter:
     def __init__(self, config: FutuConfig) -> None:
         self._config = config
         self._ft = _load_futu_sdk()
-        self._contexts = {
-            Market.HK: self._ft.OpenSecTradeContext(filter_trdmarket=self._ft.TrdMarket.HK, host=config.host, port=config.port),
-            Market.US: self._ft.OpenSecTradeContext(filter_trdmarket=self._ft.TrdMarket.US, host=config.host, port=config.port),
-        }
+        self._contexts: dict[Market, object] = {}
+        for market, config_attr in [
+            (Market.HK, config.hk_trade_market),
+            (Market.US, config.us_trade_market),
+            (Market.CN, config.cn_trade_market),
+        ]:
+            trd_market = getattr(self._ft.TrdMarket, config_attr, None)
+            if trd_market is None:
+                logger.warning("Futu SDK does not support TrdMarket.%s, skipping %s context", config_attr, market.value)
+                continue
+            self._contexts[market] = self._ft.OpenSecTradeContext(
+                filter_trdmarket=trd_market, host=config.host, port=config.port,
+            )
         for ctx in self._contexts.values():
             _wait_for_session(ctx, self._ft)
         if config.unlock_trade_password:
@@ -313,7 +333,7 @@ class FutuBrokerAdapter:
                             symbol=symbol,
                             market=market,
                             asset_class=_asset_class_from_symbol(symbol),
-                            currency="USD" if market == Market.US else "HKD",
+                            currency={"US": "USD", "HK": "HKD", "CN": "CNY"}.get(market.value, "CNY"),
                         ),
                         quantity=float(row["qty"]),
                         market_value=float(row.get("market_val", 0.0)),
