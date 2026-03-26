@@ -23,15 +23,33 @@ class ResearchService:
         self._backtester = backtester or EventDrivenBacktester()
         self._market_data = market_data
         self._experiments = repository.load()
+        self._strategy_registry: dict[str, object] = {}
 
-    def run_experiment(self, strategy_id: str, as_of: date, signals: list[Signal]) -> BacktestExperiment:
+    def register_strategies(self, strategies: list[object]) -> None:
+        for s in strategies:
+            self._strategy_registry[s.strategy_id] = s  # type: ignore[attr-defined]
+
+    def run_experiment(self, strategy_id: str, as_of: date, signals: list[Signal], strategy: object | None = None) -> BacktestExperiment:
+        if strategy is None:
+            strategy = self._strategy_registry.get(strategy_id)
         sample_start = date(2018, 1, 1)
-        cost_assumptions = self._backtester.cost_assumptions(signals)
-        history_by_symbol = self._load_signal_history(signals, sample_start, as_of)
-        signal_symbols = {signal.instrument.symbol for signal in signals}
+        # For dynamic strategies, collect signals from multiple dates to discover all instruments
+        all_signals = list(signals)
+        if strategy is not None:
+            for probe_month in range(1, 13):
+                probe_date = date(as_of.year, probe_month, 1)
+                for day_offset in [0, 7, 14, 24]:
+                    try:
+                        probe = date(probe_date.year, probe_date.month, min(probe_date.day + day_offset, 28))
+                        all_signals.extend(strategy.generate_signals(probe))  # type: ignore[union-attr]
+                    except Exception:
+                        pass
+        cost_assumptions = self._backtester.cost_assumptions(all_signals or signals)
+        history_by_symbol = self._load_signal_history(all_signals or signals, sample_start, as_of)
+        signal_symbols = {s.instrument.symbol for s in all_signals} if all_signals else {s.instrument.symbol for s in signals}
         complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
-        corporate_actions_by_symbol = self._load_signal_corporate_actions(signals, sample_start, as_of)
-        fx_rates_by_pair = self._load_signal_fx_rates(signals, sample_start, as_of, base_currency="CNY")
+        corporate_actions_by_symbol = self._load_signal_corporate_actions(all_signals or signals, sample_start, as_of)
+        fx_rates_by_pair = self._load_signal_fx_rates(all_signals or signals, sample_start, as_of, base_currency="CNY")
         if complete_history:
             metrics, windows, monthly_returns, ledger = self._backtester.run_walk_forward_from_history(
                 strategy_id,
@@ -42,6 +60,7 @@ class ResearchService:
                 as_of,
                 base_currency="CNY",
                 start_date=sample_start,
+                strategy=strategy,
             )
             data_source = "historical"
         else:

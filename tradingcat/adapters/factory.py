@@ -9,6 +9,7 @@ from typing import Callable, TypeVar
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.futu import FutuAdapterUnavailable, FutuBrokerAdapter, FutuMarketDataAdapter
+from tradingcat.adapters.yfinance_adapter import YFinanceMarketDataAdapter
 from tradingcat.config import AppConfig
 
 
@@ -81,13 +82,15 @@ class AdapterFactory:
             executor.shutdown(wait=True, cancel_futures=True)
 
     def create_market_data_adapter(self):
-        if not self._config.futu.enabled:
-            return StaticMarketDataAdapter()
-        try:
-            self._ensure_futu_endpoint()
-            return self._create_with_timeout(lambda: FutuMarketDataAdapter(self._config.futu))
-        except FutuAdapterUnavailable:
-            return StaticMarketDataAdapter()
+        if self._config.futu.enabled:
+            try:
+                self._ensure_futu_endpoint()
+                return self._create_with_timeout(lambda: FutuMarketDataAdapter(self._config.futu))
+            except FutuAdapterUnavailable:
+                pass
+        if self._config.yfinance.enabled:
+            return YFinanceMarketDataAdapter()
+        return StaticMarketDataAdapter()
 
     def create_live_broker_adapter(self):
         if not self._config.futu.enabled:

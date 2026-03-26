@@ -79,6 +79,7 @@ from tradingcat.services.trading_journal import TradingJournalService
 from tradingcat.strategies.simple import (
     AllWeatherStrategy,
     DefensiveTrendStrategy,
+    Jianfang3LStrategy,
     EquityMomentumStrategy,
     EtfRotationStrategy,
     MeanReversionStrategy,
@@ -257,6 +258,7 @@ class TradingCatApplication:
             MeanReversionStrategy(),
             DefensiveTrendStrategy(),
             AllWeatherStrategy(),
+            Jianfang3LStrategy(),
         ]
 
     @property
@@ -311,6 +313,7 @@ class TradingCatApplication:
             repository=self.backtest_repository,
             market_data=self.market_history,
         )
+        self.research.register_strategies(self.research_strategies)
 
     def recover_runtime(self, trigger: str = "manual") -> dict[str, object]:
         before = self.adapter_factory.broker_diagnostics()
@@ -573,11 +576,11 @@ class TradingCatApplication:
         return self.trading_journal.save_summary(note)
 
     def review_strategy_selections(self, as_of: date) -> dict[str, object]:
-        report = self.research.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of))
+        report = self.research.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of, include_candidates=True))
         return self.selection.review(report)
 
     def review_strategy_allocations(self, as_of: date) -> dict[str, object]:
-        report = self.research.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of))
+        report = self.research.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of, include_candidates=True))
         return self.allocations.review(report)
 
     def data_quality_summary(self, lookback_days: int = 30) -> dict[str, object]:
@@ -1907,7 +1910,7 @@ def research_candidates_scorecard(as_of: date | None = None):
 @app.post("/research/recommendations/run")
 def research_recommendations_run(as_of: date | None = None):
     evaluation_date = as_of or date.today()
-    return app_state.research.recommend_strategy_actions(evaluation_date, app_state._strategy_signal_map(evaluation_date))
+    return app_state.research.recommend_strategy_actions(evaluation_date, app_state._strategy_signal_map(evaluation_date, include_candidates=True))
 
 
 @app.post("/research/ideas/run")
