@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -87,11 +88,28 @@ def _map_order_status(raw_status: Any) -> OrderStatus:
     return OrderStatus.SUBMITTED
 
 
+def _wait_for_session(ctx, ft_module, *, timeout: float = 10.0, interval: float = 0.5) -> None:
+    """Block until the Futu context session is ready or timeout is reached."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if hasattr(ctx, "get_global_state"):
+            ret, data = ctx.get_global_state()
+            if ret == ft_module.RET_OK:
+                return
+        else:
+            return
+        time.sleep(interval)
+    raise FutuAdapterUnavailable(
+        f"Futu session not ready after {timeout}s — is OpenD running on {getattr(ctx, '_host', '?')}?"
+    )
+
+
 class FutuMarketDataAdapter:
     def __init__(self, config: FutuConfig) -> None:
         self._config = config
         self._ft = _load_futu_sdk()
         self._quote_ctx = self._ft.OpenQuoteContext(host=config.host, port=config.port)
+        _wait_for_session(self._quote_ctx, self._ft)
 
     def close(self) -> None:
         self._quote_ctx.close()
@@ -186,6 +204,8 @@ class FutuBrokerAdapter:
             Market.HK: self._ft.OpenSecTradeContext(filter_trdmarket=self._ft.TrdMarket.HK, host=config.host, port=config.port),
             Market.US: self._ft.OpenSecTradeContext(filter_trdmarket=self._ft.TrdMarket.US, host=config.host, port=config.port),
         }
+        for ctx in self._contexts.values():
+            _wait_for_session(ctx, self._ft)
         if config.unlock_trade_password:
             self._unlock_all()
 
