@@ -94,4 +94,6 @@ def sample_instruments() -> list[Instrument]:
         Instrument(symbol="IEF", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="iShares 7-10 Year Treasury Bond ETF"),
         Instrument(symbol="GLD", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="SPDR Gold Shares"),
         Instrument(symbol="GSG", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="iShares S&P GSCI Commodity-Indexed Trust"),
+        Instrument(symbol="300308", market=Market.CN, asset_class=AssetClass.STOCK, currency="CNY", name="中际旭创"),
+        Instrument(symbol="603986", market=Market.CN, asset_class=AssetClass.STOCK, currency="CNY", name="兆易创新"),
     ]

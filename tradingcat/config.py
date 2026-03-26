@@ -86,6 +86,16 @@ class PostgresConfig(BaseModel):
         )
 
 
+class YFinanceConfig(BaseModel):
+    enabled: bool = False
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "YFinanceConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_YFINANCE_ENABLED", "false", env_values).strip().lower()
+        return cls(enabled=enabled_raw in {"1", "true", "yes", "on"})
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -125,6 +135,7 @@ class AppConfig(BaseModel):
     duckdb: DuckDbConfig = Field(default_factory=DuckDbConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     futu: FutuConfig = Field(default_factory=FutuConfig)
+    yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
 
     @classmethod
@@ -140,4 +151,5 @@ class AppConfig(BaseModel):
             duckdb=DuckDbConfig.from_env(dotenv_values),
             scheduler=SchedulerConfig.from_env(dotenv_values),
             futu=FutuConfig.from_env(dotenv_values),
+            yfinance=YFinanceConfig.from_env(dotenv_values),
         )

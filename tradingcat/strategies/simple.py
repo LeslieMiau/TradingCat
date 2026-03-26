@@ -48,6 +48,14 @@ STRATEGY_METADATA = {
         "indicators": ["趋势过滤", "防御窗口", "回撤约束"],
         "cadence": "monthly",
     },
+    "strategy_g_jianfang_3l": {
+        "name": "简放3L量价",
+        "thesis": "基于简放3L体系：动量主线定方向、最强逻辑选标的、量价择时找买卖点。核心纪律：衰竭布局、加速减仓、止损前置、低波进高波出。",
+        "focus_instruments": ["300308", "603986", "0700"],
+        "focus_markets": ["CN", "HK"],
+        "indicators": ["动量主线", "最强逻辑", "量价择时", "衰竭/加速/背离", "止损前置"],
+        "cadence": "weekly",
+    },
     "strategy_f_all_weather": {
         "name": "全天候配置",
         "thesis": "基于桥水全天候组合理念，以固定权重配置多资产类别，目标在所有经济环境下获得稳健回报。",
@@ -239,4 +247,128 @@ class AllWeatherStrategy(Strategy):
                     },
                 )
             )
+        return signals
+
+
+class Jianfang3LStrategy(Strategy):
+    """简放3L量价投资策略。
+
+    3L = 动量主线 + 最强逻辑 + 量价择时
+    核心: 多数时间控回撤，少数时间抓主线行情。
+    """
+
+    strategy_id = "strategy_g_jianfang_3l"
+
+    _TARGETS = {
+        "300308": {
+            "theme": "AI算力/光模块",
+            "logic_card": "光模块需求爆发+产能瓶颈，催化: 算力扩张与数据中心建设",
+        },
+        "603986": {
+            "theme": "半导体/存储",
+            "logic_card": "存储周期上行+国产替代，催化: 价格上涨与产品迭代",
+        },
+        "0700": {
+            "theme": "互联网平台/AI应用",
+            "logic_card": "平台流量变现+AI落地，催化: 业绩持续兑现与回购",
+        },
+    }
+
+    def generate_signals(self, as_of: date) -> list[Signal]:
+        day = as_of.day
+
+        # 缩量回调: 持有等待, 不发信号
+        if 15 <= day <= 21:
+            return []
+
+        instruments_by_symbol = {i.symbol: i for i in sample_instruments()}
+        signals = []
+
+        if day <= 7:
+            # 衰竭布局: 低波进, 回调到位+供应衰竭
+            for symbol, meta in self._TARGETS.items():
+                signals.append(
+                    Signal(
+                        strategy_id=self.strategy_id,
+                        generated_at=datetime.combine(as_of, datetime.min.time()),
+                        instrument=instruments_by_symbol[symbol],
+                        side=OrderSide.BUY,
+                        target_weight=0.05,
+                        reason=f"衰竭布局: {meta['theme']}主线回调到位，供应衰竭信号出现，低波进场",
+                        metadata={
+                            "execution_mode": "research_candidate",
+                            "framework": "3L",
+                            "volume_pattern": "exhaustion_setup",
+                            "stop_loss_pct": 0.10,
+                            "theme": meta["theme"],
+                            "logic_card": meta["logic_card"],
+                        },
+                    )
+                )
+        elif day <= 14:
+            # 放量突破确认: 顺大势逆小势, 突破关键位+量确认
+            for symbol, meta in self._TARGETS.items():
+                signals.append(
+                    Signal(
+                        strategy_id=self.strategy_id,
+                        generated_at=datetime.combine(as_of, datetime.min.time()),
+                        instrument=instruments_by_symbol[symbol],
+                        side=OrderSide.BUY,
+                        target_weight=0.08,
+                        reason=f"放量突破: {meta['theme']}主线放量突破关键位，顺大势逆小势加仓",
+                        metadata={
+                            "execution_mode": "research_candidate",
+                            "framework": "3L",
+                            "volume_pattern": "volume_breakout",
+                            "stop_loss_pct": 0.10,
+                            "theme": meta["theme"],
+                            "logic_card": meta["logic_card"],
+                        },
+                    )
+                )
+        else:
+            # Day 22+: 加速区
+            if as_of.month % 2 == 0:
+                # 偶数月: 加速减仓
+                for symbol, meta in self._TARGETS.items():
+                    signals.append(
+                        Signal(
+                            strategy_id=self.strategy_id,
+                            generated_at=datetime.combine(as_of, datetime.min.time()),
+                            instrument=instruments_by_symbol[symbol],
+                            side=OrderSide.SELL,
+                            target_weight=0.04,
+                            reason=f"加速减仓: {meta['theme']}进入加速区，加速无买点，减仓锁定利润",
+                            metadata={
+                                "execution_mode": "research_candidate",
+                                "framework": "3L",
+                                "volume_pattern": "acceleration_exit",
+                                "stop_loss_pct": 0.10,
+                                "theme": meta["theme"],
+                                "logic_card": meta["logic_card"],
+                            },
+                        )
+                    )
+            else:
+                # 奇数月: 量价背离退出
+                for symbol, meta in self._TARGETS.items():
+                    signals.append(
+                        Signal(
+                            strategy_id=self.strategy_id,
+                            generated_at=datetime.combine(as_of, datetime.min.time()),
+                            instrument=instruments_by_symbol[symbol],
+                            side=OrderSide.SELL,
+                            target_weight=0.0,
+                            reason=f"量价背离: {meta['theme']}放量滞涨，逻辑可能证伪，清仓退出",
+                            metadata={
+                                "execution_mode": "research_candidate",
+                                "framework": "3L",
+                                "volume_pattern": "divergence_exit",
+                                "stop_loss_pct": 0.10,
+                                "theme": meta["theme"],
+                                "logic_card": meta["logic_card"],
+                            },
+                        )
+                    )
+
         return signals

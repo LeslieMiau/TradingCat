@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from typing import Protocol
 
 from tradingcat.domain.models import AssetClass, BacktestLedgerEntry, BacktestMetrics, Bar, CorporateAction, FxRate, Signal
+
+
+class _StrategyLike(Protocol):
+    strategy_id: str
+    def generate_signals(self, as_of: date) -> list[Signal]: ...
 
 
 class EventDrivenBacktester:
@@ -76,16 +82,28 @@ class EventDrivenBacktester:
         base_currency: str = "CNY",
         start_date: date = date(2018, 1, 1),
         window_months: int = 6,
+        strategy: _StrategyLike | None = None,
     ) -> tuple[BacktestMetrics, list[dict[str, object]], list[float], list[BacktestLedgerEntry]]:
-        monthly_returns = self._monthly_returns_from_history(
-            signals,
-            history_by_symbol,
-            corporate_actions_by_symbol or {},
-            fx_rates_by_pair or {},
-            start_date,
-            end_date=as_of,
-            base_currency=base_currency,
-        )
+        if strategy is not None:
+            monthly_returns = self.monthly_returns_from_history_dynamic(
+                strategy,
+                history_by_symbol,
+                corporate_actions_by_symbol or {},
+                fx_rates_by_pair or {},
+                start_date,
+                as_of,
+                base_currency,
+            )
+        else:
+            monthly_returns = self._monthly_returns_from_history(
+                signals,
+                history_by_symbol,
+                corporate_actions_by_symbol or {},
+                fx_rates_by_pair or {},
+                start_date,
+                end_date=as_of,
+                base_currency=base_currency,
+            )
         if not monthly_returns:
             metrics, windows, fallback_returns = self.run_walk_forward(
                 strategy_id,
@@ -373,6 +391,67 @@ class EventDrivenBacktester:
         pair = f"{instrument_currency.upper()}/{base_currency.upper()}"
         pair_seed = sum(ord(char) for char in pair) % 9
         return round((((month_index + pair_seed) % 5) - 2) * 0.0008, 6)
+
+    def monthly_returns_from_history_dynamic(
+        self,
+        strategy: _StrategyLike,
+        history_by_symbol: dict[str, list[Bar]],
+        corporate_actions_by_symbol: dict[str, list[CorporateAction]],
+        fx_rates_by_pair: dict[str, list[FxRate]],
+        start_date: date,
+        end_date: date,
+        base_currency: str,
+    ) -> list[float]:
+        """Compute monthly returns by regenerating signals each month."""
+        # Build monthly close lookup per symbol
+        all_monthly_closes: dict[str, dict[str, float]] = {}
+        all_months: set[str] = set()
+        for symbol, bars in history_by_symbol.items():
+            monthly_closes: dict[str, float] = {}
+            for bar in bars:
+                if start_date <= bar.timestamp.date() <= end_date:
+                    monthly_closes[bar.timestamp.strftime("%Y-%m")] = bar.close
+            if monthly_closes:
+                all_monthly_closes[symbol] = monthly_closes
+                all_months.update(monthly_closes)
+
+        ordered_months = sorted(all_months)
+        if len(ordered_months) < 2:
+            return []
+
+        combined_returns: list[float] = []
+        for i in range(1, len(ordered_months)):
+            current_month = ordered_months[i]
+            previous_month = ordered_months[i - 1]
+            # Generate signals for the 1st of this month
+            year, month = int(current_month[:4]), int(current_month[5:7])
+            signals = strategy.generate_signals(date(year, month, 1))
+            if not signals:
+                # No signal = no position this month, 0 return
+                combined_returns.append(0.0)
+                continue
+
+            total_weight = sum(abs(s.target_weight) for s in signals) or 1.0
+            month_return = 0.0
+            for signal in signals:
+                sym = signal.instrument.symbol
+                closes = all_monthly_closes.get(sym, {})
+                prev_close = closes.get(previous_month)
+                curr_close = closes.get(current_month)
+                if prev_close is None or curr_close is None or prev_close <= 0:
+                    continue
+                signed_weight = signal.target_weight if signal.side.value == "buy" else -signal.target_weight
+                ca_return = self._corporate_action_return(
+                    corporate_actions_by_symbol.get(sym, []), current_month, prev_close
+                )
+                fx_return = self._fx_return(
+                    signal.instrument.currency, base_currency, current_month,
+                    fx_rates_by_pair.get(f"{signal.instrument.currency.upper()}/{base_currency.upper()}"),
+                )
+                asset_return = ((curr_close / prev_close) - 1) + ca_return + fx_return
+                month_return += asset_return * signed_weight / total_weight
+            combined_returns.append(round(month_return, 6))
+        return combined_returns
 
     def _build_portfolio_ledger(self, monthly_returns: list[float], turnover: float, total_cost_bps: float) -> list[BacktestLedgerEntry]:
         entries: list[BacktestLedgerEntry] = []
