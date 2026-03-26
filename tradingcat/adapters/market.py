@@ -90,4 +90,8 @@ def sample_instruments() -> list[Instrument]:
         Instrument(symbol="QQQ", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="Invesco QQQ Trust"),
         Instrument(symbol="0700", market=Market.HK, asset_class=AssetClass.STOCK, currency="HKD", name="Tencent"),
         Instrument(symbol="510300", market=Market.CN, asset_class=AssetClass.ETF, currency="CNY", name="CSI 300 ETF"),
+        Instrument(symbol="TLT", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="iShares 20+ Year Treasury Bond ETF"),
+        Instrument(symbol="IEF", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="iShares 7-10 Year Treasury Bond ETF"),
+        Instrument(symbol="GLD", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="SPDR Gold Shares"),
+        Instrument(symbol="GSG", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="iShares S&P GSCI Commodity-Indexed Trust"),
     ]

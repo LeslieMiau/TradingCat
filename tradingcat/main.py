@@ -77,6 +77,7 @@ from tradingcat.services.scheduler import SchedulerService
 from tradingcat.services.selection import StrategySelectionService
 from tradingcat.services.trading_journal import TradingJournalService
 from tradingcat.strategies.simple import (
+    AllWeatherStrategy,
     DefensiveTrendStrategy,
     EquityMomentumStrategy,
     EtfRotationStrategy,
@@ -255,6 +256,7 @@ class TradingCatApplication:
             OptionHedgeStrategy(),
             MeanReversionStrategy(),
             DefensiveTrendStrategy(),
+            AllWeatherStrategy(),
         ]
 
     @property

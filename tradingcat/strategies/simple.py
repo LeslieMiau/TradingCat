@@ -48,6 +48,14 @@ STRATEGY_METADATA = {
         "indicators": ["趋势过滤", "防御窗口", "回撤约束"],
         "cadence": "monthly",
     },
+    "strategy_f_all_weather": {
+        "name": "全天候配置",
+        "thesis": "基于桥水全天候组合理念，以固定权重配置多资产类别，目标在所有经济环境下获得稳健回报。",
+        "focus_instruments": ["SPY", "TLT", "IEF", "GLD", "GSG"],
+        "focus_markets": ["US"],
+        "indicators": ["固定权重再平衡", "季度触发"],
+        "cadence": "quarterly",
+    },
 }
 
 
@@ -197,3 +205,38 @@ class DefensiveTrendStrategy(Strategy):
                 metadata={"execution_mode": "research_candidate", "regime": "defensive_switch"},
             )
         ]
+
+
+class AllWeatherStrategy(Strategy):
+    strategy_id = "strategy_f_all_weather"
+
+    _TARGET_WEIGHTS = {
+        "SPY": 0.30,
+        "TLT": 0.40,
+        "IEF": 0.15,
+        "GLD": 0.075,
+        "GSG": 0.075,
+    }
+
+    def generate_signals(self, as_of: date) -> list[Signal]:
+        if as_of.month not in {1, 4, 7, 10} or as_of.day > 7:
+            return []
+
+        instruments_by_symbol = {i.symbol: i for i in sample_instruments()}
+        signals = []
+        for symbol, weight in self._TARGET_WEIGHTS.items():
+            signals.append(
+                Signal(
+                    strategy_id=self.strategy_id,
+                    generated_at=datetime.combine(as_of, datetime.min.time()),
+                    instrument=instruments_by_symbol[symbol],
+                    side=OrderSide.BUY,
+                    target_weight=weight,
+                    reason=f"All-Weather quarterly rebalance: {symbol} target {weight:.1%}",
+                    metadata={
+                        "execution_mode": "research_candidate",
+                        "rebalance_quarter": f"{as_of.year}Q{(as_of.month - 1) // 3 + 1}",
+                    },
+                )
+            )
+        return signals
