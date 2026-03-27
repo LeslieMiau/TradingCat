@@ -1,23 +1,3 @@
-
-// --- TradingCat UX Redesign Patch ---
-// Gracefully absorb null elements for components removed from the dashboard layout.
-const _originalGetElementById = document.getElementById.bind(document);
-document.getElementById = function(id) {
-    const el = _originalGetElementById(id);
-    if (!el) {
-        return {
-            innerHTML: '',
-            textContent: '',
-            value: '',
-            appendChild: () => {},
-            addEventListener: () => {},
-            classList: { add: ()=>{}, remove: ()=>{}, toggle: ()=>{} },
-            style: {}
-        };
-    }
-    return el;
-};
-// ------------------------------------
 const state = {
   summary: null,
   incidents: null,
@@ -582,24 +562,6 @@ function renderPlan() {
     }
   }
   setList("plan-body-list", planBody, "今天的计划正文暂无内容。");
-  const heroPlanHeadline = document.getElementById("hero-plan-headline");
-  if (heroPlanHeadline) heroPlanHeadline.textContent = plan.headline ?? "暂无计划说明。";
-  setList("hero-plan-body-list", planBody, "今天的计划正文暂无内容。");
-  const buyItems = (plan.items ?? [])
-    .filter((item) => item.side === "buy")
-    .slice(0, 4)
-    .map((item) => `${item.symbol} / 目标权重 ${item.target_weight == null ? "N/A" : fmtPct(item.target_weight)} / ${item.requires_approval ? "人工审批" : "自动执行"}`);
-  const sellItems = (plan.items ?? [])
-    .filter((item) => item.side === "sell")
-    .slice(0, 4)
-    .map((item) => `${item.symbol} / 目标权重 ${item.target_weight == null ? "N/A" : fmtPct(item.target_weight)} / ${item.requires_approval ? "人工审批" : "自动执行"}`);
-  const manualItems = (plan.items ?? [])
-    .filter((item) => item.requires_approval)
-    .slice(0, 4)
-    .map((item) => `${item.symbol} / ${item.side === "buy" ? "买入" : item.side === "sell" ? "卖出" : "未知"} / ${item.reason ?? "暂无原因说明"}`);
-  setList("hero-plan-buy-list", buyItems, "今天没有买入计划。");
-  setList("hero-plan-sell-list", sellItems, "今天没有卖出计划。");
-  setList("hero-plan-manual-list", manualItems, "今天没有需要人工审批的计划。");
 
   const tbody = document.getElementById("plan-table");
   if (tradingPlan.error) {
@@ -625,86 +587,6 @@ function renderPlan() {
       .join("");
   }
 
-  const buyCount = allPlanItems.filter((item) => item.side === "buy").length;
-  const sellCount = allPlanItems.filter((item) => item.side === "sell").length;
-  const automatedCount = allPlanItems.filter((item) => !item.requires_approval).length;
-  const manualCount = allPlanItems.filter((item) => item.requires_approval).length;
-  const netTargetWeight = allPlanItems.reduce((sum, item) => sum + Number(item.target_weight || 0), 0);
-  const marketCounts = ["CN", "HK", "US"].map((market) => ({
-    market,
-    count: allPlanItems.filter((item) => item.market === market).length,
-  }));
-  const primaryMarket = marketCounts.sort((left, right) => right.count - left.count)[0]?.market ?? "N/A";
-  const directionalBias = buyCount > sellCount ? "risk_on" : sellCount > buyCount ? "risk_off" : "balanced";
-  document.getElementById("plan-direction-metrics").innerHTML = [
-    metricTile("买 / 卖", `${fmt(buyCount)} / ${fmt(sellCount)}`, directionalBias, buyCount >= sellCount ? "ok" : "warning"),
-    metricTile("自动 / 手工", `${fmt(automatedCount)} / ${fmt(manualCount)}`, "execution mix", manualCount ? "warning" : "ok"),
-    metricTile("净目标权重", fmtPct(netTargetWeight), "gross target bias", Math.abs(netTargetWeight) > 0.2 ? "warning" : "ok"),
-    metricTile("主市场", primaryMarket, `CN ${fmt(marketCounts.find((item) => item.market === "CN")?.count ?? 0)} / HK ${fmt(marketCounts.find((item) => item.market === "HK")?.count ?? 0)} / US ${fmt(marketCounts.find((item) => item.market === "US")?.count ?? 0)}`, "ok"),
-  ].join("");
-  document.getElementById("plan-direction-table").innerHTML = [
-    { label: "方向倾向", value: directionalBias, note: buyCount === sellCount ? "买卖数量相当" : buyCount > sellCount ? "买入计划多于卖出计划" : "卖出计划多于买入计划" },
-    { label: "执行模式", value: manualCount ? "mixed" : "automated", note: `${fmt(manualCount)} 笔需要人工审批` },
-    { label: "净暴露", value: fmtPct(netTargetWeight), note: "计划单 target_weight 汇总结果" },
-    { label: "主市场", value: primaryMarket, note: "今天计划单最集中的市场" },
-  ].map((row) => `
-      <tr>
-        <td>${escapeHtml(row.label)}</td>
-        <td>${escapeHtml(row.value)}</td>
-        <td>${escapeHtml(row.note)}</td>
-      </tr>
-    `).join("");
-
-  const notionalRows = allPlanItems
-    .map((item) => ({
-      symbol: item.symbol,
-      market: item.market,
-      side: labelSide(item.side),
-      requiresApproval: item.requires_approval,
-      targetWeight: Number(item.target_weight || 0),
-      notional: Number(item.reference_price || 0) * Number(item.quantity || 0),
-    }))
-    .sort((left, right) => right.notional - left.notional)
-    .slice(0, 8);
-  document.getElementById("plan-notional-top-table").innerHTML = notionalRows.length
-    ? notionalRows.map((row) => `
-        <tr>
-          <td>${escapeHtml(row.symbol)}</td>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(row.side)}</td>
-          <td>${escapeHtml(money(row.notional))}</td>
-          <td>${escapeHtml(fmtPct(row.targetWeight))}</td>
-          <td><span class="badge status-${row.requiresApproval ? "warning" : "ok"}">${row.requiresApproval ? "manual" : "auto"}</span></td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有计划金额排序数据。</td></tr>';
-
-  const currentWeightBySymbol = new Map(
-    allPositions.map((position) => [`${position.market}:${position.symbol}`, Number(position.weight || 0)]),
-  );
-  const gapRows = allPlanItems
-    .map((item) => {
-      const key = `${item.market}:${item.symbol}`;
-      const currentWeight = currentWeightBySymbol.get(key) ?? 0;
-      const targetWeight = Number(item.target_weight || 0);
-      const gap = targetWeight - currentWeight;
-      return { symbol: item.symbol, market: item.market, currentWeight, targetWeight, gap, side: labelSide(item.side) };
-    })
-    .filter((row) => Math.abs(row.gap) > 0.0001)
-    .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
-    .slice(0, 10);
-  document.getElementById("plan-vs-holdings-table").innerHTML = gapRows.length
-    ? gapRows.map((row) => `
-        <tr>
-          <td>${escapeHtml(row.symbol)}</td>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(fmtPct(row.currentWeight))}</td>
-          <td>${escapeHtml(fmtPct(row.targetWeight))}</td>
-          <td class="${row.gap >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.gap))}</td>
-          <td>${escapeHtml(row.side)}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有计划与持仓偏差数据。</td></tr>';
 }
 
 function renderSignalFunnel() {
@@ -870,68 +752,20 @@ function renderSummaries() {
     ...(note.next_actions ?? []),
   ];
   document.getElementById("journal-summary-headline").textContent = note.headline ?? "暂无总结。";
-  setList("daily-highlights", note.highlights?.length ? note.highlights : daily.highlights ?? [], "今日暂无摘要。");
+  /* Merge summary body into daily highlights */
+  const bodyParts = [...(note.highlights ?? []), ...(note.blockers ?? []).map((b) => `阻塞: ${b}`), ...(note.next_actions ?? []).map((a) => `下一步: ${a}`)];
+  const dailyItems = (note.highlights?.length ? note.highlights : daily.highlights ?? []).concat(bodyParts.length ? bodyParts : []);
+  const uniqueDaily = [...new Set(dailyItems)];
+  setList("daily-highlights", uniqueDaily, "今日暂无摘要。");
   setList("weekly-highlights", weekly.highlights ?? [], "本周暂无摘要。");
-  setList("blockers-list", blockers, "当前没有硬阻塞项。");
-  setList("actions-list", actions, "当前没有待处理动作。");
-  const heroSummaryEl = document.getElementById("hero-summary-headline");
-  if (heroSummaryEl) heroSummaryEl.textContent = note.headline ?? "暂无总结。";
-  setList("hero-summary-body-list", [...(note.highlights ?? []), ...(note.blockers ?? []).map((b) => `阻塞：${b}`), ...(note.next_actions ?? []).map((a) => `下一步：${a}`)], "今天还没有总结正文。");
-  setList("hero-summary-metrics-list", [
-    `亮点 ${fmt((note.highlights ?? []).length)}`,
-    `阻塞 ${fmt((note.blockers ?? []).length)}`,
-    `下一步 ${fmt((note.next_actions ?? []).length)}`,
-    `执行 gate: ${details.execution_gate?.ready ? "就绪" : "未就绪"}`,
-  ], "暂无总结指标。");
-  setList("global-blockers-list", blockers, "当前没有全局阻塞项。");
+  /* Merge blockers + actions into one list */
+  const mergedBlockers = [...blockers, ...actions.map((a) => `待处理: ${a}`)];
+  setList("blockers-list", mergedBlockers, "当前没有阻塞项或待处理动作。");
   setList(
     "global-incidents-list",
     (state.incidents?.events ?? []).slice(0, 6).map((item) => `${item.occurred_at} / ${item.category} / ${item.label}`),
     "最近没有关键事件。",
   );
-  const report = state.summary?.details?.latest_report ?? {};
-  const reportCards = report.cards ?? {};
-  document.getElementById("report-snapshot-metrics").innerHTML = [
-    metricTile("报告状态", fmt(report.ready), `category ${fmt(report.category)}`, report.ready ? "ok" : "warning"),
-    metricTile("Execution Gate", fmt(reportCards.execution_gate?.ready), `blocked ${fmt(reportCards.execution_gate?.should_block)}`, reportCards.execution_gate?.ready ? "ok" : "warning"),
-    metricTile("Live Acceptance", fmt(reportCards.live_acceptance?.ready_for_live), `incidents ${fmt(reportCards.live_acceptance?.incident_count)}`, reportCards.live_acceptance?.ready_for_live ? "ok" : "warning"),
-    metricTile("Execution Run", fmt(reportCards.execution_run?.submitted_count), `failed ${fmt(reportCards.execution_run?.failed_count)}`, Number(reportCards.execution_run?.failed_count || 0) === 0 ? "ok" : "warning"),
-  ].join("");
-  setList(
-    "report-snapshot-list",
-    [
-      `report_dir: ${fmt(report.report_dir)}`,
-      `severity: ${fmt(report.severity)}`,
-      `findings: ${fmt((report.findings ?? []).length)}`,
-      `rollout recommendation: ${fmt(reportCards.rollout?.current_recommendation)}`,
-    ],
-    "当前没有最近报告。",
-  );
-  setList(
-    "report-snapshot-cards",
-    [
-      `broker order check: ${fmt(reportCards.broker_order_check?.submission_status)} / ${fmt(reportCards.broker_order_check?.cancellation_status)}`,
-      `cancel open orders: cancelled ${fmt(reportCards.cancel_open_orders?.cancelled_count)}, failed ${fmt(reportCards.cancel_open_orders?.failed_count)}`,
-      `execution quality: within_limits ${fmt(reportCards.execution_quality?.within_limits)}`,
-      `authorization: all_authorized ${fmt(reportCards.execution_authorization?.all_authorized)}`,
-    ],
-    "当前没有最近报告卡片。",
-  );
-  setList("data-health-list", [
-    `data feeds: ${fmt(report.data_feed_status ?? "unknown")}`,
-    `last sync: ${fmt(report.last_sync_at ?? "N/A")}`,
-    `coverage: ${fmt(report.data_coverage ?? "N/A")}`,
-  ], "暂无数据健康信息。");
-  setList("launch-progress-list", [
-    `recommendation: ${fmt(reportCards.rollout?.current_recommendation ?? "N/A")}`,
-    `gate ready: ${fmt(reportCards.execution_gate?.ready ?? false)}`,
-    `live ready: ${fmt(reportCards.live_acceptance?.ready_for_live ?? false)}`,
-  ], "暂无上线推进信息。");
-  const summaryBodyEl = document.getElementById("summary-body-text");
-  if (summaryBodyEl) {
-    const bodyParts = [...(note.highlights ?? []), ...(note.blockers ?? []).map((b) => `阻塞: ${b}`), ...(note.next_actions ?? []).map((a) => `下一步: ${a}`)];
-    summaryBodyEl.textContent = bodyParts.length ? bodyParts.join(" | ") : "暂无总结正文。";
-  }
   const rawApprovals = state.summary?.trading_plan?.pending_approvals;
   const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
   const recentOrders = state.summary?.details?.recent_orders ?? [];
@@ -969,60 +803,6 @@ function renderSummaries() {
     );
   }
   setList("probe-orders-list", probeItems, "当前没有最近验证单。");
-
-  const now = Date.now();
-  const ageMinutes = (value) => {
-    if (!value) return null;
-    const parsed = new Date(value).getTime();
-    if (Number.isNaN(parsed)) return null;
-    return Math.max(0, Math.round((now - parsed) / 60000));
-  };
-  const pendingApprovalAges = approvals.map((item) => ageMinutes(item.created_at)).filter((value) => value != null);
-  const workingOrderAges = recentOrders
-    .filter((item) => item.status && item.status !== "filled" && item.status !== "cancelled")
-    .map((item) => ageMinutes(item.timestamp))
-    .filter((value) => value != null);
-  const filledOrderAges = recentOrders
-    .filter((item) => item.status === "filled")
-    .map((item) => ageMinutes(item.timestamp))
-    .filter((value) => value != null);
-  const latencyRows = [
-    {
-      label: "待审批",
-      count: approvals.length,
-      oldest: pendingApprovalAges.length ? `${fmt(Math.max(...pendingApprovalAges))} min` : "N/A",
-      note: approvals.length ? "最老 pending approval 的创建时间" : "当前没有待审批单。",
-      tone: approvals.length ? "warning" : "ok",
-    },
-    {
-      label: "处理中订单",
-      count: workingOrders,
-      oldest: workingOrderAges.length ? `${fmt(Math.max(...workingOrderAges))} min` : "N/A",
-      note: workingOrders ? "submitted / pending 订单里最老的一笔" : "当前没有处理中订单。",
-      tone: workingOrders ? "warning" : "ok",
-    },
-    {
-      label: "最近成交",
-      count: filledOrders,
-      oldest: filledOrderAges.length ? `${fmt(Math.max(...filledOrderAges))} min` : "N/A",
-      note: filledOrders ? "最近 filled 订单距离现在的时间" : "当前没有最近成交。",
-      tone: filledOrders ? "ok" : "empty",
-    },
-  ];
-  document.getElementById("latency-metrics").innerHTML = [
-    metricTile("待审批年龄", latencyRows[0].oldest, `count ${fmt(latencyRows[0].count)}`, latencyRows[0].tone),
-    metricTile("订单年龄", latencyRows[1].oldest, `count ${fmt(latencyRows[1].count)}`, latencyRows[1].tone),
-    metricTile("最近成交年龄", latencyRows[2].oldest, `count ${fmt(latencyRows[2].count)}`, latencyRows[2].tone),
-    metricTile("执行新鲜度", workingOrders || approvals.length ? "stalled" : "fresh", "approval/order latency snapshot", workingOrders || approvals.length ? "warning" : "ok"),
-  ].join("");
-  document.getElementById("latency-table").innerHTML = latencyRows.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.label)}</td>
-        <td>${escapeHtml(fmt(row.count))}</td>
-        <td>${escapeHtml(row.oldest)}</td>
-        <td>${escapeHtml(row.note)}</td>
-      </tr>
-    `).join("");
 }
 
 async function loadSummary() {
@@ -1064,66 +844,25 @@ function renderError() {
   const el = (id) => document.getElementById(id);
 
   if (el("overview-cards")) el("overview-cards").innerHTML = errorMetric("Dashboard Error");
-  if (el("assets-table")) el("assets-table").innerHTML = errorCell(9);
-  if (el("account-compare-table")) el("account-compare-table").innerHTML = errorCell(7);
-  if (el("cash-usage-metrics")) el("cash-usage-metrics").innerHTML = errorMetric("Cash Usage");
-  if (el("cash-usage-table")) el("cash-usage-table").innerHTML = errorCell(5);
-  if (el("account-risk-table")) el("account-risk-table").innerHTML = errorCell(6);
-  if (el("concentration-table")) el("concentration-table").innerHTML = errorCell(5);
-  if (el("pnl-market-table")) el("pnl-market-table").innerHTML = errorCell(4);
-  if (el("pnl-asset-table")) el("pnl-asset-table").innerHTML = errorCell(4);
-  if (el("rebalance-metrics")) el("rebalance-metrics").innerHTML = errorMetric("Rebalance");
-  if (el("rebalance-table")) el("rebalance-table").innerHTML = errorCell(5);
-  if (el("market-budget-table")) el("market-budget-table").innerHTML = errorCell(4);
-  if (el("strategies-table")) el("strategies-table").innerHTML = errorCell(7);
-  if (el("strategy-plan-metrics")) el("strategy-plan-metrics").innerHTML = errorMetric("Strategy Plan");
-  if (el("strategy-plan-table")) el("strategy-plan-table").innerHTML = errorCell(5);
-  if (el("candidate-metrics")) el("candidate-metrics").innerHTML = errorMetric("Candidates");
-  if (el("candidates-table")) el("candidates-table").innerHTML = errorCell(7);
-  if (el("candidate-group-metrics")) el("candidate-group-metrics").innerHTML = errorMetric("Research Groups");
-  if (el("candidate-groups-table")) el("candidate-groups-table").innerHTML = errorCell(6);
-  if (el("market-plan-table")) el("market-plan-table").innerHTML = errorCell(5);
+  if (el("plan-metrics")) el("plan-metrics").innerHTML = errorMetric("Trading Plan");
   if (el("plan-table")) el("plan-table").innerHTML = errorCell(8);
-  if (el("plan-direction-metrics")) el("plan-direction-metrics").innerHTML = errorMetric("Plan Direction");
-  if (el("plan-direction-table")) el("plan-direction-table").innerHTML = errorCell(3);
-  if (el("plan-notional-top-table")) el("plan-notional-top-table").innerHTML = errorCell(6);
-  if (el("plan-vs-holdings-table")) el("plan-vs-holdings-table").innerHTML = errorCell(6);
-  if (el("signal-funnel-metrics")) el("signal-funnel-metrics").innerHTML = errorMetric("Signal Funnel");
-  if (el("signal-funnel-table")) el("signal-funnel-table").innerHTML = errorCell(4);
-  if (el("execution-blocker-metrics")) el("execution-blocker-metrics").innerHTML = errorMetric("Execution Blockers");
-  if (el("execution-blocker-table")) el("execution-blocker-table").innerHTML = errorCell(4);
   if (el("priority-actions-table")) el("priority-actions-table").innerHTML = errorCell(4);
   setList("daily-highlights", [], message);
   setList("weekly-highlights", [], message);
   setList("blockers-list", [], message);
-  setList("actions-list", [], message);
-  setList("global-blockers-list", [], message);
   setList("global-incidents-list", [], message);
-  if (el("report-snapshot-metrics")) el("report-snapshot-metrics").innerHTML = errorMetric("Report Snapshot");
-  setList("report-snapshot-list", [], message);
-  setList("report-snapshot-cards", [], message);
   if (el("queue-metrics")) el("queue-metrics").innerHTML = errorMetric("Execution Queue");
   setList("queue-approvals-list", [], message);
   setList("queue-orders-list", [], message);
   setList("filled-orders-list", [], message);
   setList("probe-orders-list", [], message);
-  if (el("latency-metrics")) el("latency-metrics").innerHTML = errorMetric("Latency");
-  if (el("latency-table")) el("latency-table").innerHTML = errorCell(4);
 }
 
 function renderDashboard() {
   const sections = [
     renderTabs,
     renderOverview,
-    renderAssets,
-    renderStrategies,
-    renderStrategyPlanBreakdown,
-    renderMarketPlanBreakdown,
-    renderMarketBudget,
-    renderCandidates,
     renderPlan,
-    renderSignalFunnel,
-    renderExecutionBlockers,
     renderPriorityActions,
     renderSummaries,
   ];

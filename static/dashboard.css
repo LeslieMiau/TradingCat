@@ -74,14 +74,10 @@ body {
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
   background:
-    /* Subtle noise via repeating SVG data-URI */
-    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-    /* Depth gradients */
     radial-gradient(ellipse at 10% 0%, rgba(92, 196, 255, 0.08), transparent 50%),
     radial-gradient(ellipse at 85% 5%, rgba(52, 211, 153, 0.05), transparent 45%),
     radial-gradient(ellipse at 50% 80%, rgba(226, 167, 39, 0.03), transparent 50%),
     var(--bg);
-  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -163,6 +159,12 @@ body {
 
 .sidebar:hover {
   width: 220px;
+  box-shadow: var(--shadow-lg);
+}
+
+.sidebar:not(:hover) .sidebar-label {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebar-logo {
@@ -256,10 +258,11 @@ body {
    -------------------------------------------------------------------------- */
 .dashboard-shell {
   margin-left: 56px;
-  width: calc(100vw - 56px - 28px);
+  width: calc(100vw - 56px);
   max-width: 1540px;
   margin-right: auto;
   padding: 24px 14px 48px;
+  overflow-x: hidden;
 }
 
 /* --------------------------------------------------------------------------
@@ -694,6 +697,16 @@ body {
   color: var(--muted);
 }
 
+.detail-sub-header {
+  margin: 14px 0 6px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* --------------------------------------------------------------------------
    18. Stack Bars (Allocation)
    -------------------------------------------------------------------------- */
@@ -954,7 +967,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* --------------------------------------------------------------------------
-   25. Responsive — Mobile
+   25a. Responsive — Medium screens (laptops)
+   -------------------------------------------------------------------------- */
+@media (max-width: 1200px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+  .cards-grid.six {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .cards-grid.four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   25b. Responsive — Mobile
    -------------------------------------------------------------------------- */
 @media (max-width: 768px) {
   /* Collapse sidebar */

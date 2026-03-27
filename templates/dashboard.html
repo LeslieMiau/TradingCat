@@ -7,9 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      rel="preload"
+      as="style"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
+      onload="this.rel='stylesheet'"
     />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" /></noscript>
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body>
@@ -169,45 +172,17 @@
               </ul>
             </article>
             <article class="detail-card">
-              <h3>总结正文</h3>
-              <div id="summary-body-text" class="detail-paragraph">加载中...</div>
-            </article>
-            <article class="detail-card">
               <h3>本周总结</h3>
               <ul id="weekly-highlights" class="detail-list">
                 <li class="detail-empty">加载中...</li>
               </ul>
             </article>
             <article class="detail-card">
-              <h3>当前阻塞项</h3>
+              <h3>阻塞与待处理</h3>
               <ul id="blockers-list" class="detail-list">
                 <li class="detail-empty">加载中...</li>
               </ul>
-            </article>
-            <article class="detail-card">
-              <h3>待处理动作</h3>
-              <ul id="actions-list" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-          </div>
-        </section>
-
-        <!-- 22. 全局阻塞与最近事件 -->
-        <section class="panel">
-          <div class="panel-header">
-            <h2>全局阻塞与最近事件</h2>
-            <span class="meta-text">打开首页就看今天最重要的问题和最近发生的关键事件</span>
-          </div>
-          <div class="summary-grid">
-            <article class="detail-card">
-              <h3>全局阻塞</h3>
-              <ul id="global-blockers-list" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-            <article class="detail-card">
-              <h3>最近事件</h3>
+              <h4 class="detail-sub-header">最近事件</h4>
               <ul id="global-incidents-list" class="detail-list">
                 <li class="detail-empty">加载中...</li>
               </ul>
