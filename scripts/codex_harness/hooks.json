@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/hooks/pre_tool_use_guard.py\"",
+            "statusMessage": "Checking command safety",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

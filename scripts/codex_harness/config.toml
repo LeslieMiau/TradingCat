@@ -1,0 +1,32 @@
+model = "gpt-5-codex"
+model_reasoning_effort = "medium"
+model_reasoning_summary = "concise"
+
+approval_policy = { granular = { sandbox_approval = true, rules = true, mcp_elicitations = true, request_permissions = true, skill_approval = false } }
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+
+[shell_environment_policy]
+inherit = "all"
+exclude = ["*SECRET*", "*TOKEN*", "*KEY*", "*PASSWORD*", "*CREDENTIAL*"]
+ignore_default_excludes = false
+
+[history]
+persistence = "save-all"
+
+[features]
+codex_hooks = true
+multi_agent = true
+shell_snapshot = true
+undo = true
+
+[profiles.deep]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "detailed"
+
+[profiles.readonly_quiet]
+approval_policy = "never"
+sandbox_mode = "read-only"
