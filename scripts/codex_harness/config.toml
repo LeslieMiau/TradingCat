@@ -1,8 +1,9 @@
-model = "gpt-5-codex"
-model_reasoning_effort = "medium"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
 model_reasoning_summary = "concise"
+model_auto_compact_token_limit = 800000
 
-approval_policy = { granular = { sandbox_approval = true, rules = true, mcp_elicitations = true, request_permissions = true, skill_approval = false } }
+approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
@@ -11,22 +12,24 @@ network_access = true
 [shell_environment_policy]
 inherit = "all"
 exclude = ["*SECRET*", "*TOKEN*", "*KEY*", "*PASSWORD*", "*CREDENTIAL*"]
-ignore_default_excludes = false
 
-[history]
-persistence = "save-all"
+[agents]
+max_threads = 6
+max_depth = 2
+job_max_runtime_seconds = 3600
 
 [features]
 codex_hooks = true
-multi_agent = true
-shell_snapshot = true
+memories = true
+enable_fanout = true
 undo = true
+prevent_idle_sleep = true
+
+[profiles.fast]
+model = "gpt-5.3-codex"
+model_reasoning_effort = "medium"
 
 [profiles.deep]
 model = "gpt-5.4"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 model_reasoning_summary = "detailed"
-
-[profiles.readonly_quiet]
-approval_policy = "never"
-sandbox_mode = "read-only"
