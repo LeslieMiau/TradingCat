@@ -17,5 +17,4 @@ def preflight_startup(request: Request):
 
 @router.get("/diagnostics/summary")
 def diagnostics_summary(request: Request):
-    return get_app_state(request).operations_readiness()
-
+    return get_app_state(request).operations_facade.readiness()

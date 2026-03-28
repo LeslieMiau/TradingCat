@@ -25,11 +25,9 @@ def portfolio_risk_state(request: Request, payload: RiskStatePayload):
 
 @router.post("/reconcile")
 def portfolio_reconcile(request: Request):
-    app = get_app_state(request)
-    return app.portfolio.reconcile_with_broker(app._live_broker)
+    return get_app_state(request).reconcile_portfolio_with_live_broker()
 
 
 @router.post("/rebalance-plan")
 def portfolio_rebalance_plan(request: Request, payload: RebalancePlanPayload):
     return get_app_state(request).rebalance_plan(payload.as_of or date.today())
-

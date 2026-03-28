@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 
 from fastapi import FastAPI
@@ -24,6 +24,7 @@ from tradingcat.domain.models import (
     PortfolioSnapshot,
     Signal,
 )
+from tradingcat.facades import AlertsFacade, DashboardFacade, JournalFacade, OperationsFacade, ResearchFacade
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.repositories.state import (
@@ -48,13 +49,11 @@ from tradingcat.repositories.state import (
 )
 from tradingcat.services.alerts import AlertService
 from tradingcat.services.allocation import StrategyAllocationService
-from tradingcat.services.alpha_radar import AlphaRadarService
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.audit import AuditService
 from tradingcat.services.compliance import ComplianceService
 from tradingcat.services.data_sync import HistorySyncService
 from tradingcat.services.execution import ExecutionService
-from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
@@ -70,7 +69,7 @@ from tradingcat.services.reporting import (
 from tradingcat.services.research import ResearchService
 from tradingcat.services.risk import RiskEngine, RiskViolation
 from tradingcat.services.rollout import RolloutPolicyService, RolloutPromotionService
-from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
+from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerService
 from tradingcat.services.selection import StrategySelectionService
 from tradingcat.services.trading_journal import TradingJournalService
@@ -83,6 +82,8 @@ from tradingcat.strategies.simple import (
     MeanReversionStrategy,
     OptionHedgeStrategy,
 )
+from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
+from tradingcat.scheduler_runtime import ApplicationSchedulerRuntime
 
 
 logger = logging.getLogger(__name__)
@@ -121,20 +122,66 @@ class TradingCatApplication:
             DailyTradingSummaryRepository(self.config),
         )
 
-        self._market_data_adapter = None
-        self._live_broker = None
-        self._manual_broker = None
-        self.market_history: MarketDataService
-        self.execution: ExecutionService
-        self.research: ResearchService
-        self.strategy_analysis = None
-        self.research_ideas = None
-        self.alpha_radar: AlphaRadarService
-        self.rule_engine: RuleEngine
-        self.macro_calendar: MacroCalendarService
+        self.runtime: ApplicationRuntime | None = None
+        self.runtime_manager = ApplicationRuntimeManager(self)
+        self.scheduler_runtime = ApplicationSchedulerRuntime(self)
+        self.dashboard_facade = DashboardFacade(self)
+        self.research_facade = ResearchFacade(self)
+        self.operations_facade = OperationsFacade(self)
+        self.journal_facade = JournalFacade(self)
+        self.alerts_facade = AlertsFacade(self)
 
-        self._build_runtime_components()
-        self._register_jobs()
+        self.runtime_manager.initialize()
+        self.scheduler_runtime.register_jobs()
+
+    def _require_runtime(self) -> ApplicationRuntime:
+        if self.runtime is None:
+            raise RuntimeError("Application runtime has not been initialized")
+        return self.runtime
+
+    @property
+    def _market_data_adapter(self):
+        return self._require_runtime().market_data_adapter
+
+    @property
+    def _live_broker(self):
+        return self._require_runtime().live_broker
+
+    @property
+    def _manual_broker(self):
+        return self._require_runtime().manual_broker
+
+    @property
+    def market_history(self) -> MarketDataService:
+        return self._require_runtime().market_history
+
+    @property
+    def execution(self) -> ExecutionService:
+        return self._require_runtime().execution
+
+    @property
+    def research(self) -> ResearchService:
+        return self._require_runtime().research
+
+    @property
+    def strategy_analysis(self):
+        return self._require_runtime().strategy_analysis
+
+    @property
+    def research_ideas(self):
+        return self._require_runtime().research_ideas
+
+    @property
+    def alpha_radar(self):
+        return self._require_runtime().alpha_radar
+
+    @property
+    def macro_calendar(self):
+        return self._require_runtime().macro_calendar
+
+    @property
+    def rule_engine(self) -> RuleEngine:
+        return self._require_runtime().rule_engine
 
     @property
     def research_strategies(self) -> list[object]:
@@ -182,60 +229,10 @@ class TradingCatApplication:
         self.research.clear()
 
     def _build_runtime_components(self) -> None:
-        self._market_data_adapter = self.adapter_factory.create_market_data_adapter()
-        self._live_broker = self.adapter_factory.create_live_broker_adapter()
-        self._manual_broker = self.adapter_factory.create_manual_broker_adapter()
-        self.market_history = MarketDataService(
-            adapter=self._market_data_adapter,
-            instruments=self.instrument_catalog_repository,
-            history=self.market_history_repository,
-        )
-        self.execution = ExecutionService(
-            live_broker=self._live_broker,
-            manual_broker=self._manual_broker,
-            approvals=self.approvals,
-            repository=self.order_repository,
-            state_repository=self.execution_state_repository,
-        )
-        self.research = ResearchService(repository=self.backtest_repository, market_data=self.market_history)
-        self.strategy_analysis = self.research.strategy_analysis
-        self.research_ideas = self.research.research_ideas
-        self.alpha_radar = AlphaRadarService(self.config, self.market_history)
-        self.macro_calendar = MacroCalendarService(self.config)
-        self.rule_engine = RuleEngine(self.config, TriggerRepository(self.config), market_data=self.market_history, execution=self.execution)
-        self.research.register_strategies(self.research_strategies)
+        self.runtime_manager.initialize()
 
     def recover_runtime(self, trigger: str = "manual") -> dict[str, object]:
-        before = self.adapter_factory.broker_diagnostics()
-        previous_market_history = self.market_history
-        previous_execution = self.execution
-        self._build_runtime_components()
-        after = self.adapter_factory.broker_diagnostics()
-        attempt = self.recovery.record(
-            trigger=trigger,
-            retries=1,
-            before_healthy=bool(before.get("healthy", False)),
-            after_healthy=bool(after.get("healthy", False)),
-            changed=(self.market_history is not previous_market_history or self.execution is not previous_execution),
-            detail=str(after.get("detail", "")),
-            before_backend=str(before.get("backend", "unknown")),
-            after_backend=str(after.get("backend", "unknown")),
-        )
-        return {
-            "attempted": True,
-            "attempt": attempt,
-            "before": {
-                "broker_status": before,
-                "market_history_service": type(previous_market_history).__name__,
-                "execution_service": type(previous_execution).__name__,
-            },
-            "after": {
-                "broker_status": after,
-                "market_history_service": type(self.market_history).__name__,
-                "execution_service": type(self.execution).__name__,
-                "live_broker_adapter": type(self._live_broker).__name__,
-            },
-        }
+        return self.runtime_manager.recover(trigger)
 
     def strategy_by_id(self, strategy_id: str):
         for strategy in self.research_strategies:
@@ -292,6 +289,9 @@ class TradingCatApplication:
         ]
         return {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies}
 
+    def strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, list[Signal]]:
+        return self._strategy_signal_map(as_of, include_candidates=include_candidates)
+
     def _dedupe_instruments(self, signals: list[Signal]) -> list[Instrument]:
         seen: set[str] = set()
         result: list[Instrument] = []
@@ -321,6 +321,9 @@ class TradingCatApplication:
                 logger.exception("Failed to fetch market-level cash balances")
                 return {}
         return {}
+
+    def available_cash_by_market(self) -> dict[Market, float]:
+        return self._available_cash_by_market()
 
     def preview_execution(self, as_of: date) -> dict[str, object]:
         signals = self._execution_signals_with_fallback(as_of)
@@ -374,7 +377,7 @@ class TradingCatApplication:
         }
 
     def _instrument_for_order(self, order_intent_id: str) -> tuple[Instrument, OrderSide] | None:
-        intent = self.execution._intents.get(order_intent_id)
+        intent = self.execution.get_registered_intent(order_intent_id)
         if intent is not None:
             return intent.instrument, intent.side
         context = self.execution.resolve_intent_context(order_intent_id)
@@ -395,9 +398,69 @@ class TradingCatApplication:
         instrument, inferred_side = resolved
         return self.portfolio.apply_fill(instrument, side or inferred_side, filled_quantity, average_price)
 
+    def apply_fill_to_portfolio(self, order_intent_id: str, filled_quantity: float, average_price: float | None, side: OrderSide | None = None):
+        return self._apply_fill_to_portfolio(order_intent_id, filled_quantity, average_price, side)
+
     def parse_manual_fill_import(self, csv_text: str, delimiter: str = ",") -> list[ManualFill]:
         reader = csv.DictReader(StringIO(csv_text), delimiter=delimiter)
         return [ManualFill.model_validate(row) for row in reader]
+
+    def reconcile_portfolio_with_live_broker(self):
+        return self.portfolio.reconcile_with_broker(self._live_broker)
+
+    def reconcile_manual_fill(self, fill: ManualFill) -> dict[str, object]:
+        report = self.execution.reconcile_manual_fill(fill)
+        snapshot = self.apply_fill_to_portfolio(fill.order_intent_id, fill.filled_quantity, fill.average_price, fill.side)
+        self.audit.log(category="execution", action="manual_fill", details={"broker_order_id": fill.broker_order_id, "order_intent_id": fill.order_intent_id})
+        return {"report": report, "snapshot": snapshot}
+
+    def reconcile_manual_fill_import(self, fills: list[ManualFill]) -> dict[str, object]:
+        reports = []
+        snapshots = []
+        for fill in fills:
+            reconciled = self.reconcile_manual_fill(fill)
+            reports.append(reconciled["report"])
+            snapshot = reconciled["snapshot"]
+            snapshots.append({"order_intent_id": fill.order_intent_id, "cash": snapshot.cash, "nav": snapshot.nav})
+        self.audit.log(category="execution", action="manual_fill_import", details={"count": len(fills)})
+        return {"count": len(fills), "reports": reports, "snapshots": snapshots}
+
+    def risk_config(self) -> dict[str, object]:
+        return self.risk.config_snapshot()
+
+    def _build_plan_items_from_preview(self, preview: dict[str, object]) -> list[dict[str, object]]:
+        signals = {
+            signal.id: signal
+            for signal in preview.get("signals", [])
+            if isinstance(signal, Signal)
+        }
+        prices = {
+            str(symbol): float(price)
+            for symbol, price in dict(preview.get("prices", {})).items()
+        }
+        items: list[dict[str, object]] = []
+        for intent in preview.get("order_intents", []):
+            if not isinstance(intent, OrderIntent):
+                continue
+            signal = signals.get(intent.signal_id or "")
+            strategy_id = signal.strategy_id if signal is not None else (
+                intent.signal_id.split(":", 1)[0] if intent.signal_id and ":" in intent.signal_id else (intent.signal_id or "manual_trader")
+            )
+            items.append(
+                {
+                    "intent_id": intent.id,
+                    "strategy_id": strategy_id,
+                    "symbol": intent.instrument.symbol,
+                    "market": intent.instrument.market.value,
+                    "side": intent.side.value,
+                    "quantity": intent.quantity,
+                    "target_weight": signal.target_weight if signal is not None else None,
+                    "reference_price": prices.get(intent.instrument.symbol),
+                    "requires_approval": intent.requires_approval,
+                    "reason": intent.notes or (signal.reason if signal is not None else None),
+                }
+            )
+        return items
 
     def generate_daily_trading_plan(self, as_of: date, account: str = "total") -> DailyTradingPlanNote:
         try:
@@ -406,6 +469,7 @@ class TradingCatApplication:
             status = "planned" if not gate["should_block"] else "blocked"
             headline = f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals."
             reasons = list(gate["reasons"]) if gate["should_block"] else ["Execution gate is open for the current preview."]
+            items = self._build_plan_items_from_preview(preview)
             note = DailyTradingPlanNote(
                 as_of=as_of,
                 account=account,
@@ -416,19 +480,10 @@ class TradingCatApplication:
                     "signal_count": int(preview["signal_count"]),
                     "intent_count": int(preview["intent_count"]),
                     "manual_count": int(preview["manual_count"]),
+                    "automated_count": int(preview["intent_count"]) - int(preview["manual_count"]),
                 },
                 metrics={"gate": gate},
-                items=[
-                    {
-                        "strategy_id": intent.signal_id.split(":", 1)[0] if intent.signal_id and ":" in intent.signal_id else intent.signal_id,
-                        "symbol": intent.instrument.symbol,
-                        "market": intent.instrument.market.value,
-                        "side": intent.side.value,
-                        "quantity": intent.quantity,
-                        "requires_approval": intent.requires_approval,
-                    }
-                    for intent in preview["order_intents"]
-                ],
+                items=items,
             )
         except RiskViolation as exc:
             note = DailyTradingPlanNote(
@@ -831,79 +886,7 @@ class TradingCatApplication:
         return curves
 
     def dashboard_summary(self, as_of: date | None = None) -> dict[str, object]:
-        evaluation_date = as_of or date.today()
-        snapshot = self.portfolio.current_snapshot()
-        plan = self.trading_journal.latest_plan(as_of=evaluation_date) or self.generate_daily_trading_plan(evaluation_date)
-        summary_note = self.trading_journal.latest_summary(as_of=evaluation_date) or self.generate_daily_trading_summary(evaluation_date)
-        selection_summary = self.selection.summary()
-        allocation_summary = self.allocations.summary()
-        candidate_scorecard = self.strategy_analysis.build_profit_scorecard(evaluation_date, self._strategy_signal_map(evaluation_date, include_candidates=True))
-        approval_requests = self.approvals.list_requests()
-        accounts = {}
-        curves = self._account_curves()
-        for account in self._account_keys():
-            positions = self._account_positions(snapshot, account)
-            accounts[account] = {
-                "positions": positions,
-                "nav_curve": curves.get(account, []),
-                "cash": self._account_cash_map(snapshot).get(account, 0.0),
-            }
-        return {
-            "overview": {
-                "as_of": evaluation_date,
-                "nav": snapshot.nav,
-                "cash": snapshot.cash,
-                "drawdown": snapshot.drawdown,
-                "daily_pnl": snapshot.daily_pnl,
-                "weekly_pnl": snapshot.weekly_pnl,
-                "position_count": len(snapshot.positions),
-                "total_position_value": round(sum(p.market_value for p in snapshot.positions), 4),
-                "cash_ratio": round(snapshot.cash / snapshot.nav, 4) if snapshot.nav else None,
-            },
-            "assets": {
-                "position_value": round(sum(p.market_value for p in snapshot.positions), 4),
-                "cash": snapshot.cash,
-                "positions": [p.model_dump(mode="json") for p in snapshot.positions],
-            },
-            "accounts": accounts,
-            "strategies": {
-                "selection": selection_summary,
-                "allocations": allocation_summary,
-                "rows": selection_summary.get("rows", []),
-                "next_actions": selection_summary.get("next_actions", []),
-                "active_count": selection_summary.get("active_count", 0),
-            },
-            "candidates": {
-                "rows": candidate_scorecard["rows"],
-                "top_candidates": candidate_scorecard["rows"][:5],
-                "deploy_candidate_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "deploy_candidate"),
-                "paper_only_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "paper_only"),
-                "rejected_count": sum(1 for row in candidate_scorecard["rows"] if row.get("verdict") == "reject"),
-                "next_actions": candidate_scorecard.get("next_actions", []),
-            },
-            "trading_plan": {
-                "status": plan.status,
-                "headline": plan.headline,
-                "reasons": plan.reasons,
-                "counts": plan.counts,
-                "items": plan.items,
-                "signal_count": plan.counts.get("signal_count", 0),
-                "intent_count": plan.counts.get("intent_count", 0),
-                "manual_count": plan.counts.get("manual_count", 0),
-                "pending_approvals": [request.model_dump(mode="json") for request in approval_requests if request.status.value == "pending"],
-                "recent_approvals": [request.model_dump(mode="json") for request in approval_requests[:5]],
-            },
-            "journal": {
-                "recent_plans": [note.model_dump(mode="json") for note in self.trading_journal.list_plans()[:7]],
-                "recent_summaries": [note.model_dump(mode="json") for note in self.trading_journal.list_summaries()[:7]],
-            },
-            "summaries": {"plan": plan, "summary": summary_note},
-            "details": {
-                "execution_gate": self.execution_gate_summary(evaluation_date),
-                "data_quality": self.data_quality_summary(),
-                "operations": self.operations_readiness(),
-            },
-        }
+        return self.dashboard_facade.build_summary(as_of).model_dump(mode="json")
 
     def submit_manual_order(
         self,
@@ -929,7 +912,7 @@ class TradingCatApplication:
                 side=OrderSide(side),
                 target_weight=0.0,
             )
-            price = self.risk._fallback_reference_price(fallback_signal)
+            price = self.risk.fallback_reference_price(fallback_signal)
         implicit_weight = (quantity * price) / snapshot.nav if snapshot.nav > 0 else 0.0
         signal = Signal(
             strategy_id="manual_trader",
@@ -947,7 +930,7 @@ class TradingCatApplication:
             weekly_pnl=snapshot.weekly_pnl,
             prices={instrument.symbol: price},
             available_cash=snapshot.cash,
-            available_cash_by_market=self._available_cash_by_market(),
+            available_cash_by_market=self.available_cash_by_market(),
         )
         algo = None
         if algo_strategy and algo_strategy != "NONE":
@@ -964,9 +947,7 @@ class TradingCatApplication:
         )
         self.execution.register_expected_prices([intent], {instrument.symbol: price})
         report = self.execution.submit(intent)
-        report.emotional_tag = emotional_tag
-        self.execution._orders[intent.id] = report
-        self.execution._save_state()
+        report = self.execution.update_order_report(intent.id, emotional_tag=emotional_tag)
         self.audit.log(
             category="execution",
             action="manual_order_submitted",
@@ -993,162 +974,9 @@ class TradingCatApplication:
         return {"expired_count": len(requests), "requests": requests}
 
     def update_risk_config(self, **changes: float) -> dict[str, object]:
-        config = self.risk._config
-        for key, value in changes.items():
-            setattr(config, key, value)
+        config = self.risk.update_config(**changes)
         self.audit.log(category="risk", action="config_update", details=changes)
-        return {"status": "ok", "config": config.model_dump(mode="json")}
-
-    def _run_daily_signal_cycle(self) -> str:
-        result = self.run_execution_cycle(date.today(), enforce_gate=False)
-        if "submitted_orders" not in result:
-            return "Execution gate blocked"
-        return f"Generated {result['signal_count']} signals and submitted {len(result['submitted_orders'])} orders"
-
-    def _run_market_history_sync_job(self) -> str:
-        result = self.sync_market_history(start=date.today() - timedelta(days=7), end=date.today())
-        return f"Synced {result['instrument_count']} instruments"
-
-    def _run_market_history_gap_repair_job(self) -> str:
-        result = self.repair_market_history_gaps(start=date.today() - timedelta(days=30), end=date.today())
-        return f"Repaired {result['repair_count']} symbols"
-
-    def _run_backtests_job(self) -> str:
-        experiments = []
-        evaluation_date = date.today()
-        for strategy in self.research_strategies:
-            signals = strategy.generate_signals(evaluation_date)
-            experiments.append(self.research.run_experiment(strategy.strategy_id, evaluation_date, signals))
-        return f"Ran {len(experiments)} backtests"
-
-    def _run_research_selection_review_job(self) -> str:
-        result = self.review_strategy_selections(date.today())
-        self.review_strategy_allocations(date.today())
-        return f"Updated {len(result['updated'])} strategy selections"
-
-    def _run_portfolio_snapshot_job(self) -> str:
-        snapshot = self.portfolio.snapshot()
-        return f"Persisted portfolio snapshot: NAV={snapshot.nav:.2f}"
-
-    def _run_broker_auto_recovery_job(self) -> str:
-        result = self.recover_runtime(trigger="automatic")
-        return str(result["after"]["broker_status"]["detail"])
-
-    def _run_approval_expiry_job(self) -> str:
-        expired = self.approvals.expire_stale(timedelta(minutes=self.config.approval_expiry_minutes), reason="Scheduled expiry sweep")
-        return f"Expired {len(expired)} approval requests"
-
-    def _run_operations_journal_job(self) -> str:
-        self.record_operations_journal()
-        return "Recorded operations journal entry"
-
-    def _run_daily_trading_plan_job(self) -> str:
-        return self.generate_daily_trading_plan(date.today()).headline
-
-    def _run_daily_trading_summary_job(self) -> str:
-        return self.generate_daily_trading_summary(date.today()).headline
-
-    def _register_jobs(self) -> None:
-        self.scheduler.register(
-            job_id="us_signal_generation",
-            name="US Signal Generation",
-            description="Generate and risk-check daily US/HK/CN signals",
-            timezone="America/New_York",
-            local_time=time(8, 45),
-            market=Market.US,
-            handler=self._run_daily_signal_cycle,
-        )
-        self.scheduler.register(
-            job_id="market_data_history_sync",
-            name="Market Data History Sync",
-            description="Refresh recent local history coverage for tracked instruments",
-            timezone="Asia/Shanghai",
-            local_time=time(7, 30),
-            market=Market.CN,
-            handler=self._run_market_history_sync_job,
-        )
-        self.scheduler.register(
-            job_id="market_data_gap_repair",
-            name="Market Data Gap Repair",
-            description="Repair missing history windows for tracked instruments",
-            timezone="Asia/Shanghai",
-            local_time=time(7, 40),
-            market=Market.CN,
-            handler=self._run_market_history_gap_repair_job,
-        )
-        self.scheduler.register(
-            job_id="research_backtest_refresh",
-            name="Research Backtest Refresh",
-            description="Run all strategy backtests and persist experiment snapshots",
-            timezone="Asia/Shanghai",
-            local_time=time(7, 0),
-            market=Market.CN,
-            handler=self._run_backtests_job,
-        )
-        self.scheduler.register(
-            job_id="research_selection_review",
-            name="Research Selection Review",
-            description="Refresh persisted strategy admission decisions and target allocations",
-            timezone="Asia/Shanghai",
-            local_time=time(7, 10),
-            market=Market.CN,
-            handler=self._run_research_selection_review_job,
-        )
-        self.scheduler.register(
-            job_id="portfolio_risk_snapshot",
-            name="Portfolio Risk Snapshot",
-            description="Persist current portfolio snapshot for dashboard review",
-            timezone="Asia/Shanghai",
-            local_time=time(18, 0),
-            market=Market.CN,
-            handler=self._run_portfolio_snapshot_job,
-        )
-        self.scheduler.register(
-            job_id="broker_auto_recovery",
-            name="Broker Auto Recovery",
-            description="Attempt runtime rebuild when broker validation degrades",
-            timezone="Asia/Shanghai",
-            local_time=time(8, 55),
-            market=Market.CN,
-            handler=self._run_broker_auto_recovery_job,
-        )
-        self.scheduler.register(
-            job_id="approval_expiry_sweep",
-            name="Approval Expiry Sweep",
-            description="Expire stale manual approval requests",
-            timezone="Asia/Shanghai",
-            local_time=time(8, 30),
-            market=Market.CN,
-            handler=self._run_approval_expiry_job,
-        )
-        self.scheduler.register(
-            job_id="operations_readiness_journal",
-            name="Operations Readiness Journal",
-            description="Persist daily readiness evidence for paper trading acceptance",
-            timezone="Asia/Shanghai",
-            local_time=time(18, 15),
-            market=Market.CN,
-            handler=self._run_operations_journal_job,
-        )
-        self.scheduler.register(
-            job_id="daily_trading_plan_archive",
-            name="Daily Trading Plan Archive",
-            description="Generate and archive the daily trading plan",
-            timezone="Asia/Shanghai",
-            local_time=time(8, 20),
-            market=Market.CN,
-            handler=self._run_daily_trading_plan_job,
-        )
-        self.scheduler.register(
-            job_id="daily_trading_summary_archive",
-            name="Daily Trading Summary Archive",
-            description="Generate and archive the daily trading summary",
-            timezone="Asia/Shanghai",
-            local_time=time(18, 20),
-            market=Market.CN,
-            handler=self._run_daily_trading_summary_job,
-        )
-
+        return {"status": "ok", "config": config}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

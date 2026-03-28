@@ -21,7 +21,7 @@ def execution_reconcile(request: Request):
         report = next((item for item in app.execution.list_orders() if item.order_intent_id == order_id), None)
         if report is None or report.average_price is None:
             continue
-        snapshot = app._apply_fill_to_portfolio(order_id, report.filled_quantity, report.average_price)
+        snapshot = app.apply_fill_to_portfolio(order_id, report.filled_quantity, report.average_price)
         applied_snapshots.append({"order_intent_id": order_id, "nav": snapshot.nav, "cash": snapshot.cash})
     return {"summary": summary, "applied_snapshots": applied_snapshots}
 
@@ -69,4 +69,3 @@ def execution_run(request: Request, payload: ExecutionRunPayload):
 @router.get("/gate")
 def execution_gate(request: Request, as_of: date | None = None):
     return get_app_state(request).execution_gate_summary(as_of or date.today())
-

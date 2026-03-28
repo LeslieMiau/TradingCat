@@ -38,6 +38,14 @@ class RiskEngine:
             "recent": events[:10],
         }
 
+    def config_snapshot(self) -> dict[str, object]:
+        return self._config.model_dump(mode="json")
+
+    def update_config(self, **changes: float) -> dict[str, object]:
+        for key, value in changes.items():
+            setattr(self._config, key, value)
+        return self.config_snapshot()
+
     def check(
         self,
         signal_set: list[Signal],
@@ -115,6 +123,9 @@ class RiskEngine:
             candidate = prices.get(signal.instrument.symbol)
             if candidate is not None and math.isfinite(candidate) and candidate > 0:
                 return candidate
+        return self._fallback_reference_price(signal)
+
+    def fallback_reference_price(self, signal: Signal) -> float:
         return self._fallback_reference_price(signal)
 
     def _fallback_reference_price(self, signal: Signal) -> float:

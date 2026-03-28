@@ -204,6 +204,24 @@ The GUI prototype now focuses on:
 - today's trading plan from execution preview
 - daily / weekly highlights and current blockers
 
+## Current Architecture Map
+
+- `tradingcat/main.py` stays as the thin FastAPI entry point; router registration and error wiring still happen there.
+- Runtime construction and broker/data recovery now live in `tradingcat/runtime.py`, while APScheduler job registration lives in `tradingcat/scheduler_runtime.py`.
+- `tradingcat/app.py` remains the main application shell, but dashboard / research / operations / journal / alerts orchestration is now routed through facade objects in `tradingcat/facades.py`.
+- Server-rendered pages use shared Jinja layout pieces from `templates/base.html` and `templates/partials/`, rather than returning raw HTML strings from route handlers.
+- The dashboard frontend stays framework-free, but the page logic is now split by concern:
+  - `static/dashboard_accounts.js` for account tabs, overview, and account asset helpers
+  - `static/dashboard_strategy.js` for strategy / candidate / trading-plan rendering
+  - `static/dashboard_operations.js` for summaries, blockers, priority actions, and live ops tables
+  - `static/dashboard.js` as the orchestration shell that owns shared state and API loading
+
+## Continue From Here
+
+- If you are resuming refactor work, read `PLAN.json` and `PROGRESS.md` first; they are the authoritative harness state for remaining tasks and prior decisions.
+- Preserve the current public HTTP surface while refactoring internals; route compatibility and dashboard response compatibility are guarded by `tests/test_api.py`.
+- Prefer `.venv/bin/pytest` for local validation in this repo; using the system interpreter can produce false negatives around optional data dependencies.
+
 To prepare Futu integration later:
 
 ```bash

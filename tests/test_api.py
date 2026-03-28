@@ -71,10 +71,57 @@ def test_portfolio_risk_state_endpoint():
     assert "reasons" in payload
 
 
+def test_preflight_and_broker_recovery_endpoints():
+    preflight = client.get("/preflight/startup")
+    assert preflight.status_code == 200
+    preflight_payload = preflight.json()
+    assert preflight_payload["healthy"] is True
+    assert "checks" in preflight_payload
+    assert "recommendations" in preflight_payload
+
+    broker_status = client.get("/broker/status")
+    assert broker_status.status_code == 200
+    status_payload = broker_status.json()
+    assert "healthy" in status_payload
+    assert "backend" in status_payload
+    assert "detail" in status_payload
+
+    broker_recover = client.post("/broker/recover")
+    assert broker_recover.status_code == 200
+    recovery_payload = broker_recover.json()
+    assert recovery_payload["attempted"] is True
+    assert "before" in recovery_payload
+    assert "after" in recovery_payload
+    assert "broker_status" in recovery_payload["before"]
+    assert "broker_status" in recovery_payload["after"]
+    assert "live_broker_adapter" in recovery_payload["after"]
+
+    diagnostics = client.get("/diagnostics/summary")
+    assert diagnostics.status_code == 200
+    diagnostics_payload = diagnostics.json()
+    assert "ready" in diagnostics_payload
+    assert "diagnostics" in diagnostics_payload
+    assert "broker_status" in diagnostics_payload
+
+    readiness = client.get("/ops/readiness")
+    assert readiness.status_code == 200
+    readiness_payload = readiness.json()
+    assert "ready" in readiness_payload
+    assert "diagnostics" in readiness_payload
+    assert "broker_status" in readiness_payload
+
+    dashboard = client.get("/dashboard/summary")
+    assert dashboard.status_code == 200
+    dashboard_payload = dashboard.json()
+    assert "details" in dashboard_payload
+    assert "live_acceptance" in dashboard_payload["details"]
+
+
 def test_dashboard_page_and_assets():
     page = client.get("/dashboard")
     assert page.status_code == 200
     assert "text/html" in page.headers["content-type"]
+    assert "{% extends" not in page.text
     assert "TradingCat Dashboard" in page.text
     assert "账户、策略、计划与总结" in page.text
     assert "账户总览" in page.text
@@ -97,12 +144,36 @@ def test_dashboard_page_and_assets():
     assert "/static/dashboard.css" in page.text
     assert "/static/api.js" in page.text
     assert "/static/components.js" in page.text
+    assert "/static/dashboard_accounts.js" in page.text
+    assert "/static/dashboard_strategy.js" in page.text
+    assert "/static/dashboard_operations.js" in page.text
     assert "/static/dashboard.js" in page.text
 
     js = client.get("/static/dashboard.js")
     assert js.status_code == 200
+    assert "dashboardAccounts?.renderOverview" in js.text
+    assert "dashboardStrategy?.renderPlan" in js.text
+    assert "dashboardOperations?.renderSummaries" in js.text
     assert "API.dashboardSummary" in js.text
     assert "API.portfolioRebalancePlan" in js.text
+
+    accounts_js = client.get("/static/dashboard_accounts.js")
+    assert accounts_js.status_code == 200
+    assert "DashboardAccounts" in accounts_js.text
+    assert "function renderOverview" in accounts_js.text
+    assert "function renderAssets" in accounts_js.text
+
+    strategy_js = client.get("/static/dashboard_strategy.js")
+    assert strategy_js.status_code == 200
+    assert "DashboardStrategy" in strategy_js.text
+    assert "function renderPlan" in strategy_js.text
+    assert "function renderCandidates" in strategy_js.text
+
+    operations_js = client.get("/static/dashboard_operations.js")
+    assert operations_js.status_code == 200
+    assert "DashboardOperations" in operations_js.text
+    assert "function renderSummaries" in operations_js.text
+    assert "function renderPriorityActions" in operations_js.text
 
     api_js = client.get("/static/api.js")
     assert api_js.status_code == 200
@@ -171,6 +242,7 @@ def test_dashboard_summary_endpoint():
     response = client.get("/dashboard/summary")
     assert response.status_code == 200
     payload = response.json()
+    assert "as_of" in payload
     assert "overview" in payload
     assert "assets" in payload
     assert "accounts" in payload
@@ -186,8 +258,22 @@ def test_dashboard_summary_endpoint():
     assert "top_candidates" in payload["candidates"]
     assert "pending_approvals" in payload["trading_plan"]
     assert "recent_approvals" in payload["trading_plan"]
+    assert "latest_plan" in payload["journal"]
+    assert "latest_summary" in payload["journal"]
     assert "recent_plans" in payload["journal"]
     assert "recent_summaries" in payload["journal"]
+    assert "daily" in payload["summaries"]
+    assert "weekly" in payload["summaries"]
+    assert "live_acceptance" in payload["details"]
+    assert "recent_orders" in payload["details"]
+    assert "label" in payload["accounts"]["total"]
+    assert "nav" in payload["accounts"]["total"]
+    assert "position_value" in payload["accounts"]["total"]
+    assert "cash_weight" in payload["accounts"]["total"]
+    assert "plan_items" in payload["accounts"]["total"]
+    for item in payload["details"]["execution_gate"].get("reasons", []):
+        assert "type" in item
+        assert "detail" in item
 
 
 def test_research_scorecard_and_strategy_detail_endpoints():

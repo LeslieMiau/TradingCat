@@ -151,6 +151,12 @@ class ExecutionService:
     def list_orders(self) -> list[ExecutionReport]:
         return list(self._orders.values())
 
+    def get_order(self, order_intent_id: str) -> ExecutionReport | None:
+        return self._orders.get(order_intent_id)
+
+    def get_registered_intent(self, order_intent_id: str) -> OrderIntent | None:
+        return self._intents.get(order_intent_id)
+
     def cancel_open_orders(self) -> dict[str, list[ExecutionReport] | list[dict[str, str]]]:
         reports: list[ExecutionReport] = []
         failures: list[dict[str, str]] = []
@@ -240,6 +246,14 @@ class ExecutionService:
 
     def resolve_intent_context(self, order_intent_id: str) -> dict[str, object] | None:
         return self._intent_metadata.get(order_intent_id)
+
+    def update_order_report(self, order_intent_id: str, **changes: object) -> ExecutionReport:
+        with self._lock:
+            report = self._orders[order_intent_id]
+            updated = report.model_copy(update=changes)
+            self._orders[order_intent_id] = updated
+            self._save_state()
+            return updated
 
     def _register_intent_metadata(self, intent: OrderIntent) -> None:
         self._intent_metadata[intent.id] = {
