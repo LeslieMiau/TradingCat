@@ -54,21 +54,88 @@ function curveValueKey(points) {
   return Object.keys(points?.[0] ?? {}).find((key) => !["index", "t", "date"].includes(key)) || "v";
 }
 
-async function loadStrategy() {
-  const strategyId = window.location.pathname.split("/").pop();
-  const [strategyRes, summaryRes] = await Promise.all([
-    apiFetch(API.researchStrategies(strategyId)),
-    apiFetch(API.dashboardSummary),
-  ]);
-  if (!strategyRes.ok) {
-    document.getElementById("strategy-title").textContent = "策略加载失败";
-    document.getElementById("strategy-subtitle").textContent = strategyRes.error;
-    return;
-  }
-  const payload = strategyRes.data;
-  const summary = summaryRes.data ?? {};
+function buildImplementationRows(signals, strategyPlans, positions, recentOrders, recentApprovals) {
+  return (signals || []).map((item) => {
+    const plan = strategyPlans.find((planItem) => planItem.symbol === item.symbol);
+    const position = positions.find((holding) => holding.symbol === item.symbol);
+    const order = plan ? recentOrders.find((entry) => entry.order_intent_id === plan.intent_id) : null;
+    const approval = plan ? recentApprovals.find((entry) => entry.intent_id === plan.intent_id) : null;
+    return {
+      item,
+      planState: plan ? fmtPct(plan.target_weight) : "N/A",
+      holdingState: position ? fmtPct(position.weight) : "N/A",
+      orderState: order?.status || (plan ? "not_submitted" : "missing"),
+      approvalState: approval?.status || (plan?.requires_approval ? "pending" : "auto"),
+    };
+  });
+}
+
+function buildAccountImpactRows(signals, accounts) {
+  const signalsByMarket = (signals || []).reduce((mapping, item) => {
+    mapping[item.market] = (mapping[item.market] || 0) + 1;
+    return mapping;
+  }, {});
+  const exposureByMarket = (signals || []).reduce((mapping, item) => {
+    mapping[item.market] = (mapping[item.market] || 0) + Math.abs(Number(item.target_weight || 0));
+    return mapping;
+  }, {});
+  const totalNav = Number(accounts.total?.nav || 0);
+  const rows = Object.keys(exposureByMarket).map((market) => {
+    const currentWeight = totalNav > 0 ? Number(accounts[market]?.nav || 0) / totalNav : 0;
+    const targetWeight = Number(exposureByMarket[market] || 0);
+    return {
+      market,
+      currentWeight,
+      targetWeight,
+      delta: targetWeight - currentWeight,
+      signalCount: Number(signalsByMarket[market] || 0),
+    };
+  });
+  return {
+    rows,
+    dominantImpact: [...rows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta))[0],
+    totalExposure: Object.values(exposureByMarket).reduce((sum, value) => sum + Number(value), 0),
+  };
+}
+
+function buildStrategyContext(payload, summary, strategyId) {
   const recommendation = payload.recommendation || {};
   const metadata = payload.metadata || {};
+  const benchmark = payload.benchmark || {};
+  const positions = summary.assets?.positions || [];
+  const planItems = summary.trading_plan?.items || [];
+  const recentOrders = summary.details?.recent_orders || [];
+  const recentApprovals = summary.trading_plan?.recent_approvals || [];
+  const accounts = summary.accounts || {};
+  const strategyPlans = planItems.filter((item) => item.strategy_id === strategyId);
+  const implRows = buildImplementationRows(payload.signals || [], strategyPlans, positions, recentOrders, recentApprovals);
+  const submittedCount = implRows.filter((row) => row.orderState !== "missing" && row.orderState !== "not_submitted").length;
+  const filledCount = implRows.filter((row) => row.orderState === "filled").length;
+  const pendingApprovalCount = implRows.filter((row) => row.approvalState === "pending").length;
+  const accountImpact = buildAccountImpactRows(payload.signals || [], accounts);
+  return {
+    payload,
+    summary,
+    strategyId,
+    recommendation,
+    metadata,
+    benchmark,
+    strategyPlans,
+    implRows,
+    submittedCount,
+    filledCount,
+    pendingApprovalCount,
+    accountImpact,
+  };
+}
+
+function renderStrategyFailure(message) {
+  document.getElementById("strategy-title").textContent = "策略加载失败";
+  document.getElementById("strategy-subtitle").textContent = message;
+}
+
+function renderStrategyOverview(context) {
+  const { payload, recommendation, benchmark } = context;
   document.getElementById("strategy-title").textContent = payload.strategy_id;
   document.getElementById("strategy-subtitle").textContent = `Verdict: ${recommendation.verdict || "N/A"} / Action: ${recommendation.action || "N/A"}`;
   document.getElementById("detail-updated").textContent = `As of ${payload.as_of}`;
@@ -86,7 +153,6 @@ async function loadStrategy() {
     stroke: "#b42318",
     fill: "rgba(180, 35, 24, 0.12)",
   });
-  const benchmark = payload.benchmark || {};
   document.getElementById("benchmark-curve-title").textContent = benchmark.symbol ? `基准净值曲线 (${benchmark.symbol})` : "基准净值曲线";
   renderCurve("strategy-benchmark-curve", benchmark.nav_curve || [], {
     valueKey: curveValueKey(benchmark.nav_curve || []),
@@ -103,6 +169,10 @@ async function loadStrategy() {
     stroke: "#f79009",
     fill: "rgba(247, 144, 9, 0.12)",
   });
+}
+
+function renderStrategyProfile(context) {
+  const { payload, metadata, benchmark, recommendation } = context;
   document.getElementById("strategy-thesis").textContent = metadata.thesis || "No strategy thesis available.";
   document.getElementById("strategy-meta-list").innerHTML = [
     `名称: ${metadata.name || payload.strategy_id}`,
@@ -116,9 +186,7 @@ async function loadStrategy() {
   document.getElementById("strategy-indicator-list").innerHTML = (metadata.indicators || []).length
     ? (metadata.indicators || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")
     : '<li class="detail-empty">当前没有指标描述。</li>';
-
-  const signalBody = document.getElementById("strategy-signals-table");
-  signalBody.innerHTML = (payload.signals || []).length
+  document.getElementById("strategy-signals-table").innerHTML = (payload.signals || []).length
     ? payload.signals.map((item) => `
         <tr>
           <td>${escapeHtml(item.symbol)}</td>
@@ -130,27 +198,23 @@ async function loadStrategy() {
         </tr>
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前没有信号。</td></tr>';
+  document.getElementById("benchmark-list").innerHTML = benchmark.ready
+    ? [
+        `benchmark: ${benchmark.symbol}`,
+        `年化收益: ${fmtPct(benchmark.metrics?.annualized_return)}`,
+        `夏普: ${fmt(benchmark.metrics?.sharpe)}`,
+        `最大回撤: ${fmtPct(benchmark.metrics?.max_drawdown)}`,
+        `是否跑赢: ${fmt(benchmark.comparison?.outperformed)}`,
+        `相对超额终值: ${fmtPct((benchmark.relative_curve || []).at(-1)?.excess)}`,
+      ].map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : '<li class="detail-empty">当前没有可用基准数据。</li>';
+  document.getElementById("verdict-reasons").innerHTML = (recommendation.reasons || []).length
+    ? recommendation.reasons.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : '<li class="detail-empty">当前没有额外 verdict 理由。</li>';
+}
 
-  const positions = summary.assets?.positions || [];
-  const planItems = summary.trading_plan?.items || [];
-  const recentOrders = summary.details?.recent_orders || [];
-  const recentApprovals = summary.trading_plan?.recent_approvals || [];
-  const accounts = summary.accounts || {};
-  const strategyPlans = planItems.filter((item) => item.strategy_id === strategyId);
-  const implRows = (payload.signals || []).map((item) => {
-    const plan = strategyPlans.find((planItem) => planItem.symbol === item.symbol);
-    const position = positions.find((holding) => holding.symbol === item.symbol);
-    const order = plan ? recentOrders.find((entry) => entry.order_intent_id === plan.intent_id) : null;
-    const approval = plan ? recentApprovals.find((entry) => entry.intent_id === plan.intent_id) : null;
-    const planState = plan ? fmtPct(plan.target_weight) : "N/A";
-    const holdingState = position ? fmtPct(position.weight) : "N/A";
-    const orderState = order?.status || (plan ? "not_submitted" : "missing");
-    const approvalState = approval?.status || (plan?.requires_approval ? "pending" : "auto");
-    return { item, planState, holdingState, orderState, approvalState };
-  });
-  const submittedCount = implRows.filter((row) => row.orderState !== "missing" && row.orderState !== "not_submitted").length;
-  const filledCount = implRows.filter((row) => row.orderState === "filled").length;
-  const pendingApprovalCount = implRows.filter((row) => row.approvalState === "pending").length;
+function renderStrategyImplementation(context) {
+  const { payload, strategyPlans, implRows, submittedCount, filledCount, pendingApprovalCount } = context;
   document.getElementById("strategy-implementation-metrics").innerHTML = [
     metricTile("信号", fmt((payload.signals || []).length), "research targets today", (payload.signals || []).length ? "ok" : "warning"),
     metricTile("进计划", fmt(strategyPlans.length), "linked plan rows", strategyPlans.length ? "ok" : "warning"),
@@ -169,55 +233,30 @@ async function loadStrategy() {
         </tr>
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前没有今日落地数据。</td></tr>';
-  const implSummary = [
+  document.getElementById("strategy-implementation-list").innerHTML = [
     `今日研究信号: ${fmt((payload.signals || []).length)}`,
     `今日已进计划: ${fmt(strategyPlans.length)}`,
     `最近已出单: ${fmt(submittedCount)}`,
     `最近已成交: ${fmt(filledCount)}`,
-  ];
-  document.getElementById("strategy-implementation-list").innerHTML = implSummary.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   const implActions = [];
   if ((payload.signals || []).length > strategyPlans.length) implActions.push("有研究信号尚未进入今日计划。");
   if (pendingApprovalCount > 0) implActions.push("存在待审批计划，需确认人工链路。");
   if (strategyPlans.length > submittedCount) implActions.push("计划单还没完全转成订单状态。");
   if (!implActions.length) implActions.push("今日研究、计划与执行链路基本一致。");
   document.getElementById("strategy-implementation-actions").innerHTML = implActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
 
-  const accountImpactMetricsNode = document.getElementById("strategy-account-impact-metrics");
-  const accountImpactTableNode = document.getElementById("strategy-account-impact-table");
-  const accountImpactListNode = document.getElementById("strategy-account-impact-list");
-  const accountImpactLinksNode = document.getElementById("strategy-account-impact-links");
-  const signalsByMarket = (payload.signals || []).reduce((mapping, item) => {
-    mapping[item.market] = (mapping[item.market] || 0) + 1;
-    return mapping;
-  }, {});
-  const exposureByMarket = (payload.signals || []).reduce((mapping, item) => {
-    mapping[item.market] = (mapping[item.market] || 0) + Math.abs(Number(item.target_weight || 0));
-    return mapping;
-  }, {});
-  const impactedMarkets = Object.keys(exposureByMarket);
-  const totalNav = Number(accounts.total?.nav || 0);
-  const accountImpactRows = impactedMarkets.map((market) => {
-    const currentWeight = totalNav > 0 ? Number(accounts[market]?.nav || 0) / totalNav : 0;
-    const targetWeight = Number(exposureByMarket[market] || 0);
-    const delta = targetWeight - currentWeight;
-    return {
-      market,
-      currentWeight,
-      targetWeight,
-      delta,
-      signalCount: Number(signalsByMarket[market] || 0),
-    };
-  });
-  const dominantImpact = [...accountImpactRows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta))[0];
-  accountImpactMetricsNode.innerHTML = [
-    metricTile("影响账户", fmt(accountImpactRows.length), "markets touched", accountImpactRows.length ? "ok" : "warning"),
-    metricTile("主账户", accountLabel(dominantImpact?.market || "N/A"), dominantImpact ? `delta ${fmtPct(dominantImpact.delta)}` : "no impact", dominantImpact ? "warning" : "empty"),
-    metricTile("目标总暴露", fmtPct(Object.values(exposureByMarket).reduce((sum, value) => sum + Number(value), 0)), "sum of target weights", "ok"),
+function renderStrategyAccountImpact(context) {
+  const { strategyPlans, accountImpact } = context;
+  document.getElementById("strategy-account-impact-metrics").innerHTML = [
+    metricTile("影响账户", fmt(accountImpact.rows.length), "markets touched", accountImpact.rows.length ? "ok" : "warning"),
+    metricTile("主账户", accountLabel(accountImpact.dominantImpact?.market || "N/A"), accountImpact.dominantImpact ? `delta ${fmtPct(accountImpact.dominantImpact.delta)}` : "no impact", accountImpact.dominantImpact ? "warning" : "empty"),
+    metricTile("目标总暴露", fmtPct(accountImpact.totalExposure), "sum of target weights", "ok"),
     metricTile("计划单", fmt(strategyPlans.length), "linked plan rows", strategyPlans.length ? "ok" : "warning"),
   ].join("");
-  accountImpactTableNode.innerHTML = accountImpactRows.length
-    ? accountImpactRows.map((row) => `
+  document.getElementById("strategy-account-impact-table").innerHTML = accountImpact.rows.length
+    ? accountImpact.rows.map((row) => `
         <tr>
           <td><strong>${escapeHtml(accountLabel(row.market))}</strong></td>
           <td>${escapeHtml(fmtPct(row.currentWeight))}</td>
@@ -227,20 +266,20 @@ async function loadStrategy() {
         </tr>
       `).join("")
     : '<tr><td colspan="5" class="table-empty">当前策略没有账户影响。</td></tr>';
-  accountImpactListNode.innerHTML = accountImpactRows.length
-    ? accountImpactRows.map((row) => `<li>${escapeHtml(`${accountLabel(row.market)}: 当前 ${fmtPct(row.currentWeight)} -> 目标 ${fmtPct(row.targetWeight)}，偏离 ${fmtPct(row.delta)}`)}</li>`).join("")
+  document.getElementById("strategy-account-impact-list").innerHTML = accountImpact.rows.length
+    ? accountImpact.rows.map((row) => `<li>${escapeHtml(`${accountLabel(row.market)}: 当前 ${fmtPct(row.currentWeight)} -> 目标 ${fmtPct(row.targetWeight)}，偏离 ${fmtPct(row.delta)}`)}</li>`).join("")
     : '<li class="detail-empty">当前没有账户影响摘要。</li>';
-  accountImpactLinksNode.innerHTML = accountImpactRows.length
-    ? accountImpactRows.map((row) => `<a class="button" href="/dashboard/accounts/${encodeURIComponent(row.market)}">${escapeHtml(accountLabel(row.market))}</a>`).join("")
+  document.getElementById("strategy-account-impact-links").innerHTML = accountImpact.rows.length
+    ? accountImpact.rows.map((row) => `<a class="button" href="/dashboard/accounts/${encodeURIComponent(row.market)}">${escapeHtml(accountLabel(row.market))}</a>`).join("")
     : '<span class="detail-empty">当前没有账户跳转。</span>';
+}
 
-  const windows = document.getElementById("walk-forward-list");
-  windows.innerHTML = (payload.walk_forward_windows || []).length
+function renderStrategyValidation(context) {
+  const { payload, benchmark } = context;
+  document.getElementById("walk-forward-list").innerHTML = (payload.walk_forward_windows || []).length
     ? payload.walk_forward_windows.map((item) => `<li>Window ${escapeHtml(item.window_index)}: Sharpe ${escapeHtml(fmt(item.metrics.sharpe))}, MaxDD ${escapeHtml(fmtPct(item.metrics.max_drawdown))}, passed=${escapeHtml(String(item.passed))}</li>`).join("")
     : '<li class="detail-empty">当前没有 walk-forward 明细。</li>';
-
-  const assumptions = document.getElementById("assumption-list");
-  assumptions.innerHTML = [
+  document.getElementById("assumption-list").innerHTML = [
     `data_source: ${payload.assumptions.data_source}`,
     `history_complete: ${payload.assumptions.history_complete}`,
     `history_symbols: ${payload.assumptions.history_symbols}`,
@@ -249,7 +288,6 @@ async function loadStrategy() {
     `slippage_bps: ${payload.assumptions.slippage_bps}`,
     `total_cost_bps: ${payload.assumptions.total_cost_bps}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
   const split = payload.sample_split || {};
   document.getElementById("sample-split-list").innerHTML = [
     `样本内年化: ${fmtPct(split.in_sample?.annualized_return)}`,
@@ -259,31 +297,40 @@ async function loadStrategy() {
     `样本外夏普: ${fmt(split.out_of_sample?.sharpe)}`,
     `样本外最大回撤: ${fmtPct(split.out_of_sample?.max_drawdown)}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
   const coverage = payload.history_coverage || {};
-  const reports = coverage.reports || [];
   document.getElementById("coverage-list").innerHTML = [
     `coverage ready: ${coverage.ready}`,
     `minimum ratio: ${fmtPct(coverage.minimum_coverage_ratio)}`,
-    ...reports.slice(0, 5).map((item) => `${item.symbol}: ${fmtPct(item.coverage_ratio)} (${item.bar_count}/${item.expected_count})`),
+    ...(coverage.reports || []).slice(0, 5).map((item) => `${item.symbol}: ${fmtPct(item.coverage_ratio)} (${item.bar_count}/${item.expected_count})`),
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
   renderMonthlyHeatmap(payload.monthly_table || []);
   renderYearlyPerformance(payload.yearly_performance || []);
-  document.getElementById("benchmark-list").innerHTML = benchmark.ready
-    ? [
-        `benchmark: ${benchmark.symbol}`,
-        `年化收益: ${fmtPct(benchmark.metrics?.annualized_return)}`,
-        `夏普: ${fmt(benchmark.metrics?.sharpe)}`,
-        `最大回撤: ${fmtPct(benchmark.metrics?.max_drawdown)}`,
-        `是否跑赢: ${fmt(benchmark.comparison?.outperformed)}`,
-        `相对超额终值: ${fmtPct((benchmark.relative_curve || []).at(-1)?.excess)}`,
-      ].map((item) => `<li>${escapeHtml(item)}</li>`).join("")
-    : '<li class="detail-empty">当前没有可用基准数据。</li>';
-  const reasons = recommendation.reasons || [];
-  document.getElementById("verdict-reasons").innerHTML = reasons.length
-    ? reasons.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
-    : '<li class="detail-empty">当前没有额外 verdict 理由。</li>';
+}
+
+async function fetchStrategyData(strategyId) {
+  const [strategyRes, summaryRes] = await Promise.all([
+    apiFetch(API.researchStrategies(strategyId)),
+    apiFetch(API.dashboardSummary),
+  ]);
+  return {
+    strategyRes,
+    summary: summaryRes.data ?? {},
+  };
+}
+
+async function loadStrategy() {
+  const strategyId = window.location.pathname.split("/").pop();
+  const { strategyRes, summary } = await fetchStrategyData(strategyId);
+  if (!strategyRes.ok) {
+    renderStrategyFailure(strategyRes.error);
+    return;
+  }
+  const context = buildStrategyContext(strategyRes.data, summary, strategyId);
+  renderStrategyOverview(context);
+  renderStrategyProfile(context);
+  renderStrategyImplementation(context);
+  renderStrategyAccountImpact(context);
+  renderStrategyValidation(context);
 }
 
 loadStrategy();

@@ -129,375 +129,253 @@ async function loadStrategyImpact(strategyId) {
   return result.data;
 }
 
-function renderImpact(detail) {
-  const title = document.getElementById("impact-title");
-  const note = document.getElementById("research-impact-note");
-  const accountsList = document.getElementById("impact-accounts-list");
-  const summaryList = document.getElementById("impact-summary-list");
-  const links = document.getElementById("impact-account-links");
-  const accountDeltaTable = document.getElementById("impact-account-delta-table");
-  const table = document.getElementById("impact-signals-table");
-  const gapTable = document.getElementById("impact-gap-table");
-  const gapMetrics = document.getElementById("impact-gap-metrics");
-  const offTargetList = document.getElementById("impact-offtarget-list");
-  const actionsList = document.getElementById("impact-actions-list");
-  const executionMetrics = document.getElementById("impact-execution-metrics");
-  const executionTable = document.getElementById("impact-execution-table");
-  const blockersList = document.getElementById("impact-blockers-list");
-  const progressList = document.getElementById("impact-progress-list");
-  const approvalMetrics = document.getElementById("impact-approval-metrics");
-  const approvalTable = document.getElementById("impact-approval-table");
-  const approvalPendingList = document.getElementById("impact-approval-pending-list");
-  const approvalActionsList = document.getElementById("impact-approval-actions-list");
-  const timelineSummaryList = document.getElementById("impact-timeline-summary-list");
-  const timelineList = document.getElementById("impact-timeline-list");
-  const readinessMetrics = document.getElementById("impact-readiness-metrics");
-  const readinessList = document.getElementById("impact-readiness-list");
-  const readinessActions = document.getElementById("impact-readiness-actions");
-  if (!title || !note || !accountsList || !summaryList || !links || !accountDeltaTable || !table || !gapTable || !gapMetrics || !offTargetList || !actionsList || !executionMetrics || !executionTable || !blockersList || !progressList || !approvalMetrics || !approvalTable || !approvalPendingList || !approvalActionsList || !timelineSummaryList || !timelineList || !readinessMetrics || !readinessList || !readinessActions) return;
-  if (!detail) {
-    title.textContent = "未选择策略";
-    note.textContent = "选择一个候选策略，查看会影响哪些账户和信号";
-    accountsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    summaryList.innerHTML = '<li class="detail-empty">暂无影响摘要。</li>';
-    links.innerHTML = '<span class="detail-empty">暂无账户跳转。</span>';
-    accountDeltaTable.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
-    table.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
-    gapTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
-    gapMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">差异摘要</span><span class="metric-value">N/A</span></article>';
-    offTargetList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    actionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    executionMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">执行状态</span><span class="metric-value">N/A</span></article>';
-    executionTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
-    blockersList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    progressList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    approvalMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">人工审批</span><span class="metric-value">N/A</span></article>';
-    approvalTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
-    approvalPendingList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    approvalActionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    timelineSummaryList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    timelineList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    readinessMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">推进状态</span><span class="metric-value">N/A</span></article>';
-    readinessList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    readinessActions.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-    return;
-  }
-  const accountMap = { CN: "A股账户", HK: "港股账户", US: "美股账户" };
+function impactElements() {
+  const ids = {
+    title: "impact-title",
+    note: "research-impact-note",
+    accountsList: "impact-accounts-list",
+    summaryList: "impact-summary-list",
+    links: "impact-account-links",
+    accountDeltaTable: "impact-account-delta-table",
+    signalsTable: "impact-signals-table",
+    gapTable: "impact-gap-table",
+    gapMetrics: "impact-gap-metrics",
+    offTargetList: "impact-offtarget-list",
+    actionsList: "impact-actions-list",
+    executionMetrics: "impact-execution-metrics",
+    executionTable: "impact-execution-table",
+    blockersList: "impact-blockers-list",
+    progressList: "impact-progress-list",
+    approvalMetrics: "impact-approval-metrics",
+    approvalTable: "impact-approval-table",
+    approvalPendingList: "impact-approval-pending-list",
+    approvalActionsList: "impact-approval-actions-list",
+    timelineSummaryList: "impact-timeline-summary-list",
+    timelineList: "impact-timeline-list",
+    readinessMetrics: "impact-readiness-metrics",
+    readinessList: "impact-readiness-list",
+    readinessActions: "impact-readiness-actions",
+  };
+  const elements = Object.fromEntries(Object.entries(ids).map(([key, id]) => [key, document.getElementById(id)]));
+  return Object.values(elements).every(Boolean) ? elements : null;
+}
+
+function renderImpactEmpty(elements) {
+  elements.title.textContent = "未选择策略";
+  elements.note.textContent = "选择一个候选策略，查看会影响哪些账户和信号";
+  elements.accountsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.summaryList.innerHTML = '<li class="detail-empty">暂无影响摘要。</li>';
+  elements.links.innerHTML = '<span class="detail-empty">暂无账户跳转。</span>';
+  elements.accountDeltaTable.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
+  elements.signalsTable.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
+  elements.gapTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
+  elements.gapMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">差异摘要</span><span class="metric-value">N/A</span></article>';
+  elements.offTargetList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.actionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.executionMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">执行状态</span><span class="metric-value">N/A</span></article>';
+  elements.executionTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
+  elements.blockersList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.progressList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.approvalMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">人工审批</span><span class="metric-value">N/A</span></article>';
+  elements.approvalTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
+  elements.approvalPendingList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.approvalActionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.timelineSummaryList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.timelineList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.readinessMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">推进状态</span><span class="metric-value">N/A</span></article>';
+  elements.readinessList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+  elements.readinessActions.innerHTML = '<li class="detail-empty">请选择策略。</li>';
+}
+
+function buildImpactContext(detail) {
+  const dashboardSummary = window.__researchDashboardSummary || {};
   const signals = detail.signals || [];
-  const markets = [...new Set(signals.map((item) => item.market))];
-  const grossTarget = signals.reduce((sum, item) => sum + Math.abs(Number(item.target_weight || 0)), 0);
-  const approvalCount = signals.filter((item) => item.market === "CN").length;
+  const planItems = dashboardSummary.trading_plan?.items || [];
+  const pendingApprovals = dashboardSummary.trading_plan?.pending_approvals || [];
+  const recentApprovals = dashboardSummary.trading_plan?.recent_approvals || [];
+  const recentOrders = dashboardSummary.details?.recent_orders || [];
   const marketExposure = signals.reduce((mapping, item) => {
     const market = item.market || "UNKNOWN";
     mapping[market] = (mapping[market] || 0) + Math.abs(Number(item.target_weight || 0));
     return mapping;
   }, {});
-  const dominantMarket = Object.entries(marketExposure).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0] || "N/A";
-  const accountSummary = window.__researchDashboardSummary?.accounts || {};
-  const totalPositions = window.__researchDashboardSummary?.assets?.positions || [];
-  const planItems = window.__researchDashboardSummary?.trading_plan?.items || [];
-  const pendingApprovals = window.__researchDashboardSummary?.trading_plan?.pending_approvals || [];
-  const recentApprovals = window.__researchDashboardSummary?.trading_plan?.recent_approvals || [];
-  const recentOrders = window.__researchDashboardSummary?.details?.recent_orders || [];
-  const marketWeightDeltas = markets.map((market) => {
-    const account = accountSummary[market];
-    const currentWeight = account?.nav && accountSummary.total?.nav
-      ? Number(account.nav) / Number(accountSummary.total.nav)
-      : 0;
-    const targetWeight = Number(marketExposure[market] || 0);
-    return {
-      market,
-      delta: targetWeight - currentWeight,
-    };
-  });
-  title.textContent = detail.strategy_id;
-  note.textContent = `当前聚焦 ${detail.strategy_id}，按今日信号预览账户影响`;
-  accountsList.innerHTML = markets.length
-    ? markets.map((market) => `<li>${escapeHtml(accountMap[market] || market)}</li>`).join("")
-    : '<li class="detail-empty">当前没有账户影响。</li>';
-  summaryList.innerHTML = [
-    `信号数: ${fmt(detail.signal_count)}`,
-    `预估计划单数: ${fmt(signals.length)}`,
-    `预估审批数: ${fmt(approvalCount)}`,
-    `影响账户数: ${fmt(markets.length)}`,
-    `目标总暴露: ${fmtPct(grossTarget)}`,
-    `主影响账户: ${dominantMarket}`,
-    `当前 verdict: ${detail.recommendation?.verdict || "N/A"}`,
-    ...marketWeightDeltas.map((item) => `${item.market} 配置偏离: ${fmtPct(item.delta)}`),
-  ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  links.innerHTML = markets.length
-    ? markets.map((market) => `<a class="button" href="/dashboard/accounts/${encodeURIComponent(market)}">${escapeHtml(accountMap[market] || market)}</a>`).join("")
-    : '<span class="detail-empty">暂无账户跳转。</span>';
-  accountDeltaTable.innerHTML = markets.length
-    ? markets.map((market) => {
-        const account = accountSummary[market];
-        const currentWeight = account?.nav && accountSummary.total?.nav
-          ? Number(account.nav) / Number(accountSummary.total.nav)
-          : 0;
-        const targetWeight = Number(marketExposure[market] || 0);
-        const delta = targetWeight - currentWeight;
-        const marketSignals = signals.filter((item) => item.market === market).length;
-        const tone = Math.abs(delta) <= 0.03 ? "status-ok" : delta > 0 ? "status-warning" : "status-blocked";
-        return `
-          <tr>
-            <td><strong>${escapeHtml(accountMap[market] || market)}</strong></td>
-            <td>${escapeHtml(fmtPct(currentWeight))}</td>
-            <td>${escapeHtml(fmtPct(targetWeight))}</td>
-            <td class="${tone}">${escapeHtml(fmtPct(delta))}</td>
-            <td>${escapeHtml(fmt(marketSignals))}</td>
-          </tr>
-        `;
-      }).join("")
-    : '<tr><td colspan="5" class="table-empty">当前没有账户配置影响。</td></tr>';
-  table.innerHTML = signals.length
-    ? signals.map((item) => `
-        <tr>
-          <td><strong>${escapeHtml(item.symbol)}</strong></td>
-          <td>${escapeHtml(item.market)}</td>
-          <td>${escapeHtml(item.side)}</td>
-          <td>${escapeHtml(fmtPct(item.target_weight))}</td>
-          <td>${escapeHtml(item.reason)}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="5" class="table-empty">当前没有信号。</td></tr>';
+  const strategyPlans = planItems.filter((item) => item.strategy_id === detail.strategy_id);
+  return {
+    detail,
+    signals,
+    markets: [...new Set(signals.map((item) => item.market))],
+    accountMap: { CN: "A股账户", HK: "港股账户", US: "美股账户" },
+    accountSummary: dashboardSummary.accounts || {},
+    totalPositions: dashboardSummary.assets?.positions || [],
+    planItems,
+    pendingApprovals,
+    recentApprovals,
+    recentOrders,
+    marketExposure,
+    strategyPlans,
+    strategyExecutions: strategyPlans.map((planItem) => ({
+      planItem,
+      order: recentOrders.find((item) => item.order_intent_id === planItem.intent_id),
+    })),
+    strategyPendingApprovals: pendingApprovals.filter((item) => item.strategy_id === detail.strategy_id),
+    strategyRecentApprovals: recentApprovals.filter((item) => item.strategy_id === detail.strategy_id),
+  };
+}
 
-  const gapRows = signals.length
-    ? signals.map((item) => {
-        const plan = planItems.find((planItem) => planItem.strategy_id === detail.strategy_id && planItem.symbol === item.symbol);
-        const holding = totalPositions.find((position) => position.symbol === item.symbol);
-        const planWeight = plan?.target_weight ?? null;
-        const holdingWeight = holding?.weight ?? null;
-        const gapStatus = planWeight == null
-          ? "未进计划"
-          : holdingWeight == null
-            ? "已进计划，未建仓"
-            : Math.abs(Number(item.target_weight || 0) - Number(holdingWeight || 0)) <= 0.02
-              ? "接近目标"
-              : "持仓未到位";
-        const gapClass = gapStatus === "接近目标" ? "status-ok" : gapStatus === "已进计划，未建仓" ? "status-warning" : "status-blocked";
-        return `
-          <tr>
-            <td><strong>${escapeHtml(item.symbol)}</strong></td>
-            <td>${escapeHtml(item.market)}</td>
-            <td>${escapeHtml(fmtPct(item.target_weight))}</td>
-            <td>${escapeHtml(planWeight == null ? "N/A" : fmtPct(planWeight))}</td>
-            <td>${escapeHtml(holdingWeight == null ? "N/A" : fmtPct(holdingWeight))}</td>
-            <td class="${gapClass}">${escapeHtml(gapStatus)}</td>
-          </tr>
-        `;
-      })
-    : [];
-  gapTable.innerHTML = gapRows.length
-    ? gapRows.join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有可对比的信号。</td></tr>';
-
-  const mappedSignals = signals.map((item) => {
-    const plan = planItems.find((planItem) => planItem.strategy_id === detail.strategy_id && planItem.symbol === item.symbol);
-    const holding = totalPositions.find((position) => position.symbol === item.symbol);
-    const planWeight = plan?.target_weight ?? null;
+function buildGapSummary(context) {
+  const mappedSignals = context.signals.map((item) => {
+    const plan = context.planItems.find((planItem) => planItem.strategy_id === context.detail.strategy_id && planItem.symbol === item.symbol);
+    const holding = context.totalPositions.find((position) => position.symbol === item.symbol);
     const holdingWeight = holding?.weight ?? null;
-    const gapStatus = planWeight == null
+    const gapStatus = plan?.target_weight == null
       ? "missing_plan"
       : holdingWeight == null
         ? "plan_no_position"
         : Math.abs(Number(item.target_weight || 0) - Number(holdingWeight || 0)) <= 0.02
           ? "aligned"
           : "under_positioned";
-    return { item, plan, holding, planWeight, holdingWeight, gapStatus };
+    return { item, planWeight: plan?.target_weight ?? null, holdingWeight, gapStatus };
   });
-  const missingPlanCount = mappedSignals.filter((row) => row.gapStatus === "missing_plan").length;
-  const noPositionCount = mappedSignals.filter((row) => row.gapStatus === "plan_no_position").length;
-  const misalignedCount = mappedSignals.filter((row) => row.gapStatus === "under_positioned").length;
-  const alignedCount = mappedSignals.filter((row) => row.gapStatus === "aligned").length;
-  gapMetrics.innerHTML = [
-    metricTile("已对齐", fmt(alignedCount), "signals aligned", alignedCount ? "ok" : "warning"),
-    metricTile("未进计划", fmt(missingPlanCount), "research not in plan", missingPlanCount ? "blocked" : "ok"),
-    metricTile("未建仓", fmt(noPositionCount), "planned but no position", noPositionCount ? "warning" : "ok"),
-    metricTile("未到位", fmt(misalignedCount), "holding gap remains", misalignedCount ? "warning" : "ok"),
-  ].join("");
+  return {
+    mappedSignals,
+    missingPlanCount: mappedSignals.filter((row) => row.gapStatus === "missing_plan").length,
+    noPositionCount: mappedSignals.filter((row) => row.gapStatus === "plan_no_position").length,
+    misalignedCount: mappedSignals.filter((row) => row.gapStatus === "under_positioned").length,
+    alignedCount: mappedSignals.filter((row) => row.gapStatus === "aligned").length,
+  };
+}
 
-  const offTargetHoldings = totalPositions.filter((position) => markets.includes(position.market) && !signals.some((item) => item.symbol === position.symbol));
-  offTargetList.innerHTML = offTargetHoldings.length
-    ? offTargetHoldings.slice(0, 6).map((position) => `<li>${escapeHtml(position.symbol)}: 当前权重 ${escapeHtml(fmtPct(position.weight))}</li>`).join("")
-    : '<li class="detail-empty">当前没有多余持仓。</li>';
+function buildExecutionSummary(context) {
+  const submittedCount = context.strategyExecutions.filter((item) => item.order).length;
+  const filledCount = context.strategyExecutions.filter((item) => item.order?.status === "filled").length;
+  const pendingCount = context.strategyExecutions.filter((item) => item.planItem.requires_approval).length;
+  const notSubmittedCount = context.strategyExecutions.filter((item) => !item.order).length;
+  const workingCount = context.strategyExecutions.filter((item) => item.order && item.order.status !== "filled").length;
+  return { submittedCount, filledCount, pendingCount, notSubmittedCount, workingCount };
+}
 
-  const actions = [];
-  if (missingPlanCount > 0) actions.push(`有 ${missingPlanCount} 个研究信号尚未进入今日计划。`);
-  if (noPositionCount > 0) actions.push(`有 ${noPositionCount} 个计划单尚未形成持仓。`);
-  if (misalignedCount > 0) actions.push(`有 ${misalignedCount} 个标的当前持仓仍未到目标权重。`);
-  if (!actions.length) actions.push("研究信号、计划和当前持仓基本一致。");
-  actionsList.innerHTML = actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
-  const strategyPlans = planItems.filter((planItem) => planItem.strategy_id === detail.strategy_id);
-  const strategyExecutions = strategyPlans.map((planItem) => {
-    const order = recentOrders.find((item) => item.order_intent_id === planItem.intent_id);
-    return { planItem, order };
-  });
-  const submittedCount = strategyExecutions.filter((item) => item.order).length;
-  const filledCount = strategyExecutions.filter((item) => item.order?.status === "filled").length;
-  const pendingCount = strategyExecutions.filter((item) => item.planItem.requires_approval).length;
-  const notSubmittedCount = strategyExecutions.filter((item) => !item.order).length;
-  const workingCount = strategyExecutions.filter((item) => item.order && item.order.status !== "filled").length;
-  executionMetrics.innerHTML = [
-    metricTile("计划单", fmt(strategyPlans.length), "today plan items", strategyPlans.length ? "ok" : "warning"),
-    metricTile("已出单", fmt(submittedCount), "recent order linked", submittedCount ? "ok" : "warning"),
-    metricTile("已成交", fmt(filledCount), "filled orders", filledCount ? "ok" : "warning"),
-    metricTile("待审批", fmt(pendingCount), "requires approval", pendingCount ? "warning" : "ok"),
-  ].join("");
-  executionTable.innerHTML = strategyExecutions.length
-    ? strategyExecutions.map(({ planItem, order }) => `
-        <tr>
-          <td><strong>${escapeHtml(planItem.symbol)}</strong><br /><span class="meta-text">${escapeHtml(planItem.market)}</span></td>
-          <td>${escapeHtml(planItem.side)}</td>
-          <td>${escapeHtml(fmt(planItem.quantity, 4))}</td>
-          <td>${escapeHtml(planItem.requires_approval ? "manual" : "auto")}</td>
-          <td class="${order?.status === "filled" ? "status-ok" : order ? "status-warning" : "status-blocked"}">${escapeHtml(order?.status || "not_submitted")}</td>
-          <td>${escapeHtml(order?.filled_quantity == null ? "N/A" : fmt(order.filled_quantity, 4))}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前策略今天没有计划单。</td></tr>';
-
-  const blockers = [];
-  if (missingPlanCount > 0) blockers.push(`${missingPlanCount} 个研究信号还没进今日计划。`);
-  if (pendingCount > 0) blockers.push(`${pendingCount} 笔计划单需要人工审批。`);
-  if (notSubmittedCount > 0) blockers.push(`${notSubmittedCount} 笔计划单还没生成订单状态。`);
-  if (workingCount > 0) blockers.push(`${workingCount} 笔订单仍在提交/排队中。`);
-  if (!blockers.length) blockers.push("当前没有明显执行卡点。");
-  blockersList.innerHTML = blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
-  const progress = [
-    `研究信号: ${fmt(signals.length)}`,
-    `进入计划: ${fmt(strategyPlans.length)}`,
-    `生成订单: ${fmt(submittedCount)}`,
-    `完成成交: ${fmt(filledCount)}`,
-  ];
-  progressList.innerHTML = progress.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-
-  const strategyPendingApprovals = pendingApprovals.filter((item) => item.strategy_id === detail.strategy_id);
-  const strategyRecentApprovals = recentApprovals.filter((item) => item.strategy_id === detail.strategy_id);
-  const approvedCount = strategyRecentApprovals.filter((item) => item.status === "approved").length;
-  const rejectedCount = strategyRecentApprovals.filter((item) => item.status === "rejected" || item.status === "expired").length;
-  approvalMetrics.innerHTML = [
-    metricTile("待审批", fmt(strategyPendingApprovals.length), "pending manual decisions", strategyPendingApprovals.length ? "warning" : "ok"),
-    metricTile("最近审批", fmt(strategyRecentApprovals.length), "latest approval records", strategyRecentApprovals.length ? "ok" : "empty"),
-    metricTile("已批准", fmt(approvedCount), "approved recently", approvedCount ? "ok" : "empty"),
-    metricTile("拒绝/过期", fmt(rejectedCount), "rejected or expired", rejectedCount ? "blocked" : "ok"),
-  ].join("");
-  approvalTable.innerHTML = strategyRecentApprovals.length
-    ? strategyRecentApprovals.map((item) => `
-        <tr>
-          <td><strong>${escapeHtml(item.symbol)}</strong></td>
-          <td>${escapeHtml(item.market)}</td>
-          <td>${escapeHtml(item.side)}</td>
-          <td>${escapeHtml(fmt(item.quantity, 4))}</td>
-          <td class="${item.status === "approved" ? "status-ok" : item.status === "pending" ? "status-warning" : "status-blocked"}">${escapeHtml(item.status)}</td>
-          <td>${escapeHtml(item.decision_reason || item.reason || "N/A")}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前策略最近没有人工审批记录。</td></tr>';
-  approvalPendingList.innerHTML = strategyPendingApprovals.length
-    ? strategyPendingApprovals.map((item) => `<li>${escapeHtml(`${item.symbol} ${item.side} ${fmt(item.quantity, 4)}，待审批，理由：${item.reason || "N/A"}`)}</li>`).join("")
-    : '<li class="detail-empty">当前策略没有待审批单。</li>';
-  const recentApprovalActions = strategyRecentApprovals.slice(0, 5).map((item) => {
+function buildApprovalSummary(context) {
+  const approvedCount = context.strategyRecentApprovals.filter((item) => item.status === "approved").length;
+  const rejectedCount = context.strategyRecentApprovals.filter((item) => item.status === "rejected" || item.status === "expired").length;
+  const recentApprovalActions = context.strategyRecentApprovals.slice(0, 5).map((item) => {
     const timestamp = item.decided_at || item.created_at || "";
     return `${item.symbol}: ${item.status}${timestamp ? ` @ ${timestamp}` : ""}`;
   });
-  approvalActionsList.innerHTML = recentApprovalActions.length
-    ? recentApprovalActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
-    : '<li class="detail-empty">当前没有最近动作。</li>';
+  return { approvedCount, rejectedCount, recentApprovalActions };
+}
 
-  const timelineEvents = [];
-  signals.forEach((item) => {
-    timelineEvents.push({
-      at: null,
-      stage: "signal",
-      label: `${item.symbol} 生成研究信号`,
-      detail: `${item.side} / 目标 ${fmtPct(item.target_weight)} / ${item.reason}`,
-    });
+function renderImpactHeader(elements, context) {
+  const grossTarget = context.signals.reduce((sum, item) => sum + Math.abs(Number(item.target_weight || 0)), 0);
+  const approvalCount = context.signals.filter((item) => item.market === "CN").length;
+  const dominantMarket = Object.entries(context.marketExposure).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0] || "N/A";
+  const marketWeightDeltas = context.markets.map((market) => {
+    const currentWeight = context.accountSummary[market]?.nav && context.accountSummary.total?.nav
+      ? Number(context.accountSummary[market].nav) / Number(context.accountSummary.total.nav)
+      : 0;
+    return { market, currentWeight, targetWeight: Number(context.marketExposure[market] || 0) };
   });
-  strategyPlans.forEach((planItem) => {
-    timelineEvents.push({
-      at: null,
-      stage: "plan",
-      label: `${planItem.symbol} 进入今日计划`,
-      detail: `${planItem.side} ${fmt(planItem.quantity, 4)} / ${planItem.requires_approval ? "manual" : "auto"}`,
-    });
-  });
-  strategyRecentApprovals.forEach((item) => {
-    timelineEvents.push({
-      at: item.decided_at || item.created_at,
-      stage: item.status === "pending" ? "approval_pending" : "approval",
-      label: `${item.symbol} 审批 ${item.status}`,
-      detail: item.decision_reason || item.reason || "manual approval flow",
-    });
-  });
-  strategyExecutions.forEach(({ planItem, order }) => {
-    if (!order) return;
-    timelineEvents.push({
-      at: order.timestamp,
-      stage: order.status === "filled" ? "fill" : "order",
-      label: `${planItem.symbol} 订单 ${order.status}`,
-      detail: `${planItem.side} / filled ${fmt(order.filled_quantity, 4)} / avg ${order.average_price == null ? "N/A" : fmt(order.average_price, 4)}`,
-    });
-  });
-  const stageWeight = {
-    signal: 1,
-    plan: 2,
-    approval_pending: 3,
-    approval: 4,
-    order: 5,
-    fill: 6,
-  };
-  const sortedTimeline = timelineEvents.sort((left, right) => {
-    const leftHasTime = Boolean(left.at);
-    const rightHasTime = Boolean(right.at);
-    if (leftHasTime && rightHasTime) return new Date(right.at).getTime() - new Date(left.at).getTime();
-    if (leftHasTime) return -1;
-    if (rightHasTime) return 1;
+  elements.title.textContent = context.detail.strategy_id;
+  elements.note.textContent = `当前聚焦 ${context.detail.strategy_id}，按今日信号预览账户影响`;
+  elements.accountsList.innerHTML = context.markets.length ? context.markets.map((market) => `<li>${escapeHtml(context.accountMap[market] || market)}</li>`).join("") : '<li class="detail-empty">当前没有账户影响。</li>';
+  elements.summaryList.innerHTML = [`信号数: ${fmt(context.detail.signal_count)}`, `预估计划单数: ${fmt(context.signals.length)}`, `预估审批数: ${fmt(approvalCount)}`, `影响账户数: ${fmt(context.markets.length)}`, `目标总暴露: ${fmtPct(grossTarget)}`, `主影响账户: ${dominantMarket}`, `当前 verdict: ${context.detail.recommendation?.verdict || "N/A"}`, ...marketWeightDeltas.map((item) => `${item.market} 配置偏离: ${fmtPct(item.targetWeight - item.currentWeight)}`)].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.links.innerHTML = context.markets.length ? context.markets.map((market) => `<a class="button" href="/dashboard/accounts/${encodeURIComponent(market)}">${escapeHtml(context.accountMap[market] || market)}</a>`).join("") : '<span class="detail-empty">暂无账户跳转。</span>';
+  elements.accountDeltaTable.innerHTML = marketWeightDeltas.length ? marketWeightDeltas.map((item) => `<tr><td><strong>${escapeHtml(context.accountMap[item.market] || item.market)}</strong></td><td>${escapeHtml(fmtPct(item.currentWeight))}</td><td>${escapeHtml(fmtPct(item.targetWeight))}</td><td class="${Math.abs(item.targetWeight - item.currentWeight) <= 0.03 ? "status-ok" : item.targetWeight > item.currentWeight ? "status-warning" : "status-blocked"}">${escapeHtml(fmtPct(item.targetWeight - item.currentWeight))}</td><td>${escapeHtml(fmt(context.signals.filter((signal) => signal.market === item.market).length))}</td></tr>`).join("") : '<tr><td colspan="5" class="table-empty">当前没有账户配置影响。</td></tr>';
+  elements.signalsTable.innerHTML = context.signals.length ? context.signals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.side)}</td><td>${escapeHtml(fmtPct(item.target_weight))}</td><td>${escapeHtml(item.reason)}</td></tr>`).join("") : '<tr><td colspan="5" class="table-empty">当前没有信号。</td></tr>';
+}
+
+function renderImpactGap(elements, context, gapSummary) {
+  elements.gapTable.innerHTML = gapSummary.mappedSignals.length ? gapSummary.mappedSignals.map((row) => {
+    const gapLabel = row.gapStatus === "missing_plan" ? "未进计划" : row.gapStatus === "plan_no_position" ? "已进计划，未建仓" : row.gapStatus === "aligned" ? "接近目标" : "持仓未到位";
+    const gapClass = gapLabel === "接近目标" ? "status-ok" : gapLabel === "已进计划，未建仓" ? "status-warning" : "status-blocked";
+    return `<tr><td><strong>${escapeHtml(row.item.symbol)}</strong></td><td>${escapeHtml(row.item.market)}</td><td>${escapeHtml(fmtPct(row.item.target_weight))}</td><td>${escapeHtml(row.planWeight == null ? "N/A" : fmtPct(row.planWeight))}</td><td>${escapeHtml(row.holdingWeight == null ? "N/A" : fmtPct(row.holdingWeight))}</td><td class="${gapClass}">${escapeHtml(gapLabel)}</td></tr>`;
+  }).join("") : '<tr><td colspan="6" class="table-empty">当前没有可对比的信号。</td></tr>';
+  elements.gapMetrics.innerHTML = [metricTile("已对齐", fmt(gapSummary.alignedCount), "signals aligned", gapSummary.alignedCount ? "ok" : "warning"), metricTile("未进计划", fmt(gapSummary.missingPlanCount), "research not in plan", gapSummary.missingPlanCount ? "blocked" : "ok"), metricTile("未建仓", fmt(gapSummary.noPositionCount), "planned but no position", gapSummary.noPositionCount ? "warning" : "ok"), metricTile("未到位", fmt(gapSummary.misalignedCount), "holding gap remains", gapSummary.misalignedCount ? "warning" : "ok")].join("");
+  const offTargetHoldings = context.totalPositions.filter((position) => context.markets.includes(position.market) && !context.signals.some((item) => item.symbol === position.symbol));
+  elements.offTargetList.innerHTML = offTargetHoldings.length ? offTargetHoldings.slice(0, 6).map((position) => `<li>${escapeHtml(position.symbol)}: 当前权重 ${escapeHtml(fmtPct(position.weight))}</li>`).join("") : '<li class="detail-empty">当前没有多余持仓。</li>';
+  const actions = [];
+  if (gapSummary.missingPlanCount > 0) actions.push(`有 ${gapSummary.missingPlanCount} 个研究信号尚未进入今日计划。`);
+  if (gapSummary.noPositionCount > 0) actions.push(`有 ${gapSummary.noPositionCount} 个计划单尚未形成持仓。`);
+  if (gapSummary.misalignedCount > 0) actions.push(`有 ${gapSummary.misalignedCount} 个标的当前持仓仍未到目标权重。`);
+  if (!actions.length) actions.push("研究信号、计划和当前持仓基本一致。");
+  elements.actionsList.innerHTML = actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function renderImpactExecution(elements, context, gapSummary, executionSummary) {
+  elements.executionMetrics.innerHTML = [metricTile("计划单", fmt(context.strategyPlans.length), "today plan items", context.strategyPlans.length ? "ok" : "warning"), metricTile("已出单", fmt(executionSummary.submittedCount), "recent order linked", executionSummary.submittedCount ? "ok" : "warning"), metricTile("已成交", fmt(executionSummary.filledCount), "filled orders", executionSummary.filledCount ? "ok" : "warning"), metricTile("待审批", fmt(executionSummary.pendingCount), "requires approval", executionSummary.pendingCount ? "warning" : "ok")].join("");
+  elements.executionTable.innerHTML = context.strategyExecutions.length ? context.strategyExecutions.map(({ planItem, order }) => `<tr><td><strong>${escapeHtml(planItem.symbol)}</strong><br /><span class="meta-text">${escapeHtml(planItem.market)}</span></td><td>${escapeHtml(planItem.side)}</td><td>${escapeHtml(fmt(planItem.quantity, 4))}</td><td>${escapeHtml(planItem.requires_approval ? "manual" : "auto")}</td><td class="${order?.status === "filled" ? "status-ok" : order ? "status-warning" : "status-blocked"}">${escapeHtml(order?.status || "not_submitted")}</td><td>${escapeHtml(order?.filled_quantity == null ? "N/A" : fmt(order.filled_quantity, 4))}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略今天没有计划单。</td></tr>';
+  const blockers = [];
+  if (gapSummary.missingPlanCount > 0) blockers.push(`${gapSummary.missingPlanCount} 个研究信号还没进今日计划。`);
+  if (executionSummary.pendingCount > 0) blockers.push(`${executionSummary.pendingCount} 笔计划单需要人工审批。`);
+  if (executionSummary.notSubmittedCount > 0) blockers.push(`${executionSummary.notSubmittedCount} 笔计划单还没生成订单状态。`);
+  if (executionSummary.workingCount > 0) blockers.push(`${executionSummary.workingCount} 笔订单仍在提交/排队中。`);
+  if (!blockers.length) blockers.push("当前没有明显执行卡点。");
+  elements.blockersList.innerHTML = blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.progressList.innerHTML = [`研究信号: ${fmt(context.signals.length)}`, `进入计划: ${fmt(context.strategyPlans.length)}`, `生成订单: ${fmt(executionSummary.submittedCount)}`, `完成成交: ${fmt(executionSummary.filledCount)}`].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function renderImpactApproval(elements, context, approvalSummary) {
+  elements.approvalMetrics.innerHTML = [metricTile("待审批", fmt(context.strategyPendingApprovals.length), "pending manual decisions", context.strategyPendingApprovals.length ? "warning" : "ok"), metricTile("最近审批", fmt(context.strategyRecentApprovals.length), "latest approval records", context.strategyRecentApprovals.length ? "ok" : "empty"), metricTile("已批准", fmt(approvalSummary.approvedCount), "approved recently", approvalSummary.approvedCount ? "ok" : "empty"), metricTile("拒绝/过期", fmt(approvalSummary.rejectedCount), "rejected or expired", approvalSummary.rejectedCount ? "blocked" : "ok")].join("");
+  elements.approvalTable.innerHTML = context.strategyRecentApprovals.length ? context.strategyRecentApprovals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.side)}</td><td>${escapeHtml(fmt(item.quantity, 4))}</td><td class="${item.status === "approved" ? "status-ok" : item.status === "pending" ? "status-warning" : "status-blocked"}">${escapeHtml(item.status)}</td><td>${escapeHtml(item.decision_reason || item.reason || "N/A")}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略最近没有人工审批记录。</td></tr>';
+  elements.approvalPendingList.innerHTML = context.strategyPendingApprovals.length ? context.strategyPendingApprovals.map((item) => `<li>${escapeHtml(`${item.symbol} ${item.side} ${fmt(item.quantity, 4)}，待审批，理由：${item.reason || "N/A"}`)}</li>`).join("") : '<li class="detail-empty">当前策略没有待审批单。</li>';
+  elements.approvalActionsList.innerHTML = approvalSummary.recentApprovalActions.length ? approvalSummary.recentApprovalActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : '<li class="detail-empty">当前没有最近动作。</li>';
+}
+
+function renderImpactTimeline(elements, context) {
+  const stageWeight = { signal: 1, plan: 2, approval_pending: 3, approval: 4, order: 5, fill: 6 };
+  const timelineEvents = [
+    ...context.signals.map((item) => ({ at: null, stage: "signal", label: `${item.symbol} 生成研究信号`, detail: `${item.side} / 目标 ${fmtPct(item.target_weight)} / ${item.reason}` })),
+    ...context.strategyPlans.map((planItem) => ({ at: null, stage: "plan", label: `${planItem.symbol} 进入今日计划`, detail: `${planItem.side} ${fmt(planItem.quantity, 4)} / ${planItem.requires_approval ? "manual" : "auto"}` })),
+    ...context.strategyRecentApprovals.map((item) => ({ at: item.decided_at || item.created_at, stage: item.status === "pending" ? "approval_pending" : "approval", label: `${item.symbol} 审批 ${item.status}`, detail: item.decision_reason || item.reason || "manual approval flow" })),
+    ...context.strategyExecutions.filter((item) => item.order).map(({ planItem, order }) => ({ at: order.timestamp, stage: order.status === "filled" ? "fill" : "order", label: `${planItem.symbol} 订单 ${order.status}`, detail: `${planItem.side} / filled ${fmt(order.filled_quantity, 4)} / avg ${order.average_price == null ? "N/A" : fmt(order.average_price, 4)}` })),
+  ].sort((left, right) => {
+    if (left.at && right.at) return new Date(right.at).getTime() - new Date(left.at).getTime();
+    if (left.at) return -1;
+    if (right.at) return 1;
     return (stageWeight[right.stage] || 0) - (stageWeight[left.stage] || 0);
   });
-  const timelineSummary = [
-    `链路事件: ${fmt(sortedTimeline.length)}`,
-    `已进入计划: ${fmt(strategyPlans.length)}/${fmt(signals.length)}`,
-    `审批事件: ${fmt(strategyRecentApprovals.length)}`,
-    `订单事件: ${fmt(strategyExecutions.filter((item) => item.order).length)}`,
-  ];
-  timelineSummaryList.innerHTML = timelineSummary.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  timelineList.innerHTML = sortedTimeline.length
-    ? sortedTimeline.slice(0, 10).map((item) => `<li><strong>${escapeHtml(item.label)}</strong><br /><span class="meta-text">${escapeHtml(fmtTime(item.at))}</span><br />${escapeHtml(item.detail)}</li>`).join("")
-    : '<li class="detail-empty">当前策略还没有链路事件。</li>';
+  elements.timelineSummaryList.innerHTML = [`链路事件: ${fmt(timelineEvents.length)}`, `已进入计划: ${fmt(context.strategyPlans.length)}/${fmt(context.signals.length)}`, `审批事件: ${fmt(context.strategyRecentApprovals.length)}`, `订单事件: ${fmt(context.strategyExecutions.filter((item) => item.order).length)}`].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.timelineList.innerHTML = timelineEvents.length ? timelineEvents.slice(0, 10).map((item) => `<li><strong>${escapeHtml(item.label)}</strong><br /><span class="meta-text">${escapeHtml(fmtTime(item.at))}</span><br />${escapeHtml(item.detail)}</li>`).join("") : '<li class="detail-empty">当前策略还没有链路事件。</li>';
+}
 
-  const recommendation = detail.recommendation || {};
-  const historyCoverage = detail.history_coverage || {};
+function renderImpactReadiness(elements, context) {
+  const recommendation = context.detail.recommendation || {};
+  const historyCoverage = context.detail.history_coverage || {};
   const historyReady = Boolean(historyCoverage.ready);
   const validationReady = Number(recommendation.validation_pass_rate || 0) >= 0.6 && (recommendation.stability_bucket || "") === "stable";
   const correlationReady = Number(recommendation.max_selected_correlation || 0) < 0.7;
   const capacityReady = (recommendation.capacity_tier || "inactive") !== "inactive";
-  const executableToday = strategyPlans.length > 0 || signals.length > 0;
+  const executableToday = context.strategyPlans.length > 0 || context.signals.length > 0;
   const deployReady = (recommendation.verdict || "") === "deploy_candidate" && historyReady && validationReady && correlationReady;
-  readinessMetrics.innerHTML = [
-    metricTile("历史覆盖", historyReady ? "ready" : "blocked", `min ${fmtPct(historyCoverage.minimum_coverage_ratio)}`, historyReady ? "ok" : "blocked"),
-    metricTile("验证稳定性", validationReady ? "ready" : "warning", `${recommendation.stability_bucket || "N/A"} / pass ${fmtPct(recommendation.validation_pass_rate)}`, validationReady ? "ok" : "warning"),
-    metricTile("相关性门槛", correlationReady ? "ready" : "blocked", `max corr ${fmt(recommendation.max_selected_correlation)}`, correlationReady ? "ok" : "blocked"),
-    metricTile("推进状态", deployReady ? "deploy" : (recommendation.verdict || "review"), recommendation.action || "N/A", deployReady ? "ok" : "warning"),
-  ].join("");
-  const readinessItems = [
-    `当前 verdict: ${recommendation.verdict || "N/A"}`,
-    `研究动作: ${recommendation.action || "N/A"}`,
-    `容量层级: ${recommendation.capacity_tier || "N/A"}`,
-    `今日可执行: ${executableToday ? "yes" : "no"}`,
-    `历史覆盖最小值: ${fmtPct(historyCoverage.minimum_coverage_ratio)}`,
-  ];
-  readinessList.innerHTML = readinessItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  const readinessActionItems = [];
-  if (!historyReady) readinessActionItems.push("先补历史数据覆盖，再决定是否推进。");
-  if (!validationReady) readinessActionItems.push("先提升样本外验证和稳定性，再考虑 active。");
-  if (!correlationReady) readinessActionItems.push("先解决和已选策略的相关性，再谈推进。");
-  if (!capacityReady) readinessActionItems.push("当前容量不足，保持 research only。");
-  if (!strategyPlans.length && signals.length) readinessActionItems.push("今天有研究信号，但还没形成计划。");
-  if (deployReady) readinessActionItems.push("当前已接近 deploy candidate，可继续跟踪计划与执行偏差。");
-  if (!readinessActionItems.length) readinessActionItems.push("当前没有新增推进动作。");
-  readinessActions.innerHTML = readinessActionItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.readinessMetrics.innerHTML = [metricTile("历史覆盖", historyReady ? "ready" : "blocked", `min ${fmtPct(historyCoverage.minimum_coverage_ratio)}`, historyReady ? "ok" : "blocked"), metricTile("验证稳定性", validationReady ? "ready" : "warning", `${recommendation.stability_bucket || "N/A"} / pass ${fmtPct(recommendation.validation_pass_rate)}`, validationReady ? "ok" : "warning"), metricTile("相关性门槛", correlationReady ? "ready" : "blocked", `max corr ${fmt(recommendation.max_selected_correlation)}`, correlationReady ? "ok" : "blocked"), metricTile("推进状态", deployReady ? "deploy" : (recommendation.verdict || "review"), recommendation.action || "N/A", deployReady ? "ok" : "warning")].join("");
+  elements.readinessList.innerHTML = [`当前 verdict: ${recommendation.verdict || "N/A"}`, `研究动作: ${recommendation.action || "N/A"}`, `容量层级: ${recommendation.capacity_tier || "N/A"}`, `今日可执行: ${executableToday ? "yes" : "no"}`, `历史覆盖最小值: ${fmtPct(historyCoverage.minimum_coverage_ratio)}`].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const actions = [];
+  if (!historyReady) actions.push("先补历史数据覆盖，再决定是否推进。");
+  if (!validationReady) actions.push("先提升样本外验证和稳定性，再考虑 active。");
+  if (!correlationReady) actions.push("先解决和已选策略的相关性，再谈推进。");
+  if (!capacityReady) actions.push("当前容量不足，保持 research only。");
+  if (!context.strategyPlans.length && context.signals.length) actions.push("今天有研究信号，但还没形成计划。");
+  if (deployReady) actions.push("当前已接近 deploy candidate，可继续跟踪计划与执行偏差。");
+  if (!actions.length) actions.push("当前没有新增推进动作。");
+  elements.readinessActions.innerHTML = actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function renderImpact(detail) {
+  const elements = impactElements();
+  if (!elements) return;
+  if (!detail) {
+    renderImpactEmpty(elements);
+    return;
+  }
+  const context = buildImpactContext(detail);
+  const gapSummary = buildGapSummary(context);
+  const executionSummary = buildExecutionSummary(context);
+  const approvalSummary = buildApprovalSummary(context);
+  renderImpactHeader(elements, context);
+  renderImpactGap(elements, context, gapSummary);
+  renderImpactExecution(elements, context, gapSummary, executionSummary);
+  renderImpactApproval(elements, context, approvalSummary);
+  renderImpactTimeline(elements, context);
+  renderImpactReadiness(elements, context);
 }
 
 async function loadPayloads() {
