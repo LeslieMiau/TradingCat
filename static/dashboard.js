@@ -31,102 +31,6 @@ function renderTabs() {
   }
 }
 
-function catmullRomPath(pts, tension = 0.4) {
-  if (pts.length < 2) return "";
-  const d = [`M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(pts.length - 1, i + 2)];
-    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 3;
-    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 3;
-    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 3;
-    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 3;
-    d.push(`C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`);
-  }
-  return d.join(" ");
-}
-
-function renderCurve(points) {
-  const svg = document.getElementById("nav-curve");
-  if (!svg) return;
-  if (!points || !points.length) {
-    svg.innerHTML = "";
-    return;
-  }
-  const width = 640;
-  const height = 240;
-  const padding = 18;
-  const values = points.map((item) => Number(item.v));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const spread = max - min || 1;
-  const step = (width - padding * 2) / Math.max(points.length - 1, 1);
-  const coords = points.map((item, index) => {
-    const x = padding + step * index;
-    const y = height - padding - ((Number(item.v) - min) / spread) * (height - padding * 2);
-    return [x, y];
-  });
-
-  const smoothLine = catmullRomPath(coords, 0.4);
-  const areaPath = `${smoothLine} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
-
-  svg.innerHTML = `
-    <defs>
-      <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="rgba(92,196,255,0.22)"/>
-        <stop offset="75%" stop-color="rgba(92,196,255,0.04)"/>
-        <stop offset="100%" stop-color="rgba(92,196,255,0.0)"/>
-      </linearGradient>
-    </defs>
-    <path d="${areaPath}" fill="url(#cg)"></path>
-    <path d="${smoothLine}" fill="none" stroke="#5cc4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-    <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#34d399" stroke="#0b0e13" stroke-width="2"></circle>
-    <!-- Macro Overlays -->
-    <g class="macro-overlays">
-      ${renderMacroOverlays(points, width, height, padding, step, min, spread)}
-    </g>
-    <g class="curve-hover-group" style="opacity:0;transition:opacity 0.15s">
-      <line class="curve-xhair" x1="0" y1="${padding}" x2="0" y2="${height - padding}"
-            stroke="rgba(255,255,255,0.18)" stroke-width="1" stroke-dasharray="4 3"/>
-      <circle class="curve-hover-dot" cx="0" cy="0" r="4" fill="#5cc4ff" stroke="#0b0e13" stroke-width="2"/>
-    </g>
-  `;
-
-  const tooltip = document.getElementById("curve-tooltip");
-  const hoverGroup = svg.querySelector(".curve-hover-group");
-  const xhair = svg.querySelector(".curve-xhair");
-  const hoverDot = svg.querySelector(".curve-hover-dot");
-
-  svg.addEventListener("mousemove", (e) => {
-    const rect = svg.getBoundingClientRect();
-    const svgX = (e.clientX - rect.left) * (width / rect.width);
-    let nearest = { i: 0, dist: Infinity };
-    coords.forEach(([cx], i) => {
-      const dist = Math.abs(cx - svgX);
-      if (dist < nearest.dist) nearest = { i, dist };
-    });
-    const [cx, cy] = coords[nearest.i];
-    xhair.setAttribute("x1", cx.toFixed(2));
-    xhair.setAttribute("x2", cx.toFixed(2));
-    hoverDot.setAttribute("cx", cx.toFixed(2));
-    hoverDot.setAttribute("cy", cy.toFixed(2));
-    hoverGroup.style.opacity = "1";
-    if (tooltip) {
-      const pt = points[nearest.i];
-      const dateStr = pt.t ? String(pt.t).split("T")[0] : "";
-      tooltip.textContent = `${dateStr}  ${money(pt.v)}`;
-      tooltip.removeAttribute("hidden");
-    }
-  });
-
-  svg.addEventListener("mouseleave", () => {
-    hoverGroup.style.opacity = "0";
-    tooltip?.setAttribute("hidden", "");
-  });
-}
-
 function renderOverview() {
   const overview = state.summary?.overview ?? {};
   const details = state.summary?.details ?? {};
@@ -146,7 +50,11 @@ function renderOverview() {
   const now = new Date();
   document.getElementById("topline-updated").innerHTML = `Updated ${now.toLocaleString()} ${freshnessIndicator(now)}`;
   document.getElementById("curve-title").textContent = `${account.label ?? "总账户"}净值曲线`;
-  renderCurve(account.nav_curve ?? []);
+  renderCurve("nav-curve", account.nav_curve ?? [], {
+    smooth: true,
+    interactive: true,
+    overlays: state.macroCalendar || [],
+  });
 }
 
 function renderAssets() {
@@ -916,7 +824,7 @@ function renderSummaries() {
 
 async function loadSummary() {
   /* Phase 1: fetch critical summary first for fast first-paint */
-  const summaryResult = await apiFetch("/dashboard/summary");
+  const summaryResult = await apiFetch(API.dashboardSummary);
   if (!summaryResult.ok) {
     state.error = summaryResult.error;
     state.summary = null;
@@ -932,14 +840,14 @@ async function loadSummary() {
 
   /* Phase 2: fetch secondary data in parallel, update affected sections */
   const [incidentsResult, rebalanceResult, alphaResult, macroResult] = await Promise.all([
-    apiFetch("/ops/incidents/replay?window_days=7"),
-    apiFetch("/portfolio/rebalance-plan", {
+    apiFetch(API.opsIncidentsReplay(7)),
+    apiFetch(API.portfolioRebalancePlan, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     }),
-    apiFetch("/research/alpha-radar?count=15"),
-    apiFetch("/research/macro-calendar?days=7"),
+    apiFetch(API.researchAlphaRadar(15)),
+    apiFetch(API.researchMacroCalendar(7)),
   ]);
   state.incidents = incidentsResult.ok ? incidentsResult.data : null;
   state.rebalance = rebalanceResult.ok ? rebalanceResult.data : null;
@@ -1106,27 +1014,6 @@ function renderMacroCalendar() {
                 <td><span class="badge ${row.impact === 'High' ? 'status-blocked' : 'status-warning'}">● ${row.impact}</span></td>
                 <td class="meta-text">${row.previous || '-'} / ${row.forecast || '-'}</td>
             </tr>
-        `;
-    }).join("");
-}
-
-function renderMacroOverlays(points, width, height, padding, step, min, spread) {
-    const events = (state.macroCalendar || []).filter(e => e.impact === 'High');
-    if (!Array.isArray(events)) return "";
-    
-    return events.map(evt => {
-        const eventFull = evt.time || evt.date;
-        if (!eventFull) return "";
-        // Use more flexible matching for timestamps
-        const eventDate = new Date(eventFull).toISOString().split('T')[0];
-        const pointIndex = points.findIndex(p => p.t.startsWith(eventDate));
-        if (pointIndex === -1) return "";
-        
-        const x = padding + step * pointIndex;
-        const label = evt.event ? evt.event.split(' ')[0] : "Event";
-        return `
-            <line x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="2 2" />
-            <text x="${x}" y="${padding - 4}" fill="rgba(255,255,255,0.4)" font-size="8" text-anchor="middle">${label}</text>
         `;
     }).join("");
 }

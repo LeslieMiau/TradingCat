@@ -326,7 +326,7 @@ function closeShortcutOverlay() {
 function initGlobalTradingHotkeys() {
   registerShortcut("Ctrl+X", "一键撤销所有挂单", async () => {
     if (!confirm("⚠️ 确定要撤销所有未完成订单吗 (Cancel All Open)?")) return;
-    const res = await apiFetch("/orders/cancel-open", { method: "POST" });
+    const res = await apiFetch(API.ordersCancelOpen, { method: "POST" });
     if (res.ok) {
       showToast("所有挂单已撤销", "success");
     } else {
@@ -336,7 +336,7 @@ function initGlobalTradingHotkeys() {
 
   registerShortcut("Shift+X", "触发全局一键核按钮 (Kill Switch)", async () => {
     if (!confirm("🚨 警告：这会触发系统 Kill Switch 并清仓！确定执行吗？")) return;
-    const res = await apiFetch("/kill-switch", { method: "POST" });
+    const res = await apiFetch(API.killSwitch, { method: "POST" });
     if (res.ok) {
       showToast("Kill Switch 已激活！系统已锁定。", "error", 5000);
     } else {
@@ -463,7 +463,7 @@ function showQuickTradeModal() {
     document.querySelector("#quick-trade-form button[type='submit']").innerText = "提交中...";
     document.querySelector("#quick-trade-form button[type='submit']").disabled = true;
     
-    const res = await apiFetch("/orders/manual", {
+    const res = await apiFetch(API.ordersManual, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)

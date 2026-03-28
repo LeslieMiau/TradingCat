@@ -1,35 +1,3 @@
-function statusTone(value) {
-  if (value === "filled" || value === "approved" || value === "aligned") return "ok";
-  if (value === "pending" || value === "warning" || value === "manual" || value === "working") return "warning";
-  if (value === "rejected" || value === "expired" || value === "missing" || value === "not_submitted") return "blocked";
-  return "empty";
-}
-
-function renderCurve(svgId, points, stroke = "#5cc4ff", fill = "rgba(92, 196, 255, 0.12)") {
-  const svg = document.getElementById(svgId);
-  if (!svg || !points || !points.length) return;
-  const width = 640;
-  const height = 240;
-  const padding = 18;
-  const valueKey = Object.keys(points[0]).find((key) => key !== "index") || "nav";
-  const values = points.map((item) => Number(item[valueKey]));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const spread = max - min || 1;
-  const step = (width - padding * 2) / Math.max(points.length - 1, 1);
-  const coords = points.map((item, index) => {
-    const x = padding + step * index;
-    const y = height - padding - ((Number(item[valueKey]) - min) / spread) * (height - padding * 2);
-    return [x, y];
-  });
-  const line = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${line} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
-  svg.innerHTML = `
-    <path d="${area}" fill="${fill}"></path>
-    <path d="${line}" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
-  `;
-}
-
 function renderMonthlyHeatmap(rows) {
   const root = document.getElementById("monthly-heatmap");
   if (!root) return;
@@ -82,11 +50,15 @@ function accountLabel(market) {
   }[market] || market;
 }
 
+function curveValueKey(points) {
+  return Object.keys(points?.[0] ?? {}).find((key) => !["index", "t", "date"].includes(key)) || "v";
+}
+
 async function loadStrategy() {
   const strategyId = window.location.pathname.split("/").pop();
   const [strategyRes, summaryRes] = await Promise.all([
-    apiFetch(`/research/strategies/${strategyId}`),
-    apiFetch("/dashboard/summary"),
+    apiFetch(API.researchStrategies(strategyId)),
+    apiFetch(API.dashboardSummary),
   ]);
   if (!strategyRes.ok) {
     document.getElementById("strategy-title").textContent = "策略加载失败";
@@ -108,13 +80,29 @@ async function loadStrategy() {
     metricTile("容量", fmt(recommendation.capacity_tier), `相关性 ${fmt(recommendation.max_selected_correlation)}`, "warning"),
     metricTile("数据源", fmt(payload.assumptions.data_source), `完整历史 ${fmt(payload.assumptions.history_complete)}`, payload.assumptions.history_complete ? "ok" : "warning"),
   ].join("");
-  renderCurve("strategy-nav-curve", payload.nav_curve || []);
-  renderCurve("strategy-drawdown-curve", payload.drawdown_curve || [], "#b42318", "rgba(180, 35, 24, 0.12)");
+  renderCurve("strategy-nav-curve", payload.nav_curve || [], { valueKey: curveValueKey(payload.nav_curve || []) });
+  renderCurve("strategy-drawdown-curve", payload.drawdown_curve || [], {
+    valueKey: curveValueKey(payload.drawdown_curve || []),
+    stroke: "#b42318",
+    fill: "rgba(180, 35, 24, 0.12)",
+  });
   const benchmark = payload.benchmark || {};
   document.getElementById("benchmark-curve-title").textContent = benchmark.symbol ? `基准净值曲线 (${benchmark.symbol})` : "基准净值曲线";
-  renderCurve("strategy-benchmark-curve", benchmark.nav_curve || [], "#6941c6", "rgba(105, 65, 198, 0.12)");
-  renderCurve("relative-performance-curve", benchmark.relative_curve || [], "#34d399", "rgba(52, 211, 153, 0.12)");
-  renderCurve("rolling-excess-curve", benchmark.rolling_excess_curve || [], "#f79009", "rgba(247, 144, 9, 0.12)");
+  renderCurve("strategy-benchmark-curve", benchmark.nav_curve || [], {
+    valueKey: curveValueKey(benchmark.nav_curve || []),
+    stroke: "#6941c6",
+    fill: "rgba(105, 65, 198, 0.12)",
+  });
+  renderCurve("relative-performance-curve", benchmark.relative_curve || [], {
+    valueKey: curveValueKey(benchmark.relative_curve || []),
+    stroke: "#34d399",
+    fill: "rgba(52, 211, 153, 0.12)",
+  });
+  renderCurve("rolling-excess-curve", benchmark.rolling_excess_curve || [], {
+    valueKey: curveValueKey(benchmark.rolling_excess_curve || []),
+    stroke: "#f79009",
+    fill: "rgba(247, 144, 9, 0.12)",
+  });
   document.getElementById("strategy-thesis").textContent = metadata.thesis || "No strategy thesis available.";
   document.getElementById("strategy-meta-list").innerHTML = [
     `名称: ${metadata.name || payload.strategy_id}`,

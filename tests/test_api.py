@@ -77,47 +77,44 @@ def test_dashboard_page_and_assets():
     assert "text/html" in page.headers["content-type"]
     assert "TradingCat Dashboard" in page.text
     assert "账户、策略、计划与总结" in page.text
-    assert "今日计划与总结" in page.text
-    assert "计划分段" in page.text
-    assert "总结分段" in page.text
-    assert "四账户对照" in page.text
-    assert "资金使用率与计划消耗" in page.text
-    assert "四账户风险快照" in page.text
-    assert "收益来源快照" in page.text
-    assert "持仓集中度 Top" in page.text
-    assert "配置偏离与再平衡建议" in page.text
-    assert "市场预算对照" in page.text
-    assert "计划按策略拆分" in page.text
-    assert "策略表现 Top" in page.text
-    assert "策略资金占用 Top" in page.text
-    assert "策略执行落地 Top" in page.text
-    assert "账户-策略矩阵" in page.text
-    assert "计划按市场拆分" in page.text
-    assert "研究分组总览" in page.text
-    assert "今日方向概览" in page.text
-    assert "计划名义金额 Top" in page.text
-    assert "计划持仓偏差 Top" in page.text
+    assert "账户总览" in page.text
+    assert "Alpha Radar" in page.text
+    assert "Macro Calendar" in page.text
     assert "计划正文" in page.text
-    assert "今日信号漏斗" in page.text
-    assert "今日卡点摘要" in page.text
+    assert "今日计划摘要" in page.text
+    assert "待审批与节奏" in page.text
     assert "今日优先动作" in page.text
     assert "今日交易计划" in page.text
     assert "每日总结与阻塞项" in page.text
-    assert "总结正文" in page.text
-    assert "全局阻塞与最近事件" in page.text
-    assert "最近联调快照" in page.text
-    assert "数据与联调健康" in page.text
-    assert "上线推进进度" in page.text
+    assert "今日总结" in page.text
+    assert "本周总结" in page.text
+    assert "阻塞与待处理" in page.text
     assert "执行与审批队列" in page.text
-    assert "最近成交与验证单" in page.text
-    assert "审批与订单时效" in page.text
+    assert "待审批" in page.text
+    assert "最近订单" in page.text
+    assert "最近成交" in page.text
+    assert "最近验证单" in page.text
     assert "/static/dashboard.css" in page.text
+    assert "/static/api.js" in page.text
+    assert "/static/components.js" in page.text
     assert "/static/dashboard.js" in page.text
 
     js = client.get("/static/dashboard.js")
     assert js.status_code == 200
-    assert "/dashboard/summary" in js.text
-    assert "/portfolio/rebalance-plan" in js.text
+    assert "API.dashboardSummary" in js.text
+    assert "API.portfolioRebalancePlan" in js.text
+
+    api_js = client.get("/static/api.js")
+    assert api_js.status_code == 200
+    assert "/dashboard/summary" in api_js.text
+    assert "/portfolio/rebalance-plan" in api_js.text
+    assert "/journal/plans/latest" in api_js.text
+    assert "/research/strategies/" in api_js.text
+
+    components_js = client.get("/static/components.js")
+    assert components_js.status_code == 200
+    assert "function renderCurve" in components_js.text
+    assert "function statusTone" in components_js.text
 
     css = client.get("/static/dashboard.css")
     assert css.status_code == 200
@@ -164,10 +161,10 @@ def test_dashboard_page_and_assets():
 
     journal_js = client.get("/static/journal.js")
     assert journal_js.status_code == 200
-    assert "/journal/plans/latest" in journal_js.text
-    assert "/journal/summaries/latest" in journal_js.text
-    assert "/journal/daily" in journal_js.text
-    assert "/journal/markdown/latest" in journal_js.text
+    assert "API.journalPlansLatest" in journal_js.text
+    assert "API.journalSummariesLatest" in journal_js.text
+    assert "API.journalDaily" in journal_js.text
+    assert "API.journalMarkdownLatest" in journal_js.text
 
 
 def test_dashboard_summary_endpoint():

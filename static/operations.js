@@ -1,16 +1,16 @@
 async function loadPayloads() {
   const [summaryRes, planRes, summaryListRes, liveRes, rolloutRes, qualityRes, incidentsRes, triggersRes, tcaRes, riskConfigRes, killSwitchRes] = await Promise.all([
-    apiFetch("/dashboard/summary"),
-    apiFetch("/journal/plans"),
-    apiFetch("/journal/summaries"),
-    apiFetch("/ops/live-acceptance"),
-    apiFetch("/ops/rollout"),
-    apiFetch("/ops/execution-metrics"),
-    apiFetch("/ops/incidents/replay?window_days=7"),
-    apiFetch("/orders/triggers"),
-    apiFetch("/ops/tca"),
-    apiFetch("/ops/risk/config"),
-    apiFetch("/kill-switch"),
+    apiFetch(API.dashboardSummary),
+    apiFetch(API.journalPlans()),
+    apiFetch(API.journalSummaries()),
+    apiFetch(API.opsLiveAcceptance),
+    apiFetch(API.opsRollout),
+    apiFetch(API.opsExecutionMetrics),
+    apiFetch(API.opsIncidentsReplay(7)),
+    apiFetch(API.ordersTriggers),
+    apiFetch(API.opsTca),
+    apiFetch(API.opsRiskConfig),
+    apiFetch(API.killSwitch),
   ]);
   if (!summaryRes.ok) throw new Error(summaryRes.error);
   return {
@@ -83,17 +83,6 @@ function renderOperations(payload) {
     metricTile("异常率", fmtPct(quality.exception_rate || 0), `Risk hit ${fmtPct(quality.risk_hit_rate || 0)}`, Number(quality.exception_rate || 0) <= 0.05 ? "ok" : "blocked"),
     metricTile("授权状态", quality.authorization_ok ? "AUTHORIZED" : "UNAUTHORIZED", `Filled ${fmt(quality.filled_samples || 0)}`, quality.authorization_ok ? "ok" : "blocked"),
   ].join("");
-
-  // Helper for metrics if needed
-  function metricTile(label, value, sub, status) {
-    return `
-      <article class="metric-tile ${status}">
-        <div class="metric-label">${label}</div>
-        <div class="metric-value">${value}</div>
-        <div class="metric-meta">${sub}</div>
-      </article>
-    `;
-  }
   setList(
     "operations-live-blockers",
     [
@@ -268,7 +257,7 @@ async function handleRiskUpdate(e) {
         half_risk_drawdown: parseFloat(document.getElementById("risk-half-dd").value),
         no_new_risk_drawdown: parseFloat(document.getElementById("risk-no-dd").value)
     };
-    const res = await apiFetch("/ops/risk/config", {
+    const res = await apiFetch(API.opsRiskConfig, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -286,7 +275,7 @@ async function handleKillSwitchToggle() {
     const reason = prompt(`确定要${ks ? '取消' : '开启'}紧急关停吗？请输入原因:`);
     if (reason === null) return;
     
-    const res = await apiFetch("/kill-switch?enabled=" + (!ks) + "&reason=" + encodeURIComponent(reason), {
+    const res = await apiFetch(API.killSwitchToggle(!ks, reason), {
         method: "POST"
     });
     if (res.ok) {
@@ -313,7 +302,7 @@ if (document.readyState === "complete" || document.readyState === "interactive")
 document.getElementById("eval-smart-order-btn")?.addEventListener("click", async (e) => {
   e.target.disabled = true;
   e.target.textContent = "跑批中...";
-  const res = await apiFetch("/ops/evaluate-triggers", { method: "POST" });
+  const res = await apiFetch(API.opsEvaluateTriggers, { method: "POST" });
   if (res.ok) {
     showToast(`估值完成。扫描 ${res.data.evaluated} 条，触发 ${res.data.triggered} 条。`, "success");
     await refreshOperations();
@@ -337,7 +326,7 @@ document.getElementById("add-smart-order-btn")?.addEventListener("click", async 
       { metric: "RSI_14", operator: "<", target_value: 30.0 }
     ]
   };
-  const res = await apiFetch("/orders/triggers", {
+  const res = await apiFetch(API.ordersTriggers, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(mockOrder)

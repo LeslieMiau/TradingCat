@@ -31,12 +31,12 @@ function labelAccount(value) {
 }
 
 async function loadJournal() {
-  const account = encodeURIComponent(journalState.account);
+  const account = journalState.account;
   const [latestPlanRes, latestSummaryRes, plansRes, summariesRes] = await Promise.all([
-    apiFetch(`/journal/plans/latest?account=${account}`),
-    apiFetch(`/journal/summaries/latest?account=${account}`),
-    apiFetch(`/journal/plans?account=${account}`),
-    apiFetch(`/journal/summaries?account=${account}`),
+    apiFetch(API.journalPlansLatest(account)),
+    apiFetch(API.journalSummariesLatest(account)),
+    apiFetch(API.journalPlans(account)),
+    apiFetch(API.journalSummaries(account)),
   ]);
   if (!latestPlanRes.ok && !plansRes.ok) {
     journalState.error = latestPlanRes.error || plansRes.error;
@@ -181,8 +181,7 @@ document.getElementById("refresh-journal")?.addEventListener("click", () => {
 });
 
 document.getElementById("btn-view-daily")?.addEventListener("click", async () => {
-  const account = encodeURIComponent(journalState.account);
-  const response = await fetch(`/journal/daily?account=${account}`, { headers: { Accept: "application/json" } });
+  const response = await fetch(API.journalDaily(journalState.account), { headers: { Accept: "application/json" } });
   if (response.ok) {
     const data = await response.json();
     alert(JSON.stringify(data, null, 2));
@@ -190,8 +189,7 @@ document.getElementById("btn-view-daily")?.addEventListener("click", async () =>
 });
 
 document.getElementById("btn-export-markdown")?.addEventListener("click", async () => {
-  const account = encodeURIComponent(journalState.account);
-  const response = await fetch(`/journal/markdown/latest?account=${account}`);
+  const response = await fetch(API.journalMarkdownLatest(journalState.account));
   if (response.ok) {
     const text = await response.text();
     const blob = new Blob([text], { type: "text/markdown" });

@@ -123,7 +123,7 @@ async function loadStrategyImpact(strategyId) {
   if (state.strategyDetailCache[strategyId]) {
     return state.strategyDetailCache[strategyId];
   }
-  const result = await apiFetch(`/research/strategies/${encodeURIComponent(strategyId)}`);
+  const result = await apiFetch(API.researchStrategies(strategyId));
   if (!result.ok) throw new Error(`strategy detail unavailable: ${strategyId}`);
   state.strategyDetailCache[strategyId] = result.data;
   return result.data;
@@ -502,10 +502,10 @@ function renderImpact(detail) {
 
 async function loadPayloads() {
   const [dashboardRes, activeRes, candidateRes, assetCorrRes] = await Promise.all([
-    apiFetch("/dashboard/summary"),
-    apiFetch("/research/scorecard/run", { method: "POST" }),
-    apiFetch("/research/candidates/scorecard", { method: "POST" }),
-    apiFetch("/research/correlation", { 
+    apiFetch(API.dashboardSummary),
+    apiFetch(API.researchScorecard, { method: "POST" }),
+    apiFetch(API.researchCandidatesScorecard, { method: "POST" }),
+    apiFetch(API.researchCorrelation, { 
         method: "POST", 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] })

@@ -1,45 +1,12 @@
-function statusTone(value) {
-  if (value === "filled" || value === "approved") return "ok";
-  if (value === "pending" || value === "manual" || value === "submitted") return "warning";
-  if (value === "rejected" || value === "expired" || value === "not_submitted" || value === "missing") return "blocked";
-  return "empty";
-}
-
-function renderCurve(svgId, points) {
-  const svg = document.getElementById(svgId);
-  if (!svg || !points || !points.length) return;
-  const width = 640;
-  const height = 240;
-  const padding = 18;
-  const values = points.map((item) => Number(item.v));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const spread = max - min || 1;
-  const step = (width - padding * 2) / Math.max(points.length - 1, 1);
-  const coords = points.map((item, index) => {
-    const x = padding + step * index;
-    const y = height - padding - ((Number(item.v) - min) / spread) * (height - padding * 2);
-    return [x, y];
-  });
-  const line = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${line} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
-  svg.innerHTML = `
-    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(92,196,255,0.18)"/><stop offset="100%" stop-color="rgba(92,196,255,0.02)"/></linearGradient></defs>
-    <path d="${area}" fill="url(#cg)"></path>
-    <path d="${line}" fill="none" stroke="#5cc4ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
-    <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#34d399" stroke="#0b0e13" stroke-width="2"></circle>
-  `;
-}
-
 async function loadAccountPage() {
   const accountId = window.location.pathname.split("/").pop();
-  const response = await fetch("/dashboard/summary", { headers: { Accept: "application/json" } });
-  if (!response.ok) {
+  const result = await apiFetch(API.dashboardSummary);
+  if (!result.ok) {
     document.getElementById("account-title").textContent = "账户加载失败";
-    document.getElementById("account-subtitle").textContent = `${response.status}`;
+    document.getElementById("account-subtitle").textContent = result.error || "Unavailable";
     return;
   }
-  const payload = await response.json();
+  const payload = result.data ?? {};
   const account = payload.accounts?.[accountId];
   if (!account) {
     document.getElementById("account-title").textContent = "账户不存在";
