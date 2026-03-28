@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from tradingcat.routes.common import dashboard_page_response, get_app_state, read_template
+from tradingcat.routes.common import get_app_state, read_template
 
 
 router = APIRouter(prefix="/dashboard")
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/dashboard")
 
 @router.get("", response_class=HTMLResponse)
 def dashboard_page():
-    return dashboard_page_response()
+    return read_template("dashboard.html")
 
 
 @router.get("/summary")

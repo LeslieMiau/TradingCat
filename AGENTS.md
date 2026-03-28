@@ -6,7 +6,16 @@
 - Keep this file short and operational. Put durable agent rules here; keep product detail in the project docs above.
 
 ## Repo Layout
-- `tradingcat/`: application code, domain models, adapters, services, and API routes.
+- `tradingcat/main.py`: FastAPI entry point (~20 lines), registers routers and error handlers.
+- `tradingcat/app.py`: `TradingCatApplication` class — service wiring, lifecycle, business orchestration.
+- `tradingcat/routes/`: 19 APIRouter modules split by domain (orders, execution, research, etc.).
+- `tradingcat/api/`: request schemas (`schemas.py`) and error handlers (`error_handlers.py`).
+- `tradingcat/domain/`: Pydantic models (`models.py`, `triggers.py`).
+- `tradingcat/adapters/`: broker and market data adapters (Futu, yfinance, static fallback).
+- `tradingcat/services/`: business logic (~25 services).
+- `tradingcat/repositories/`: persistence layer (JSON, PostgreSQL, DuckDB backends).
+- `tradingcat/strategies/`: strategy protocol and implementations.
+- `tradingcat/backtest/`: event-driven backtesting engine.
 - `tests/`: pytest coverage for trading, execution, and control-plane behavior.
 - `scripts/`: local operator, diagnostics, and validation scripts.
 - `data/`: local state, reports, and generated artifacts. Treat it as runtime data, not source.
