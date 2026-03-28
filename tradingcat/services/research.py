@@ -72,6 +72,21 @@ class ResearchService:
             metrics, windows, monthly_returns = self._backtester.run_walk_forward(strategy_id, signals, as_of, start_date=sample_start)
             ledger = self._backtester._build_portfolio_ledger(monthly_returns, self._backtester._estimate_turnover(signals), cost_assumptions["total_cost_bps"])
             data_source = "synthetic"
+        threshold_validation_passed = (
+            metrics.annualized_return > 0.12
+            and metrics.max_drawdown < 0.12
+            and metrics.sharpe > 1.0
+            and bool(windows)
+            and all(bool(window["passed"]) for window in windows)
+        )
+        missing_history_symbols = len(signal_symbols - set(history_by_symbol))
+        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol)
+        data_blockers = self._research_data_blockers(
+            data_source=data_source,
+            signal_symbol_count=len(signal_symbols),
+            history_symbol_count=len(history_by_symbol),
+            missing_history_symbols=missing_history_symbols,
+        )
         correlation_key = "|".join(f"{value:.6f}" for value in monthly_returns)
         replay_inputs = self._build_replay_inputs(strategy_id, as_of, signals, sample_start, data_source)
         experiment = BacktestExperiment(
@@ -81,13 +96,7 @@ class ResearchService:
             metrics=metrics,
             sample_start=sample_start,
             window_count=len(windows),
-            passed_validation=(
-                metrics.annualized_return > 0.12
-                and metrics.max_drawdown < 0.12
-                and metrics.sharpe > 1.0
-                and bool(windows)
-                and all(bool(window["passed"]) for window in windows)
-            ),
+            passed_validation=threshold_validation_passed and data_ready,
             assumptions={
                 "commission_bps": cost_assumptions["commission_bps"],
                 "slippage_bps": cost_assumptions["slippage_bps"],
@@ -100,8 +109,11 @@ class ResearchService:
                 "correlation_key": correlation_key,
                 "monthly_return_count": len(monthly_returns),
                 "data_source": data_source,
+                "data_ready": data_ready,
+                "data_blockers": data_blockers,
+                "threshold_validation_passed": threshold_validation_passed,
                 "history_symbols": len(history_by_symbol),
-                "missing_history_symbols": len(signal_symbols - set(history_by_symbol)),
+                "missing_history_symbols": missing_history_symbols,
                 "history_complete": complete_history,
                 "fx_pairs": len(fx_rates_by_pair),
                 "corporate_action_symbols": len([symbol for symbol, actions in corporate_actions_by_symbol.items() if actions]),
@@ -212,6 +224,23 @@ class ResearchService:
     def _fingerprint(self, payload: dict[str, object]) -> str:
         encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+    def _research_data_blockers(
+        self,
+        *,
+        data_source: str,
+        signal_symbol_count: int,
+        history_symbol_count: int,
+        missing_history_symbols: int,
+    ) -> list[str]:
+        blockers: list[str] = []
+        if data_source != "historical":
+            blockers.append("Research used synthetic fallback data; keep the strategy out of keep/active until local history is complete.")
+        if signal_symbol_count > 0 and history_symbol_count == 0:
+            blockers.append("No local historical data was available for the required symbols.")
+        elif missing_history_symbols > 0:
+            blockers.append(f"Local history coverage is incomplete for {missing_history_symbols} required symbol(s).")
+        return blockers
 
     def _normalize_replay_inputs(self, payload: object) -> dict[str, object]:
         return payload if isinstance(payload, dict) else {}

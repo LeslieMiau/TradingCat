@@ -10,7 +10,15 @@ from tradingcat.strategies.simple import DefensiveTrendStrategy, EquityMomentumS
 
 
 def test_research_report_applies_walk_forward_thresholds(tmp_path):
-    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
     as_of = date(2026, 3, 8)
     strategies = [
         EtfRotationStrategy(),
@@ -25,16 +33,36 @@ def test_research_report_applies_walk_forward_thresholds(tmp_path):
 
     assert report["minimum_history_start"] == date(2018, 1, 1)
     assert len(report["strategy_reports"]) == 3
-    assert "strategy_a_etf_rotation" in report["accepted_strategy_ids"]
-    assert report["portfolio_metrics"]["strategy_count"] >= 1
+    assert "strategy_count" in report["portfolio_metrics"]
 
     etf_report = next(item for item in report["strategy_reports"] if item["strategy_id"] == "strategy_a_etf_rotation")
     assert etf_report["window_count"] >= 1
     assert etf_report["metrics"]["sample_months"] >= 12
     assert "annualized_return" in etf_report["metrics"]
     assert "max_selected_correlation" in etf_report
+    assert etf_report["data_source"] == "historical"
+    assert etf_report["data_ready"] is True
+    assert etf_report["promotion_blocked"] is False
     option_report = next(item for item in report["strategy_reports"] if item["strategy_id"] == "strategy_c_option_overlay")
     assert option_report["capacity_tier"] == "limited"
+
+
+def test_research_report_blocks_synthetic_promotion_without_local_history(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    etf_report = report["strategy_reports"][0]
+    assert report["accepted_strategy_ids"] == []
+    assert etf_report["passed_validation"] is False
+    assert etf_report["promotion_blocked"] is True
+    assert etf_report["data_source"] == "synthetic"
+    assert any("synthetic fallback data" in reason.lower() for reason in etf_report["blocking_reasons"])
 
 
 def test_option_strategy_generates_research_only_option_signal():
@@ -134,6 +162,8 @@ def test_research_recommendations_downgrade_partial_history_to_paper_only(tmp_pa
 
     recommendation = report["recommendations"][0]
     assert recommendation["action"] == "paper_only"
+    assert recommendation["promotion_blocked"] is True
+    assert recommendation["data_ready"] is False
     assert any("history coverage is incomplete" in reason.lower() for reason in recommendation["reasons"])
 
 

@@ -39,17 +39,15 @@ class StrategyAnalysisService:
             max_correlation = max((abs(value) for value in peer_correlations.values()), default=0.0)
             max_selected_correlation = max((abs(peer_correlations.get(peer_id, 0.0)) for peer_id in accepted_peer_ids), default=0.0)
             stability = self._stability_summary(experiment)
-            research_passed = bool(experiment.passed_validation) or (
-                float(experiment.metrics.annualized_return) > 0.12
-                and float(experiment.metrics.max_drawdown) < 0.12
-                and float(experiment.metrics.sharpe) > 1.0
-                and float(stability["validation_pass_rate"]) >= 0.6
-                and float(stability["stability_score"]) >= 0.65
-            )
+            data_ready = bool(experiment.assumptions.get("data_ready", False))
+            threshold_validation_passed = bool(experiment.assumptions.get("threshold_validation_passed", experiment.passed_validation))
+            blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
+            research_passed = bool(experiment.passed_validation)
             report = {
                 "strategy_id": experiment.strategy_id,
                 "passed_validation": research_passed,
                 "strict_validation_passed": experiment.passed_validation,
+                "threshold_validation_passed": threshold_validation_passed,
                 "window_count": experiment.window_count,
                 "metrics": experiment.metrics.model_dump(mode="json"),
                 "sample_start": experiment.sample_start,
@@ -61,6 +59,9 @@ class StrategyAnalysisService:
                 "max_correlation": round(max_correlation, 4),
                 "max_selected_correlation": round(max_selected_correlation, 4),
                 "data_source": experiment.assumptions.get("data_source", "synthetic"),
+                "data_ready": data_ready,
+                "promotion_blocked": not data_ready,
+                "blocking_reasons": blocking_reasons,
                 "history_complete": bool(experiment.assumptions.get("history_complete", False)),
                 "history_symbols": int(experiment.assumptions.get("history_symbols", 0)),
                 "missing_history_symbols": int(experiment.assumptions.get("missing_history_symbols", 0)),
@@ -132,20 +133,17 @@ class StrategyAnalysisService:
         ):
             metrics = strategy_report["metrics"]
             action = "keep"
-            reasons: list[str] = []
-            if strategy_report["strategy_id"] not in accepted:
+            reasons: list[str] = list(strategy_report.get("blocking_reasons", []))
+            if bool(strategy_report.get("promotion_blocked")):
+                action = "paper_only"
+                if not reasons:
+                    reasons.append("Research data is not ready; keep the strategy in paper-only mode.")
+            elif strategy_report["strategy_id"] not in accepted:
                 action = "drop"
                 if not strategy_report["passed_validation"]:
                     reasons.append("Failed out-of-sample validation thresholds.")
                 if float(strategy_report["max_selected_correlation"]) >= 0.7:
                     reasons.append("Correlation gate exceeded the 0.7 limit.")
-            elif (
-                not bool(strategy_report["history_complete"])
-                and int(strategy_report["history_symbols"]) > 0
-                and int(strategy_report["missing_history_symbols"]) > 0
-            ):
-                action = "paper_only"
-                reasons.append("Local history coverage is incomplete for required symbols; keep it in paper-only mode.")
             elif strategy_report["capacity_tier"] == "limited":
                 action = "paper_only"
                 reasons.append("Capacity is limited, keep it in research or low-allocation mode.")
@@ -169,6 +167,10 @@ class StrategyAnalysisService:
                     "capacity_tier": strategy_report["capacity_tier"],
                     "capacity_score": strategy_report["capacity_score"],
                     "max_selected_correlation": strategy_report["max_selected_correlation"],
+                    "data_source": strategy_report["data_source"],
+                    "data_ready": strategy_report["data_ready"],
+                    "promotion_blocked": strategy_report["promotion_blocked"],
+                    "blocking_reasons": strategy_report["blocking_reasons"],
                     "validation_pass_rate": strategy_report["validation_pass_rate"],
                     "stability_score": strategy_report["stability_score"],
                     "stability_bucket": strategy_report["stability_bucket"],
@@ -179,6 +181,8 @@ class StrategyAnalysisService:
         next_actions = []
         if not report["portfolio_passed"]:
             next_actions.append("Portfolio layer does not yet clear the admission gate; keep allocation in paper-trading mode.")
+        if any(bool(item.get("promotion_blocked")) for item in recommendations):
+            next_actions.append("Complete local historical data coverage before promoting any blocked strategy beyond paper-only mode.")
         if any(item["action"] == "drop" for item in recommendations):
             next_actions.append("Remove failed or over-correlated strategies from the candidate set before the next rollout review.")
         if any(item["action"] == "paper_only" for item in recommendations):
@@ -229,6 +233,10 @@ class StrategyAnalysisService:
                     "capacity_tier": recommendation["capacity_tier"],
                     "capacity_score": recommendation["capacity_score"],
                     "max_selected_correlation": recommendation["max_selected_correlation"],
+                    "data_source": recommendation["data_source"],
+                    "data_ready": recommendation["data_ready"],
+                    "promotion_blocked": recommendation["promotion_blocked"],
+                    "blocking_reasons": recommendation["blocking_reasons"],
                     "market_distribution": recommendation["market_distribution"],
                     "reasons": recommendation["reasons"],
                 }
@@ -292,6 +300,9 @@ class StrategyAnalysisService:
             "recommendation": recommendation,
             "assumptions": {
                 "data_source": experiment.assumptions.get("data_source"),
+                "data_ready": experiment.assumptions.get("data_ready"),
+                "data_blockers": experiment.assumptions.get("data_blockers"),
+                "threshold_validation_passed": experiment.assumptions.get("threshold_validation_passed"),
                 "history_complete": experiment.assumptions.get("history_complete"),
                 "history_symbols": experiment.assumptions.get("history_symbols"),
                 "missing_history_symbols": experiment.assumptions.get("missing_history_symbols"),

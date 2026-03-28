@@ -8,7 +8,7 @@
       "调用 /research/recommendations/run 与 /research/selections/review 时，synthetic 数据源策略最多进入 paper_only，不会进入 keep/active。",
       "运行 .venv/bin/pytest 覆盖 research、selection、allocation 相关测试并通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 2,

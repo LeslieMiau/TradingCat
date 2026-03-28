@@ -26,6 +26,8 @@ def test_strategy_selection_service_reviews_recommendations(tmp_path):
     assert "active" in summary
     assert "paper_only" in summary
     assert "rejected" in summary
+    assert summary["active"] == []
+    assert summary["paper_only"]
 
 
 def test_app_execution_signals_follow_active_strategy_selection(tmp_path):
