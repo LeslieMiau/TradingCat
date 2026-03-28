@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from . import (
+    alerts,
+    approvals,
+    audit,
+    broker,
+    compliance,
+    dashboard,
+    execution,
+    journal,
+    kill_switch,
+    market_data,
+    ops,
+    orders,
+    portfolio,
+    preflight,
+    reconcile,
+    reports,
+    research,
+    scheduler,
+    signals,
+)
+
+
+ROUTERS = [
+    signals.router,
+    dashboard.router,
+    portfolio.router,
+    orders.router,
+    execution.router,
+    approvals.router,
+    kill_switch.router,
+    reconcile.router,
+    journal.router,
+    broker.router,
+    market_data.router,
+    scheduler.router,
+    alerts.router,
+    audit.router,
+    compliance.router,
+    ops.router,
+    research.router,
+    reports.router,
+    preflight.router,
+]

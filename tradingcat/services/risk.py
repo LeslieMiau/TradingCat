@@ -119,11 +119,11 @@ class RiskEngine:
 
     def _fallback_reference_price(self, signal: Signal) -> float:
         if signal.instrument.market == Market.US:
-            return 600.0 if signal.instrument.asset_class == AssetClass.ETF else 300.0
+            return self._config.fallback_price_us_etf if signal.instrument.asset_class == AssetClass.ETF else self._config.fallback_price_us_stock
         if signal.instrument.market == Market.HK:
-            return 600.0
+            return self._config.fallback_price_hk
         if signal.instrument.market == Market.CN:
-            return 5.0 if signal.instrument.asset_class == AssetClass.ETF else 20.0
+            return self._config.fallback_price_cn_etf if signal.instrument.asset_class == AssetClass.ETF else self._config.fallback_price_cn_stock
         return 100.0
 
     def _lot_size(self, market: Market) -> float:

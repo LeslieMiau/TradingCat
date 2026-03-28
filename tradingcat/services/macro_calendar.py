@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
+
 from pydantic import BaseModel
+
+from tradingcat.config import AppConfig
+
 
 class MacroEvent(BaseModel):
     id: str
@@ -10,9 +14,13 @@ class MacroEvent(BaseModel):
     forecast: str
     previous: str
 
+
 class MacroCalendarService:
+    def __init__(self, _config: AppConfig | None = None) -> None:
+        self._config = _config
+
     def fetch_upcoming_events(self, days: int = 7) -> list[MacroEvent]:
-        # Return a deterministic but realistic set of simulated macro events
+        # TODO: Connect this fixture set to a real macro calendar data source.
         now = datetime.now(timezone.utc)
         
         events = [

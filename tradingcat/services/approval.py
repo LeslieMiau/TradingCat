@@ -7,12 +7,18 @@ from tradingcat.repositories.state import ApprovalRepository
 
 
 class ApprovalService:
-    def __init__(self, repository: ApprovalRepository) -> None:
+    def __init__(self, repository: ApprovalRepository, expiry_minutes: int = 60) -> None:
         self._repository = repository
         self._requests = repository.load()
+        self._expiry_minutes = expiry_minutes
 
     def create_request(self, intent: OrderIntent) -> ApprovalRequest:
-        request = ApprovalRequest(order_intent=intent)
+        now = datetime.now(UTC)
+        request = ApprovalRequest(
+            order_intent=intent,
+            created_at=now,
+            expires_at=now + timedelta(minutes=self._expiry_minutes),
+        )
         self._requests[request.id] = request
         self._repository.save(self._requests)
         return request
@@ -47,7 +53,9 @@ class ApprovalService:
         for request in self._requests.values():
             if request.status != ApprovalStatus.PENDING:
                 continue
-            if now - request.created_at < max_age:
+            if request.expires_at is not None and now < request.expires_at:
+                continue
+            if request.expires_at is None and now - request.created_at < max_age:
                 continue
             request.status = ApprovalStatus.EXPIRED
             request.decided_at = now

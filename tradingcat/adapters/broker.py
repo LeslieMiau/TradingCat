@@ -2,20 +2,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from tradingcat.config import AppConfig
 from tradingcat.domain.models import ExecutionReport, Market, OrderIntent, OrderStatus, Position
 
 
 class SimulatedBrokerAdapter:
-    def __init__(self) -> None:
+    def __init__(self, config: AppConfig | None = None) -> None:
+        self._config = config or AppConfig()
         self._orders: list[ExecutionReport] = []
         self._positions: list[Position] = []
-        self._cash: float = 1_000_000.0
+        self._cash: float = float(self._config.portfolio_value)
 
     def place_order(self, intent: OrderIntent) -> ExecutionReport:
         if intent.algo:
             if intent.algo.strategy in ["TWAP", "VWAP"]:
-                # Simulate breaking a large order into e.g. 5 smaller slices
-                slices = 5
+                slices = self._config.algo_twap_slices
                 base_qty = intent.quantity / slices
                 now = datetime.now(UTC)
                 for i in range(slices):
@@ -38,9 +39,9 @@ class SimulatedBrokerAdapter:
                 )
 
             elif intent.algo.strategy == "LADDER":
-                levels = intent.algo.levels or 5
-                p_start = intent.algo.price_start or 100.0
-                p_end = intent.algo.price_end or 90.0
+                levels = intent.algo.levels or self._config.algo_ladder_levels
+                p_start = intent.algo.price_start or self._config.algo_ladder_price_start
+                p_end = intent.algo.price_end or self._config.algo_ladder_price_end
                 base_qty = intent.quantity / levels
                 price_step = (p_end - p_start) / (levels - 1) if levels > 1 else 0
                 now = datetime.now(UTC)

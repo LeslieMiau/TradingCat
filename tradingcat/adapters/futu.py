@@ -32,6 +32,7 @@ def _load_futu_sdk() -> Any:
     except ImportError as exc:
         raise FutuAdapterUnavailable("futu SDK is not installed") from exc
     except Exception as exc:
+        logger.exception("futu SDK initialization failed")
         raise FutuAdapterUnavailable(f"futu SDK could not initialize: {exc}") from exc
     return ft
 
@@ -102,6 +103,7 @@ def _wait_for_session(ctx, ft_module, *, timeout: float = 10.0, interval: float 
         else:
             return
         time.sleep(interval)
+    logger.error("Futu session not ready before timeout")
     raise FutuAdapterUnavailable(
         f"Futu session not ready after {timeout}s — is OpenD running on {getattr(ctx, '_host', '?')}?"
     )

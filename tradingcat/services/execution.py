@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 
 from tradingcat.adapters.base import BrokerAdapter
@@ -7,6 +8,10 @@ from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, O
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.order_state_machine import OrderStateMachine
+from tradingcat.services.reconciliation import ReconciliationService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionService:
@@ -27,6 +32,7 @@ class ExecutionService:
         self._orders = repository.load()
         self._intents: dict[str, OrderIntent] = {}
         self._state_machine = OrderStateMachine()
+        self._reconciliation = ReconciliationService(self._state_machine)
         raw_state = state_repository.load()
         self._fill_fingerprints: set[str] = set(raw_state.get("fill_fingerprints", []))
         self._expected_prices: dict[str, dict[str, object]] = {
@@ -74,7 +80,6 @@ class ExecutionService:
                     "approval_request_id": approval.id,
                     "approval_status": approval.status.value,
                 }
-                report = self._manual_broker.place_order(intent)
             else:
                 self._authorizations[intent.id] = {
                     "mode": "risk_approved",
@@ -82,7 +87,14 @@ class ExecutionService:
                     "approval_request_id": None,
                     "approval_status": "not_required",
                 }
-                report = self._live_broker.place_order(intent)
+            try:
+                report = self._manual_broker.place_order(intent) if intent.requires_approval else self._live_broker.place_order(intent)
+            except Exception:
+                logger.exception(
+                    "Order submission failed",
+                    extra={"order_intent_id": intent.id, "symbol": intent.instrument.symbol, "market": intent.instrument.market.value},
+                )
+                raise
             self._orders[intent.id] = report
             self._save_state()
             return report
@@ -98,33 +110,20 @@ class ExecutionService:
                 "approval_status": request.status.value,
                 "decision_reason": request.decision_reason,
             }
-            report = self._manual_broker.place_order(request.order_intent)
+            try:
+                report = self._manual_broker.place_order(request.order_intent)
+            except Exception:
+                logger.exception("Approved manual order submission failed", extra={"approval_request_id": request.id})
+                raise
             self._orders[request.order_intent.id] = report
             self._save_state()
             return report
 
     def reconcile_manual_fill(self, fill: ManualFill) -> ExecutionReport:
         with self._lock:
-            computed_slippage = fill.slippage
-            baseline = self._expected_prices.get(fill.order_intent_id)
-            if computed_slippage is None and baseline is not None and fill.average_price is not None and fill.average_price > 0:
-                reference_price = float(baseline.get("reference_price", 0.0))
-                if reference_price > 0:
-                    multiplier = 1.0 if fill.side.value == "buy" else -1.0
-                    computed_slippage = multiplier * (fill.average_price - reference_price) / reference_price
-
-            report = ExecutionReport(
-                order_intent_id=fill.order_intent_id,
-                broker_order_id=fill.broker_order_id,
-                status=OrderStatus.FILLED,
-                filled_quantity=fill.filled_quantity,
-                average_price=fill.average_price,
-                message=fill.notes,
-                emotional_tag=fill.emotional_tag,
-                slippage=computed_slippage,
-            )
+            report = self._reconciliation.reconcile_manual_fill(fill, expected_prices=self._expected_prices)
             self._orders[fill.order_intent_id] = report
-            self._fill_fingerprints.add(self._fill_fingerprint(report))
+            self._fill_fingerprints.add(self._reconciliation.fill_fingerprint(report))
             self._authorizations.setdefault(
                 fill.order_intent_id,
                 {
@@ -165,6 +164,7 @@ class ExecutionService:
             try:
                 reports.append(self.cancel(order.broker_order_id))
             except Exception as exc:
+                logger.exception("Cancel open order failed", extra={"broker_order_id": order.broker_order_id})
                 failures.append(
                     {
                         "broker_order_id": order.broker_order_id,
@@ -179,6 +179,7 @@ class ExecutionService:
     def clear(self) -> None:
         with self._lock:
             self._orders = {}
+            self._intents = {}
             self._fill_fingerprints = set()
             self._intent_metadata = {}
             self._authorizations = {}
@@ -187,114 +188,21 @@ class ExecutionService:
 
     def reconcile_live_state(self) -> ReconciliationSummary:
         with self._lock:
-            order_updates = 0
-            fill_updates = 0
-            duplicate_fills = 0
-            unmatched_broker_orders = 0
-            applied_fill_order_ids: list[str] = []
-
-            known_by_broker_order_id = {
-                report.broker_order_id: intent_id
-                for intent_id, report in self._orders.items()
-                if report.broker_order_id
-            }
-
-            for broker_order in self._live_broker.get_orders():
-                intent_id = known_by_broker_order_id.get(broker_order.broker_order_id)
-                if intent_id is None:
-                    unmatched_broker_orders += 1
-                    continue
-                current = self._orders[intent_id]
-                merged = self._merge_report(current, broker_order)
-                if merged != current:
-                    self._orders[intent_id] = merged
-                    order_updates += 1
-
-            for fill in self._live_broker.reconcile_fills():
-                fingerprint = self._fill_fingerprint(fill)
-                if fingerprint in self._fill_fingerprints:
-                    duplicate_fills += 1
-                    continue
-                self._fill_fingerprints.add(fingerprint)
-                intent_id = known_by_broker_order_id.get(fill.broker_order_id, fill.order_intent_id)
-                existing = self._orders.get(intent_id)
-                self._orders[intent_id] = self._merge_report(existing, fill) if existing else fill
-                fill_updates += 1
-                applied_fill_order_ids.append(intent_id)
-
-            self._save_state()
-            return ReconciliationSummary(
-                order_updates=order_updates,
-                fill_updates=fill_updates,
-                duplicate_fills=duplicate_fills,
-                unmatched_broker_orders=unmatched_broker_orders,
-                state_counts=self.order_state_summary(),
-                applied_fill_order_ids=applied_fill_order_ids,
+            summary, updated_orders, updated_fingerprints = self._reconciliation.reconcile_live_state(
+                live_broker=self._live_broker,
+                orders=self._orders,
+                fill_fingerprints=self._fill_fingerprints,
             )
+            self._orders = updated_orders
+            self._fill_fingerprints = updated_fingerprints
+            self._save_state()
+            return summary
 
     def order_state_summary(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for order in self._orders.values():
-            counts.setdefault(order.status.value, 0)
-            counts[order.status.value] += 1
-        return counts
+        return self._reconciliation.order_state_summary(self._orders)
 
     def execution_quality_summary(self) -> dict[str, object]:
-        samples: list[dict[str, object]] = []
-        missing_baselines = 0
-        for report in self._orders.values():
-            if report.status != OrderStatus.FILLED or report.average_price is None or report.average_price <= 0:
-                continue
-            baseline = self._expected_prices.get(report.order_intent_id)
-            if baseline is None:
-                missing_baselines += 1
-                continue
-            reference_price = float(baseline["reference_price"])
-            slippage_ratio = abs(report.average_price - reference_price) / reference_price if reference_price > 0 else 0.0
-            asset_class = str(baseline.get("asset_class", "stock"))
-            if asset_class == "option":
-                threshold = 0.10
-                metric = round(slippage_ratio, 4)
-                metric_name = "premium_deviation"
-                within_threshold = metric <= threshold
-            else:
-                threshold = 20.0
-                metric = round(slippage_ratio * 10_000, 2)
-                metric_name = "slippage_bps"
-                within_threshold = metric <= threshold
-            samples.append(
-                {
-                    "order_intent_id": report.order_intent_id,
-                    "broker_order_id": report.broker_order_id,
-                    "symbol": baseline.get("symbol"),
-                    "market": baseline.get("market"),
-                    "asset_class": asset_class,
-                    "reference_price": reference_price,
-                    "fill_price": report.average_price,
-                    metric_name: metric,
-                    "threshold": threshold,
-                    "within_threshold": within_threshold,
-                    "emotional_tag": report.emotional_tag,
-                    "recorded_slippage": report.slippage,
-                }
-            )
-
-        equity_samples = [sample for sample in samples if sample["asset_class"] != "option"]
-        option_samples = [sample for sample in samples if sample["asset_class"] == "option"]
-        equity_breaches = sum(1 for sample in equity_samples if not sample["within_threshold"])
-        option_breaches = sum(1 for sample in option_samples if not sample["within_threshold"])
-        return {
-            "filled_samples": len(samples),
-            "missing_baselines": missing_baselines,
-            "equity_samples": len(equity_samples),
-            "option_samples": len(option_samples),
-            "equity_breaches": equity_breaches,
-            "option_breaches": option_breaches,
-            "equity_slippage_limit_bps": 20.0,
-            "option_premium_deviation_limit": 0.10,
-            "within_limits": equity_breaches == 0 and option_breaches == 0,
-            "samples": samples,
-        }
+        return self._reconciliation.execution_quality_summary(orders=self._orders, expected_prices=self._expected_prices)
 
     def authorization_summary(self) -> dict[str, object]:
         authorized = 0
@@ -332,19 +240,6 @@ class ExecutionService:
 
     def resolve_intent_context(self, order_intent_id: str) -> dict[str, object] | None:
         return self._intent_metadata.get(order_intent_id)
-
-    def _merge_report(self, current: ExecutionReport | None, incoming: ExecutionReport) -> ExecutionReport:
-        return self._state_machine.merge(current, incoming)
-
-    def _fill_fingerprint(self, report: ExecutionReport) -> str:
-        return "|".join(
-            [
-                report.broker_order_id,
-                f"{report.filled_quantity:.6f}",
-                f"{(report.average_price or 0.0):.6f}",
-                report.status.value,
-            ]
-        )
 
     def _register_intent_metadata(self, intent: OrderIntent) -> None:
         self._intent_metadata[intent.id] = {

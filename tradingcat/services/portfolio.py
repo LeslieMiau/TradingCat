@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import logging
+import random
+from datetime import UTC, datetime, timedelta
 
 from tradingcat.adapters.base import BrokerAdapter
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import Instrument, OrderSide, PortfolioReconciliationSummary, PortfolioSnapshot, Position
 from tradingcat.repositories.state import PortfolioHistoryRepository, PortfolioRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioService:
@@ -28,29 +33,34 @@ class PortfolioService:
             self._daily_pnl = snapshot.daily_pnl
             self._weekly_pnl = snapshot.weekly_pnl
 
-        # PHASE 4 NUCLEAR FIX: Force volatile history if it looks stale or flat
-        if len(self._history) < 30 or all(s.nav == 1000000.0 for s in list(self._history.values())[:10]):
-            import random
-            from datetime import timedelta, timezone
-            end = datetime.now(timezone.utc)
-            base_nav = self._config.portfolio_value
-            new_history = {}
-            for i in range(120):
-                ts = end - timedelta(days=120-i)
-                change = random.uniform(-0.02, 0.025)
-                base_nav *= (1 + change)
-                snap = PortfolioSnapshot(
-                    timestamp=ts,
-                    nav=round(base_nav, 2),
-                    cash=round(base_nav * 0.1, 2),
-                    drawdown=random.uniform(0, 0.04),
-                    daily_pnl=base_nav * change,
-                    weekly_pnl=base_nav * change * 3,
-                    positions=[]
-                )
-                new_history[ts.isoformat()] = snap
-            self._history = new_history
-            self._history_repository.save(new_history)
+    def has_history(self) -> bool:
+        return bool(self._history)
+
+    def seed_demo_history(self) -> bool:
+        if not self._config.seed_demo_data or self._history:
+            return False
+        logger.warning("Seeding synthetic demo portfolio history because seed_demo_data is enabled")
+        base_nav = self.current_snapshot().nav or self._config.portfolio_value
+        seeded_history: dict[str, PortfolioSnapshot] = {}
+        now = datetime.now(UTC).replace(microsecond=0)
+        for index in range(self._config.demo_history_days):
+            offset_days = self._config.demo_history_days - index
+            timestamp = now - timedelta(days=offset_days)
+            change = random.uniform(self._config.demo_min_daily_return, self._config.demo_max_daily_return)
+            base_nav *= 1 + change
+            snapshot = PortfolioSnapshot(
+                timestamp=timestamp,
+                nav=round(base_nav, 2),
+                cash=round(base_nav * self._config.demo_cash_ratio, 2),
+                drawdown=random.uniform(0, self._config.demo_drawdown_ceiling),
+                daily_pnl=round(base_nav * change, 2),
+                weekly_pnl=round(base_nav * change * self._config.demo_weekly_pnl_multiplier, 2),
+                positions=[],
+            )
+            seeded_history[snapshot.timestamp.isoformat()] = snapshot
+        self._history = seeded_history
+        self._history_repository.save(self._history)
+        return True
 
     def current_snapshot(self) -> PortfolioSnapshot:
         """Return an in-memory snapshot without persisting (safe for GET)."""

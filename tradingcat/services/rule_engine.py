@@ -1,39 +1,47 @@
+from __future__ import annotations
+
 import json
+import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from tradingcat.config import AppConfig
+from tradingcat.domain.models import AssetClass, Instrument, Market, OrderIntent
 from tradingcat.domain.triggers import SmartOrder
-from tradingcat.domain.models import OrderIntent
-from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.execution import ExecutionService
+from tradingcat.services.market_data import MarketDataService
+
+
+logger = logging.getLogger(__name__)
 
 
 class TriggerRepository:
     def __init__(self, config: AppConfig) -> None:
         self._path = config.data_dir / "triggers.json"
-        
+
     def load(self) -> dict[str, SmartOrder]:
         if not self._path.exists():
             return {}
         try:
-            data = json.loads(self._path.read_text())
-            return {k: SmartOrder.model_validate(v) for k, v in data.items()}
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            return {key: SmartOrder.model_validate(value) for key, value in data.items()}
         except Exception:
+            logger.exception("Failed to load smart-order trigger state; starting from empty repository")
             return {}
-            
+
     def save(self, triggers: dict[str, SmartOrder]) -> None:
-        raw = {k: json.loads(v.model_dump_json()) for k, v in triggers.items()}
-        self._path.write_text(json.dumps(raw, indent=2))
+        raw = {key: json.loads(value.model_dump_json()) for key, value in triggers.items()}
+        self._path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
 
 
 class RuleEngine:
     def __init__(
         self,
+        config: AppConfig,
         repository: TriggerRepository,
         market_data: MarketDataService,
-        execution: ExecutionService
+        execution: ExecutionService,
     ) -> None:
+        self._config = config
         self._repository = repository
         self._market_data = market_data
         self._execution = execution
@@ -46,83 +54,100 @@ class RuleEngine:
 
     def list_orders(self) -> list[SmartOrder]:
         return list(self._triggers.values())
-        
+
     def cancel_order(self, trigger_id: str) -> None:
         if trigger_id in self._triggers:
             self._triggers[trigger_id].status = "CANCELLED"
             self._repository.save(self._triggers)
 
     def evaluate_all(self) -> dict[str, object]:
-        pending = [v for v in self._triggers.values() if v.status == "PENDING"]
+        instruments = self._pending_instruments()
+        quotes = self._market_data.fetch_quotes(instruments) if instruments else {}
+        return self._evaluate_pending(quotes)
+
+    async def evaluate_all_async(self) -> dict[str, object]:
+        instruments = self._pending_instruments()
+        quotes = await self._market_data.fetch_quotes_async(instruments) if instruments else {}
+        return self._evaluate_pending(quotes)
+
+    def _pending_instruments(self) -> list[Instrument]:
+        instruments: dict[str, Instrument] = {}
+        for order in self._triggers.values():
+            if order.status != "PENDING":
+                continue
+            market = Market(str(order.market))
+            key = f"{market.value}:{order.symbol}"
+            instruments[key] = Instrument(symbol=order.symbol, market=market, asset_class=AssetClass.STOCK)
+        return list(instruments.values())
+
+    def _evaluate_pending(self, quotes: dict[str, float]) -> dict[str, object]:
+        pending = [order for order in self._triggers.values() if order.status == "PENDING"]
         if not pending:
-            return {"evaluated": 0, "triggered": 0}
-            
-        symbols = list({order.symbol for order in pending})
-        quotes = self._market_data.fetch_quotes(symbols) if hasattr(self._market_data, "fetch_quotes") else {}
-        # In a real system, we'd also calculate RSI, SMAs, etc.
-        # For Phase 2 sandbox, we use spot price or mock indicators
-        
+            return {"evaluated": 0, "triggered": 0, "failed": 0}
+
         triggered_count = 0
+        failed_count = 0
         now = datetime.now(timezone.utc)
-        
+
         for order in pending:
-            price = quotes.get(order.symbol, 100.0)  # Fallback 100
-            
-            # Evaluate all conditions (AND logic)
-            all_met = True
-            for cond in order.trigger_conditions:
-                # Simulating metric fetching
-                if cond.metric.upper() == "PRICE":
-                    val = price
-                elif cond.metric.upper().startswith("RSI"):
-                    val = 30.0  # Simulated
-                elif cond.metric.upper().startswith("SMA"):
-                    val = price * 0.95  # Simulated
-                else:
-                    val = price
-                    
-                target = cond.target_value
-                if cond.operator == "<" and not (val < target):
-                    all_met = False
-                    break
-                elif cond.operator == "<=" and not (val <= target):
-                    all_met = False
-                    break
-                elif cond.operator == ">" and not (val > target):
-                    all_met = False
-                    break
-                elif cond.operator == ">=" and not (val >= target):
-                    all_met = False
-                    break
-                elif cond.operator == "==" and not (val == target):
-                    all_met = False
-                    break
-                    
-            if all_met:
-                order.status = "TRIGGERED"
-                order.triggered_at = now
-                # Fire an execution intent immediately
-                intent = OrderIntent(
-                    strategy_id="complex_trigger",
-                    symbol=order.symbol,
-                    market=order.market,
-                    side=order.side,
-                    quantity=order.quantity,
-                    reference_price=price,
-                    reason=f"Smart order {order.smart_order_id} triggered",
-                    requires_approval=False
-                )
-                try:
-                    report = self._execution.execute_intent(intent, enforce_gate=False)
-                    order.execution_order_id = report.broker_order_id
-                except Exception:
-                    pass
+            price = float(quotes.get(order.symbol, 100.0))
+            if not self._all_conditions_met(order, price):
+                continue
+
+            order.status = "TRIGGERED"
+            order.triggered_at = now
+            intent = self._build_intent(order, price)
+            try:
+                self._execution.register_expected_prices([intent], {order.symbol: price})
+                report = self._execution.submit(intent)
+                order.execution_order_id = report.broker_order_id
                 triggered_count += 1
-                
-        if triggered_count > 0:
+            except Exception:
+                logger.exception("Smart order execution failed", extra={"smart_order_id": order.smart_order_id, "symbol": order.symbol})
+                order.status = "FAILED"
+                failed_count += 1
+
+        if triggered_count > 0 or failed_count > 0:
             self._repository.save(self._triggers)
-            
-        return {
-            "evaluated": len(pending),
-            "triggered": triggered_count
-        }
+
+        return {"evaluated": len(pending), "triggered": triggered_count, "failed": failed_count}
+
+    def _all_conditions_met(self, order: SmartOrder, price: float) -> bool:
+        for condition in order.trigger_conditions:
+            value = self._metric_value(condition.metric, price)
+            target = condition.target_value
+            if condition.operator == "<" and not (value < target):
+                return False
+            if condition.operator == "<=" and not (value <= target):
+                return False
+            if condition.operator == ">" and not (value > target):
+                return False
+            if condition.operator == ">=" and not (value >= target):
+                return False
+            if condition.operator == "==" and not (value == target):
+                return False
+        return True
+
+    def _metric_value(self, metric: str, price: float) -> float:
+        metric_upper = metric.upper()
+        if metric_upper == "PRICE":
+            return price
+        # TODO: Replace mock RSI calculations with real indicator inputs.
+        if metric_upper.startswith("RSI"):
+            return 30.0
+        # TODO: Replace mock SMA calculations with real indicator inputs.
+        if metric_upper.startswith("SMA"):
+            return price * 0.95
+        return price
+
+    def _build_intent(self, order: SmartOrder, reference_price: float) -> OrderIntent:
+        market = Market(str(order.market))
+        instrument = Instrument(symbol=order.symbol, market=market, asset_class=AssetClass.STOCK)
+        return OrderIntent(
+            signal_id=f"smart_order:{order.smart_order_id}",
+            instrument=instrument,
+            side=order.side,
+            quantity=order.quantity,
+            requires_approval=(market == Market.CN),
+            notes=f"Smart order {order.smart_order_id} triggered",
+        )

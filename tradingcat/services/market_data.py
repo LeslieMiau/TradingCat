@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import date, timedelta
 import math
 
@@ -7,6 +9,9 @@ from tradingcat.adapters.base import MarketDataAdapter
 from tradingcat.adapters.market import sample_instruments
 from tradingcat.domain.models import Bar, CorporateAction, FxRate, Instrument
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class MarketDataService:
@@ -41,6 +46,36 @@ class MarketDataService:
     def list_instruments(self) -> list[Instrument]:
         return sorted(self._catalog.values(), key=lambda item: (item.market.value, item.symbol))
 
+    def fetch_quotes(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
+        instruments = self._resolve_instruments(instruments_or_symbols)
+        if not instruments:
+            return {}
+        try:
+            return self._adapter.fetch_quotes(instruments)
+        except Exception:
+            logger.exception("Failed to fetch quotes", extra={"symbols": [instrument.symbol for instrument in instruments]})
+            return {}
+
+    async def fetch_quotes_async(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
+        return await asyncio.to_thread(self.fetch_quotes, instruments_or_symbols)
+
+    def fetch_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
+        instrument = self._resolve_instrument(symbol)
+        try:
+            return self._adapter.fetch_bars(instrument, start, end)
+        except Exception:
+            logger.exception(
+                "Failed to fetch bars",
+                extra={"symbol": symbol, "start": start.isoformat(), "end": end.isoformat()},
+            )
+            return []
+
+    async def fetch_bars_async(self, symbol: str, start: date, end: date) -> list[Bar]:
+        return await asyncio.to_thread(self.fetch_bars, symbol, start, end)
+
+    async def get_bars_async(self, symbol: str, start: date, end: date) -> list[Bar]:
+        return await asyncio.to_thread(self.get_bars, symbol, start, end)
+
     def sync_history(
         self,
         symbols: list[str] | None = None,
@@ -70,6 +105,7 @@ class MarketDataService:
                     }
                 )
             except Exception as exc:
+                logger.exception("History sync failed", extra={"symbol": instrument.symbol, "market": instrument.market.value})
                 failures.append(
                     {
                         "symbol": instrument.symbol,
@@ -293,6 +329,17 @@ class MarketDataService:
                 raise KeyError(f"Unknown instrument symbol: {symbol}")
             return None
         return matches[0]
+
+    def _resolve_instruments(self, instruments_or_symbols: list[Instrument] | list[str]) -> list[Instrument]:
+        resolved: list[Instrument] = []
+        for item in instruments_or_symbols:
+            if isinstance(item, Instrument):
+                resolved.append(item)
+                continue
+            instrument = self._resolve_instrument(str(item), strict=False)
+            if instrument is not None:
+                resolved.append(instrument)
+        return resolved
 
     def _key(self, instrument: Instrument) -> str:
         return f"{instrument.market.value}:{instrument.symbol}"

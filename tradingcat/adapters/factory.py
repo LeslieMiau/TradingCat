@@ -21,7 +21,6 @@ T = TypeVar("T")
 
 class AdapterFactory:
     _DIAGNOSTIC_CACHE_TTL_SECONDS = 2.0
-    _FUTU_PROBE_TIMEOUT_SECONDS = 0.2
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
@@ -40,7 +39,7 @@ class AdapterFactory:
         try:
             with socket.create_connection(
                 (self._config.futu.host, self._config.futu.port),
-                timeout=self._FUTU_PROBE_TIMEOUT_SECONDS,
+                timeout=self._config.futu.probe_timeout_seconds,
             ):
                 return None
         except OSError as exc:
@@ -71,7 +70,7 @@ class AdapterFactory:
 
     def _create_with_timeout(self, factory: Callable[[], T], timeout: float | None = None) -> T:
         if timeout is None:
-            timeout = self._config.futu.adapter_init_timeout
+            timeout = self._config.futu.adapter_init_timeout_seconds
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(factory)
         try:
@@ -79,9 +78,11 @@ class AdapterFactory:
         except FutureTimeoutError as exc:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
+            logger.exception("Futu adapter initialization timed out")
             raise FutuAdapterUnavailable(f"Futu adapter initialization timed out after {timeout:.1f}s") from exc
         except Exception:
             executor.shutdown(wait=True, cancel_futures=True)
+            logger.exception("Futu adapter initialization failed")
             raise
         else:
             executor.shutdown(wait=True, cancel_futures=True)
@@ -104,7 +105,7 @@ class AdapterFactory:
     def create_live_broker_adapter(self):
         if not self._config.futu.enabled:
             logger.info("Using Simulated broker (Futu disabled)")
-            return SimulatedBrokerAdapter()
+            return SimulatedBrokerAdapter(self._config)
         try:
             self._ensure_futu_endpoint()
             adapter = self._create_with_timeout(lambda: FutuBrokerAdapter(self._config.futu))
@@ -112,10 +113,10 @@ class AdapterFactory:
             return adapter
         except FutuAdapterUnavailable as exc:
             logger.warning("Futu broker unavailable, falling back to simulated: %s", exc)
-            return SimulatedBrokerAdapter()
+            return SimulatedBrokerAdapter(self._config)
 
     def create_manual_broker_adapter(self):
-        return ManualExecutionAdapter()
+        return ManualExecutionAdapter(self._config)
 
     def broker_backend_name(self) -> str:
         return self.broker_diagnostics()["backend"]
@@ -134,6 +135,7 @@ class AdapterFactory:
             except FutuAdapterUnavailable as exc:
                 return self._simulated_broker_diagnostics(str(exc))
             except Exception as exc:
+                logger.exception("Broker diagnostics failed")
                 return {"backend": "futu", "healthy": False, "detail": str(exc)}
             finally:
                 if adapter is not None:
@@ -172,6 +174,7 @@ class AdapterFactory:
             except FutuAdapterUnavailable as exc:
                 checks["quote"] = {"status": "skipped", "detail": str(exc)}
             except Exception as exc:
+                logger.exception("Quote adapter validation failed")
                 checks["quote"] = {"status": "failed", "detail": str(exc)}
             finally:
                 if quote_adapter is not None:
@@ -188,6 +191,7 @@ class AdapterFactory:
             except FutuAdapterUnavailable as exc:
                 checks["trade"] = {"status": "skipped", "detail": str(exc)}
             except Exception as exc:
+                logger.exception("Trade adapter validation failed")
                 checks["trade"] = {"status": "failed", "detail": str(exc)}
             finally:
                 if trade_adapter is not None:
