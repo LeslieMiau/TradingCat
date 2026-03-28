@@ -72,6 +72,8 @@ class StrategyAnalysisService:
                 accepted_peer_ids.append(experiment.strategy_id)
             strategy_reports.append(report)
 
+        blocked_strategy_ids = [report["strategy_id"] for report in strategy_reports if bool(report["promotion_blocked"])]
+        ready_strategy_ids = [report["strategy_id"] for report in strategy_reports if bool(report["data_ready"])]
         accepted_reports = [report for report in strategy_reports if report["strategy_id"] in accepted_strategy_ids]
         portfolio_metrics = self._portfolio_metrics(accepted_reports)
         portfolio_passed = (
@@ -85,6 +87,9 @@ class StrategyAnalysisService:
             "minimum_history_start": date(2018, 1, 1),
             "strategy_reports": strategy_reports,
             "accepted_strategy_ids": accepted_strategy_ids,
+            "ready_strategy_ids": ready_strategy_ids,
+            "blocked_strategy_ids": blocked_strategy_ids,
+            "blocked_count": len(blocked_strategy_ids),
             "rejected_strategy_ids": [report["strategy_id"] for report in strategy_reports if report["strategy_id"] not in accepted_strategy_ids],
             "portfolio_metrics": portfolio_metrics,
             "portfolio_passed": portfolio_passed,
@@ -243,10 +248,17 @@ class StrategyAnalysisService:
             )
 
         rows.sort(key=lambda item: (item["verdict"] != "deploy_candidate", -float(item["profitability_score"])))
+        blocked_strategy_ids = [
+            str(item["strategy_id"])
+            for item in rows
+            if bool(item.get("promotion_blocked"))
+        ]
         return {
             "as_of": as_of,
             "portfolio_passed": recommendation_report["portfolio_passed"],
             "accepted_strategy_ids": recommendation_report["accepted_strategy_ids"],
+            "blocked_strategy_ids": blocked_strategy_ids,
+            "blocked_count": len(blocked_strategy_ids),
             "deploy_candidate_count": deployable,
             "paper_only_count": paper_only,
             "rejected_count": rejected,
@@ -272,6 +284,10 @@ class StrategyAnalysisService:
             "as_of": as_of,
             "strategy_id": strategy_id,
             "signal_count": len(signals),
+            "data_source": experiment.assumptions.get("data_source"),
+            "data_ready": bool(experiment.assumptions.get("data_ready", False)),
+            "promotion_blocked": not bool(experiment.assumptions.get("data_ready", False)),
+            "blocking_reasons": [str(item) for item in experiment.assumptions.get("data_blockers", [])],
             "signals": [
                 {
                     "symbol": signal.instrument.symbol,

@@ -21,6 +21,34 @@ def test_research_backtest_endpoints():
         assert "metric_diff" in compared
 
 
+def test_research_interfaces_expose_data_blockers():
+    report = client.post("/research/report/run")
+    assert report.status_code == 200
+    report_payload = report.json()
+    assert "blocked_count" in report_payload
+    assert "blocked_strategy_ids" in report_payload
+    assert "strategy_reports" in report_payload
+    assert "promotion_blocked" in report_payload["strategy_reports"][0]
+    assert "blocking_reasons" in report_payload["strategy_reports"][0]
+
+    scorecard = client.post("/research/scorecard/run")
+    assert scorecard.status_code == 200
+    scorecard_payload = scorecard.json()
+    assert "blocked_count" in scorecard_payload
+    assert "blocked_strategy_ids" in scorecard_payload
+    assert "promotion_blocked" in scorecard_payload["rows"][0]
+    assert "blocking_reasons" in scorecard_payload["rows"][0]
+
+    strategy_id = scorecard_payload["rows"][0]["strategy_id"]
+    detail = client.get(f"/research/strategies/{strategy_id}")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert "data_source" in detail_payload
+    assert "data_ready" in detail_payload
+    assert "promotion_blocked" in detail_payload
+    assert "blocking_reasons" in detail_payload
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

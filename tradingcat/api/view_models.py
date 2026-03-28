@@ -70,17 +70,24 @@ class DashboardSummaryResponse(FlexibleModel):
 
 class ResearchScorecardRowView(FlexibleModel):
     strategy_id: str
+    action: str | None = None
     verdict: str
     profitability_score: float
     annualized_return: float
     sharpe: float
     max_drawdown: float
+    data_source: str | None = None
+    data_ready: bool | None = None
+    promotion_blocked: bool | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)
 
 
 class ResearchScorecardResponse(FlexibleModel):
     as_of: date
     portfolio_passed: bool
     accepted_strategy_ids: list[str] = Field(default_factory=list)
+    blocked_strategy_ids: list[str] = Field(default_factory=list)
+    blocked_count: int = 0
     deploy_candidate_count: int = 0
     paper_only_count: int = 0
     rejected_count: int = 0

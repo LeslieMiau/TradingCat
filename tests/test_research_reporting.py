@@ -205,6 +205,27 @@ def test_research_profit_scorecard_returns_verdicts(tmp_path):
     assert len(report["rows"]) == 3
     assert "profitability_score" in report["rows"][0]
     assert report["rows"][0]["verdict"] in {"deploy_candidate", "paper_only", "reject"}
+    assert "blocked_count" in report
+    assert "blocked_strategy_ids" in report
+
+
+def test_research_profit_scorecard_exposes_blockers_for_synthetic_strategies(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.build_profit_scorecard(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    row = report["rows"][0]
+    assert row["data_source"] == "synthetic"
+    assert row["data_ready"] is False
+    assert row["promotion_blocked"] is True
+    assert row["blocking_reasons"]
+    assert report["blocked_count"] == 1
+    assert report["blocked_strategy_ids"] == [strategy.strategy_id]
 
 
 def test_research_profit_scorecard_supports_candidate_pool(tmp_path):
@@ -247,6 +268,10 @@ def test_research_strategy_detail_returns_curve(tmp_path):
     assert "history_coverage" in detail
     assert "monthly_table" in detail
     assert "recommendation" in detail
+    assert "data_source" in detail
+    assert "data_ready" in detail
+    assert "promotion_blocked" in detail
+    assert "blocking_reasons" in detail
     assert "benchmark" in detail
     assert "symbol" in detail["benchmark"]
     assert "rolling_excess_curve" in detail["benchmark"]

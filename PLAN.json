@@ -19,7 +19,7 @@
       "调用 /research/strategies/{strategy_id} 可看到该策略是否被数据就绪性阻塞以及对应原因。",
       "前端或 API 测试能校验新增字段存在且语义一致。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 3,
