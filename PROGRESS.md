@@ -1,0 +1,13 @@
+## Harness initialized — 2026-03-28
+- Project type: Python 3.12+ / FastAPI / pytest / local-first trading control plane.
+- Features planned: 48
+- init.sh generated: skipped (already exists and executable)
+- .gitignore updated: skipped (already contains PLAN.json / PROGRESS.md)
+- Existing work detected:
+  - 架构拆分、dashboard 前端重构、共享组件/API registry 已完成。
+  - 研究、执行、验收、rollout、报告链路已有较完整骨架，当前最缺的是“研究可信度闸门”与个人交易者真正能依赖的证据闭环。
+  - 最近一次 harness 已清理，当前需要重新建立 30 天个人交易者版任务状态。
+- Key decisions:
+  - 这次 30 天主线按“个人真钱可用性”排序，不优先做更像机构前台的外观或情报终端感。
+  - 第一项 feature 固定为“禁止 synthetic 研究结果被静默当真”，因为这是后续 universe、策略、验收与 rollout 可信度的前置闸门。
+  - 现有未提交改动存在于 docs/init/shell 脚本中，本次不覆盖这些无关改动，只新增 harness 状态文件并在独立提交中推进当前 feature。
