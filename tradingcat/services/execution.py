@@ -105,6 +105,14 @@ class ExecutionService:
 
     def reconcile_manual_fill(self, fill: ManualFill) -> ExecutionReport:
         with self._lock:
+            computed_slippage = fill.slippage
+            baseline = self._expected_prices.get(fill.order_intent_id)
+            if computed_slippage is None and baseline is not None and fill.average_price is not None and fill.average_price > 0:
+                reference_price = float(baseline.get("reference_price", 0.0))
+                if reference_price > 0:
+                    multiplier = 1.0 if fill.side.value == "buy" else -1.0
+                    computed_slippage = multiplier * (fill.average_price - reference_price) / reference_price
+
             report = ExecutionReport(
                 order_intent_id=fill.order_intent_id,
                 broker_order_id=fill.broker_order_id,
@@ -112,6 +120,8 @@ class ExecutionService:
                 filled_quantity=fill.filled_quantity,
                 average_price=fill.average_price,
                 message=fill.notes,
+                emotional_tag=fill.emotional_tag,
+                slippage=computed_slippage,
             )
             self._orders[fill.order_intent_id] = report
             self._fill_fingerprints.add(self._fill_fingerprint(report))
@@ -264,6 +274,8 @@ class ExecutionService:
                     metric_name: metric,
                     "threshold": threshold,
                     "within_threshold": within_threshold,
+                    "emotional_tag": report.emotional_tag,
+                    "recorded_slippage": report.slippage,
                 }
             )
 

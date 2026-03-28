@@ -12,6 +12,59 @@ class SimulatedBrokerAdapter:
         self._cash: float = 1_000_000.0
 
     def place_order(self, intent: OrderIntent) -> ExecutionReport:
+        if intent.algo:
+            if intent.algo.strategy in ["TWAP", "VWAP"]:
+                # Simulate breaking a large order into e.g. 5 smaller slices
+                slices = 5
+                base_qty = intent.quantity / slices
+                now = datetime.now(UTC)
+                for i in range(slices):
+                    child = ExecutionReport(
+                        order_intent_id=intent.id,
+                        broker_order_id=f"sim-algo-{len(self._orders) + 1}-{i}",
+                        status=OrderStatus.SUBMITTED,
+                        message=f"[{intent.algo.strategy} Slice {i+1}/{slices}] Accepted",
+                        timestamp=now,
+                        filled_quantity=base_qty,  # Mock immediate partial fill
+                    )
+                    self._orders.append(child)
+                
+                return ExecutionReport(
+                    order_intent_id=intent.id,
+                    broker_order_id=f"sim-algo-parent-{len(self._orders)}",
+                    status=OrderStatus.SUBMITTED,
+                    message=f"Parent Algo {intent.algo.strategy} Registered, slicing active.",
+                    timestamp=now,
+                )
+
+            elif intent.algo.strategy == "LADDER":
+                levels = intent.algo.levels or 5
+                p_start = intent.algo.price_start or 100.0
+                p_end = intent.algo.price_end or 90.0
+                base_qty = intent.quantity / levels
+                price_step = (p_end - p_start) / (levels - 1) if levels > 1 else 0
+                now = datetime.now(UTC)
+                for i in range(levels):
+                    level_price = p_start + (i * price_step)
+                    child = ExecutionReport(
+                        order_intent_id=intent.id,
+                        broker_order_id=f"sim-ladder-{len(self._orders) + 1}-{i}",
+                        status=OrderStatus.SUBMITTED,
+                        message=f"[LADDER Level {i+1}/{levels}] Limit @ {level_price:.2f}",
+                        timestamp=now,
+                        average_price=level_price,
+                        filled_quantity=base_qty,  # Mock immediate fill for simulation
+                    )
+                    self._orders.append(child)
+                
+                return ExecutionReport(
+                    order_intent_id=intent.id,
+                    broker_order_id=f"sim-ladder-parent-{len(self._orders)}",
+                    status=OrderStatus.SUBMITTED,
+                    message=f"Parent Ladder Registered: {levels} levels from {p_start} to {p_end}",
+                    timestamp=now,
+                )
+
         report = ExecutionReport(
             order_intent_id=intent.id,
             broker_order_id=f"sim-{len(self._orders) + 1}",

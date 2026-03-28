@@ -115,6 +115,17 @@ class Signal(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class AlgoExecution(BaseModel):
+    strategy: str  # TWAP, VWAP
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    participation_rate: float | None = None
+    # Ladder specific
+    levels: int | None = None
+    price_start: float | None = None
+    price_end: float | None = None
+
+
 class OrderIntent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     signal_id: str | None = None
@@ -125,6 +136,7 @@ class OrderIntent(BaseModel):
     notes: str | None = None
     order_type: str = "market"  # "market" or "limit"
     limit_price: float | None = None
+    algo: AlgoExecution | None = None
 
 
 class ExecutionReport(BaseModel):
@@ -137,6 +149,8 @@ class ExecutionReport(BaseModel):
     message: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     market: Market | None = None
+    emotional_tag: str | None = None
+    slippage: float | None = None
 
 
 class ManualFill(BaseModel):
@@ -149,6 +163,8 @@ class ManualFill(BaseModel):
     filled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     market: Market | None = None
     notes: str | None = None
+    emotional_tag: str | None = None
+    slippage: float | None = None
 
 
 class Position(BaseModel):

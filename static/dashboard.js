@@ -2,6 +2,8 @@ const state = {
   summary: null,
   incidents: null,
   rebalance: null,
+  alphaRadar: null,
+  macroCalendar: null,
   error: null,
   activeAccount: "total",
 };
@@ -29,6 +31,23 @@ function renderTabs() {
   }
 }
 
+function catmullRomPath(pts, tension = 0.4) {
+  if (pts.length < 2) return "";
+  const d = [`M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 3;
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 3;
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 3;
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 3;
+    d.push(`C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`);
+  }
+  return d.join(" ");
+}
+
 function renderCurve(points) {
   const svg = document.getElementById("nav-curve");
   if (!svg) return;
@@ -49,15 +68,63 @@ function renderCurve(points) {
     const y = height - padding - ((Number(item.v) - min) / spread) * (height - padding * 2);
     return [x, y];
   });
-  const line = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${line} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
+
+  const smoothLine = catmullRomPath(coords, 0.4);
+  const areaPath = `${smoothLine} L ${coords.at(-1)[0].toFixed(2)} ${(height - padding).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padding).toFixed(2)} Z`;
+
   svg.innerHTML = `
-    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(92,196,255,0.18)"/><stop offset="100%" stop-color="rgba(92,196,255,0.02)"/></linearGradient></defs>
-    <path d="${area}" fill="url(#cg)"></path>
-    <path d="${line}" fill="none" stroke="#5cc4ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+    <defs>
+      <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(92,196,255,0.22)"/>
+        <stop offset="75%" stop-color="rgba(92,196,255,0.04)"/>
+        <stop offset="100%" stop-color="rgba(92,196,255,0.0)"/>
+      </linearGradient>
+    </defs>
+    <path d="${areaPath}" fill="url(#cg)"></path>
+    <path d="${smoothLine}" fill="none" stroke="#5cc4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
     <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#34d399" stroke="#0b0e13" stroke-width="2"></circle>
-    ${coords.map(([x,y],i) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="8" fill="transparent"><title>${escapeHtml(points[i].t??"")} ${money(points[i].v)}</title></circle>`).join("")}
+    <!-- Macro Overlays -->
+    <g class="macro-overlays">
+      ${renderMacroOverlays(points, width, height, padding, step, min, spread)}
+    </g>
+    <g class="curve-hover-group" style="opacity:0;transition:opacity 0.15s">
+      <line class="curve-xhair" x1="0" y1="${padding}" x2="0" y2="${height - padding}"
+            stroke="rgba(255,255,255,0.18)" stroke-width="1" stroke-dasharray="4 3"/>
+      <circle class="curve-hover-dot" cx="0" cy="0" r="4" fill="#5cc4ff" stroke="#0b0e13" stroke-width="2"/>
+    </g>
   `;
+
+  const tooltip = document.getElementById("curve-tooltip");
+  const hoverGroup = svg.querySelector(".curve-hover-group");
+  const xhair = svg.querySelector(".curve-xhair");
+  const hoverDot = svg.querySelector(".curve-hover-dot");
+
+  svg.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const svgX = (e.clientX - rect.left) * (width / rect.width);
+    let nearest = { i: 0, dist: Infinity };
+    coords.forEach(([cx], i) => {
+      const dist = Math.abs(cx - svgX);
+      if (dist < nearest.dist) nearest = { i, dist };
+    });
+    const [cx, cy] = coords[nearest.i];
+    xhair.setAttribute("x1", cx.toFixed(2));
+    xhair.setAttribute("x2", cx.toFixed(2));
+    hoverDot.setAttribute("cx", cx.toFixed(2));
+    hoverDot.setAttribute("cy", cy.toFixed(2));
+    hoverGroup.style.opacity = "1";
+    if (tooltip) {
+      const pt = points[nearest.i];
+      const dateStr = pt.t ? String(pt.t).split("T")[0] : "";
+      tooltip.textContent = `${dateStr}  ${money(pt.v)}`;
+      tooltip.removeAttribute("hidden");
+    }
+  });
+
+  svg.addEventListener("mouseleave", () => {
+    hoverGroup.style.opacity = "0";
+    tooltip?.setAttribute("hidden", "");
+  });
 }
 
 function renderOverview() {
@@ -68,12 +135,12 @@ function renderOverview() {
   const account = accountData() ?? {};
   const tone = gate.should_block ? "blocked" : gate.ready ? "ok" : "warning";
   const cards = [
-    metricTile("当前账户 NAV", money(account.nav), `${account.label ?? ""} / 现金 ${money(account.cash)}`, "ok"),
-    metricTile("持仓市值", money(account.position_value), `持仓数 ${fmt(account.position_count)}`, "ok"),
-    metricTile("现金占比", fmtPct(account.cash_weight), `现金 ${money(account.cash)}`, "warning"),
-    metricTile("总收益", `${fmtPct(account.total_return ?? overview.total_return)} ${trendIcon(account.total_return ?? overview.total_return)}`, `回撤 ${fmtPct(account.drawdown ?? overview.drawdown)}`, (account.total_return ?? overview.total_return) >= 0 ? "ok" : "blocked"),
-    metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? overview.daily_pnl)} ${trendIcon(account.daily_pnl ?? overview.daily_pnl)} / ${money(account.weekly_pnl ?? overview.weekly_pnl)}`, "PnL", (account.daily_pnl ?? overview.daily_pnl) >= 0 ? "ok" : "blocked"),
-    metricTile("运行状态", live.ready_for_live ? "Live Ready" : gate.should_block ? "Blocked" : "Warning", `Gate ${gate.policy_stage ?? "N/A"} / Live ${fmt(live.ready_for_live)}`, tone),
+    metricTile("当前账户 NAV", money(account.nav || 0), `${account.label ?? ""} / 现金 ${money(account.cash || 0)}`, "ok"),
+    metricTile("持仓市值", money(account.position_value || 0), `持仓数 ${fmt(account.positions?.length || 0)}`, "ok"),
+    metricTile("现金占比", fmtPct(account.cash_weight || account.cash_ratio || 0), `现金 ${money(account.cash || 0)}`, "warning"),
+    metricTile("总收益", `${fmtPct(account.total_return ?? 0)} ${trendIcon(account.total_return ?? 0)}`, `回撤 ${fmtPct(account.drawdown ?? 0)}`, (account.total_return ?? 0) >= 0 ? "ok" : "blocked"),
+    metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? 0)} ${trendIcon(account.daily_pnl ?? 0)} / ${money(account.weekly_pnl ?? 0)}`, "PnL", (account.daily_pnl ?? 0) >= 0 ? "ok" : "blocked"),
+    metricTile("运行状态", live.ready_for_live ? "Live Ready" : (gate.should_block ? "Blocked" : "Warning"), `Gate ${gate.policy_stage ?? "N/A"} / Live ${live.ready_for_live ? 'READY' : 'WAIT'}`, tone),
   ];
   document.getElementById("overview-cards").innerHTML = cards.join("");
   const now = new Date();
@@ -516,6 +583,48 @@ function renderCandidates() {
     : '<tr><td colspan="6" class="table-empty">当前没有研究分组数据。</td></tr>';
 }
 
+function renderAlphaRadar() {
+  const flows = state.alphaRadar ?? [];
+  const tbody = document.getElementById("alpha-radar-table");
+  if (!tbody) return;
+  tbody.innerHTML = flows.length
+    ? flows.map((f) => {
+        const isBullish = f.sentiment === "BULLISH";
+        const isBearish = f.sentiment === "BEARISH";
+        const timeStr = typeof f.timestamp === "string" ? f.timestamp.split("T")[1].substring(0, 5) : "";
+        return `
+        <tr>
+          <td><span class="meta-text">${escapeHtml(timeStr)}</span></td>
+          <td><strong>${escapeHtml(f.symbol)}</strong></td>
+          <td><span class="badge status-${f.type === 'SWEEP' ? 'warning' : 'ok'}">${escapeHtml(f.type)}</span></td>
+          <td><span style="color: ${isBullish ? 'var(--status-ok)' : isBearish ? 'var(--status-blocked)' : 'inherit'}">${escapeHtml(f.sentiment)}</span></td>
+          <td>${escapeHtml(money(f.premium))}</td>
+          <td><span class="badge status-empty">${escapeHtml(f.status)}</span></td>
+        </tr>
+      `}).join("")
+    : '<tr><td colspan="6" class="table-empty">当前没有截获的机构大单。</td></tr>';
+}
+
+function renderMacroCalendar() {
+  const events = state.macroCalendar ?? [];
+  const tbody = document.getElementById("macro-calendar-table");
+  if (!tbody) return;
+  tbody.innerHTML = events.length
+    ? events.map((e) => {
+        const timeStr = typeof e.time === "string" ? new Date(e.time).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : "";
+        const impactColor = e.impact === "HIGH" ? "var(--panic)" : e.impact === "MEDIUM" ? "var(--warning)" : "var(--text-muted)";
+        return `
+        <tr>
+          <td><span class="meta-text">${escapeHtml(timeStr)}</span></td>
+          <td><strong>${escapeHtml(e.country)}</strong></td>
+          <td>${escapeHtml(e.event)}</td>
+          <td><span style="color: ${impactColor}; font-weight: 600;">${escapeHtml(e.impact)}</span></td>
+          <td style="font-family: var(--font-mono);">${escapeHtml(e.previous)} / <strong>${escapeHtml(e.forecast)}</strong></td>
+        </tr>
+      `}).join("")
+    : '<tr><td colspan="5" class="table-empty">当前没有近期重要宏观数据。</td></tr>';
+}
+
 function renderPlan() {
   const tradingPlan = state.summary?.trading_plan ?? {};
   const plan = planNote();
@@ -795,7 +904,7 @@ function renderSummaries() {
       .map((item) => `${item.broker_order_id} / filled ${fmt(item.filled_quantity, 4)} / avg ${item.average_price == null ? "N/A" : money(item.average_price)}`),
     "当前没有最近成交单。",
   );
-  const probe = reportCards.broker_order_check ?? {};
+  const probe = details.broker_order_check ?? {};
   const probeItems = [];
   if (probe.symbol || probe.broker_order_id || probe.submission_status || probe.cancellation_status) {
     probeItems.push(
@@ -822,19 +931,25 @@ async function loadSummary() {
   renderDashboard();
 
   /* Phase 2: fetch secondary data in parallel, update affected sections */
-  const [incidentsResult, rebalanceResult] = await Promise.all([
+  const [incidentsResult, rebalanceResult, alphaResult, macroResult] = await Promise.all([
     apiFetch("/ops/incidents/replay?window_days=7"),
     apiFetch("/portfolio/rebalance-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     }),
+    apiFetch("/research/alpha-radar?count=15"),
+    apiFetch("/research/macro-calendar?days=7"),
   ]);
   state.incidents = incidentsResult.ok ? incidentsResult.data : null;
   state.rebalance = rebalanceResult.ok ? rebalanceResult.data : null;
+  state.alphaRadar = alphaResult.ok ? alphaResult.data : null;
+  state.macroCalendar = macroResult.ok ? macroResult.data : null;
   /* Re-render sections that depend on secondary data */
   try { renderSummaries(); } catch (e) { console.warn("[Dashboard] renderSummaries re-render:", e.message); }
   try { renderPriorityActions(); } catch (e) { console.warn("[Dashboard] renderPriorityActions re-render:", e.message); }
+  try { renderAlphaRadar(); } catch (e) { console.warn("[Dashboard] renderAlphaRadar re-render:", e.message); }
+  try { renderMacroCalendar(); } catch (e) { console.warn("[Dashboard] renderMacroCalendar re-render:", e.message); }
 }
 
 function renderError() {
@@ -947,4 +1062,95 @@ loadDashboard().then(() => {
   enableTableSort();
   enableTableSearch("search-assets", "assets-table");
   enableTableSearch("search-candidates", "candidates-table");
+  renderAlphaRadar();
+  renderMacroCalendar();
 });
+
+function renderAlphaRadar() {
+    const table = document.getElementById("alpha-radar-table");
+    if (!table || !state.alphaRadar) return;
+    
+    if (!state.alphaRadar.length) {
+        table.innerHTML = '<tr><td colspan="6" class="table-empty">目前没有发现大单异动。</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = state.alphaRadar.map(row => `
+        <tr>
+            <td class="meta-text">${new Date(row.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+            <td class="tabular-nums"><strong>${row.symbol}</strong></td>
+            <td><span class="badge ${row.type === 'BLOCK' ? 'status-ok' : 'status-warning'}">${row.type}</span></td>
+            <td><span class="badge ${row.sentiment === 'BULLISH' ? 'status-ok' : 'status-blocked'}">${row.sentiment}</span></td>
+            <td class="tabular-nums">${money(row.premium)}</td>
+            <td><span class="meta-text">${row.status}</span></td>
+        </tr>
+    `).join("");
+}
+
+function renderMacroCalendar() {
+    const table = document.getElementById("macro-calendar-table");
+    if (!table || !state.macroCalendar) return;
+    
+    if (!state.macroCalendar.length) {
+        table.innerHTML = '<tr><td colspan="5" class="table-empty">未来 7 天暂无高影响力事件。</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = state.macroCalendar.map(row => {
+        const dateStr = new Date(row.time).toLocaleDateString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
+        return `
+            <tr>
+                <td class="meta-text">${dateStr}</td>
+                <td>${row.country}</td>
+                <td><strong>${row.event}</strong></td>
+                <td><span class="badge ${row.impact === 'High' ? 'status-blocked' : 'status-warning'}">● ${row.impact}</span></td>
+                <td class="meta-text">${row.previous || '-'} / ${row.forecast || '-'}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderMacroOverlays(points, width, height, padding, step, min, spread) {
+    const events = (state.macroCalendar || []).filter(e => e.impact === 'High');
+    if (!Array.isArray(events)) return "";
+    
+    return events.map(evt => {
+        const eventFull = evt.time || evt.date;
+        if (!eventFull) return "";
+        // Use more flexible matching for timestamps
+        const eventDate = new Date(eventFull).toISOString().split('T')[0];
+        const pointIndex = points.findIndex(p => p.t.startsWith(eventDate));
+        if (pointIndex === -1) return "";
+        
+        const x = padding + step * pointIndex;
+        const label = evt.event ? evt.event.split(' ')[0] : "Event";
+        return `
+            <line x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="2 2" />
+            <text x="${x}" y="${padding - 4}" fill="rgba(255,255,255,0.4)" font-size="8" text-anchor="middle">${label}</text>
+        `;
+    }).join("");
+}
+
+function reportCards(overview) {
+    if (!overview) return "";
+    return `
+        <div class="report-grid">
+            <div class="report-card">
+                <div class="report-label">Daily PnL</div>
+                <div class="report-value ${overview.daily_pnl >= 0 ? 'status-ok' : 'status-blocked'}">${money(overview.daily_pnl)}</div>
+            </div>
+            <div class="report-card">
+                <div class="report-label">Drawdown</div>
+                <div class="report-value">${(overview.drawdown * 100).toFixed(2)}%</div>
+            </div>
+            <div class="report-card">
+                <div class="report-label">Positions</div>
+                <div class="report-value">${overview.position_count}</div>
+            </div>
+            <div class="report-card">
+                <div class="report-label">Cash Ratio</div>
+                <div class="report-value">${(overview.cash_ratio * 100).toFixed(1)}%</div>
+            </div>
+        </div>
+    `;
+}

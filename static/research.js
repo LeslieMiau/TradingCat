@@ -24,6 +24,29 @@ function renderCorrelationMatrix(matrix) {
   `).join("");
 }
 
+function renderAssetCorrelationMatrix(matrixMap) {
+  const head = document.getElementById("asset-correlation-head");
+  const body = document.getElementById("asset-correlation-table");
+  if (!head || !body) return;
+  if (!matrixMap || Object.keys(matrixMap).length === 0) {
+    head.innerHTML = "<tr><th>资产</th></tr>";
+    body.innerHTML = '<tr><td class="table-empty">当前没有大类资产相关性矩阵。</td></tr>';
+    return;
+  }
+  const symbols = Object.keys(matrixMap).sort();
+  head.innerHTML = `<tr><th>资产</th>${symbols.map((sym) => `<th>${escapeHtml(sym)}</th>`).join("")}</tr>`;
+  body.innerHTML = symbols.map((rowSym) => `
+    <tr>
+      <td><strong>${escapeHtml(rowSym)}</strong></td>
+      ${symbols.map((colSym) => {
+        const val = matrixMap[rowSym][colSym] ?? 0;
+        return `<td style="background:${heatTone(Math.abs(Number(val)))}">${escapeHtml(fmt(val))}</td>`;
+      }).join("")}
+    </tr>
+  `).join("");
+}
+
+
 function renderRejectSummary(rows) {
   const table = document.getElementById("research-reject-table");
   if (!table) return;
@@ -478,16 +501,22 @@ function renderImpact(detail) {
 }
 
 async function loadPayloads() {
-  const [dashboardRes, activeRes, candidateRes] = await Promise.all([
+  const [dashboardRes, activeRes, candidateRes, assetCorrRes] = await Promise.all([
     apiFetch("/dashboard/summary"),
     apiFetch("/research/scorecard/run", { method: "POST" }),
     apiFetch("/research/candidates/scorecard", { method: "POST" }),
+    apiFetch("/research/correlation", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] })
+    }),
   ]);
   if (!dashboardRes.ok) throw new Error(dashboardRes.error);
   return {
     dashboard: dashboardRes.data,
     active: activeRes.data ?? {},
     candidates: candidateRes.data ?? {},
+    assetCorrelations: assetCorrRes.data ?? {},
   };
 }
 
@@ -576,6 +605,7 @@ function renderResearch(payload) {
     : '<tr><td colspan="8" class="table-empty">当前没有候选池评分。</td></tr>';
 
   renderCorrelationMatrix(payload.candidates?.correlation_matrix);
+  renderAssetCorrelationMatrix(payload.assetCorrelations);
   renderRejectSummary(rejectRows);
   bindStrategyPickers();
 }

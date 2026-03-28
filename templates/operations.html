@@ -7,14 +7,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body>
     <nav class="sidebar">
-      <div class="sidebar-logo">🐱</div>
+      <div class="sidebar-logo">
+        <div class="logo-mark">TC</div>
+        <span class="logo-text">TradingCat</span>
+      </div>
       <div class="sidebar-nav">
         <a href="/dashboard" class="sidebar-item" title="Dashboard">
           <span class="sidebar-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="sidebar-label">Dashboard</span>
@@ -56,6 +59,104 @@
           </div>
           <div id="operations-overview-metrics" class="cards-grid four">
             <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+        </section>
+
+        <!-- TCA Execution Audit -->
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--secondary-color);">
+          <div class="panel-header">
+            <h2>执行质量与 TCA 审计</h2>
+            <span class="meta-text">Transaction Cost Analysis: 监控滑点、延迟与情绪对执行的影响</span>
+          </div>
+          <div id="tca-metrics" class="cards-grid four compact">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div class="summary-grid" style="margin-top: 16px;">
+            <article class="detail-card">
+              <h3>情绪对执行的影响 (Sentiment Impact)</h3>
+              <div id="tca-sentiment-list" class="detail-list">
+                <div class="detail-empty">加载中...</div>
+              </div>
+            </article>
+            <article class="detail-card">
+              <h3>最近执行详情</h3>
+              <ul id="tca-recent-list" class="detail-list">
+                <li class="detail-empty">加载中...</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <!-- Dynamic Risk Management -->
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--error-color);">
+          <div class="panel-header">
+            <h2>动态风控中心</h2>
+            <span class="meta-text">实时配置 RiskEngine 阈值，无需重启服务器</span>
+          </div>
+          <div class="summary-grid">
+            <article class="detail-card">
+                <h3>全局开关</h3>
+                <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                    <div id="kill-switch-status" class="status-badge" style="padding: 8px 16px; font-size: 14px;">UNKNOWN</div>
+                    <button id="toggle-kill-switch" class="button button-sm button-danger">切换紧急关停</button>
+                </div>
+                <p id="kill-switch-reason" class="meta-text" style="margin-top:8px;">最后操作原因: N/A</p>
+            </article>
+            <article class="detail-card" style="grid-column: span 2;">
+                <h3>风控阈值配置</h3>
+                <form id="risk-config-form" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:8px;">
+                    <label>
+                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">日止损限制 (Daily SL %)</span>
+                        <input type="number" id="risk-daily-sl" step="0.001" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                    </label>
+                    <label>
+                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">最大单票权重 (Max Weight %)</span>
+                        <input type="number" id="risk-max-weight" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                    </label>
+                    <label>
+                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">半仓风控水位 (Half Risk DD %)</span>
+                        <input type="number" id="risk-half-dd" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                    </label>
+                    <label>
+                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">锁仓风控水位 (No Risk DD %)</span>
+                        <input type="number" id="risk-no-dd" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                    </label>
+                    <div style="grid-column: span 2; display:flex; justify-content:flex-end;">
+                        <button type="submit" class="button button-primary button-sm">更新风控配置</button>
+                    </div>
+                </form>
+            </article>
+          </div>
+        </section>
+
+        <!-- Advanced Conditional Orders -->
+        <section class="panel panel-highlight" style="border-left: 3px solid #8b5cf6;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h2>高级条件触发网络</h2>
+              <span class="meta-text">Smart Orders: 无人值守的多条件监听与自动敲单</span>
+            </div>
+            <div class="header-actions">
+              <button id="add-smart-order-btn" class="button button-sm">新增触发规则</button>
+              <button id="eval-smart-order-btn" class="button button-sm button-primary" style="background: #8b5cf6; border-color: #8b5cf6;">立即跑批估值</button>
+            </div>
+          </div>
+          <div class="table-wrap" style="margin-top: 16px;">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>网络 ID</th>
+                  <th>标的</th>
+                  <th>方向 / 数量</th>
+                  <th>监听条件 (AST)</th>
+                  <th>发生时机</th>
+                  <th>当前状态</th>
+                </tr>
+              </thead>
+              <tbody id="smart-orders-table">
+                <tr><td colspan="6" class="table-empty">没有活跃的 Smart Orders 监听规则。</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -143,6 +244,25 @@
                 <li class="detail-empty">加载中...</li>
               </ul>
             </article>
+          </div>
+          <div class="table-wrap" style="margin-top: 24px;">
+            <h3>近期执行明细与行为标签 (Recent Fills)</h3>
+            <table class="data-table" style="font-size: 13px;">
+              <thead>
+                <tr>
+                  <th>标的</th>
+                  <th>市场</th>
+                  <th>基准价格</th>
+                  <th>成交均价</th>
+                  <th>滑点 (Slippage)</th>
+                  <th>情绪状态 (Tag)</th>
+                  <th>判定</th>
+                </tr>
+              </thead>
+              <tbody id="operations-fills-table">
+                <tr><td colspan="7" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
 

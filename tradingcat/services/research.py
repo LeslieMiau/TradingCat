@@ -619,6 +619,53 @@ class ResearchService:
                 )
         return correlations
 
+    def calculate_asset_correlation(self, symbols: list[str], start: date, end: date) -> dict[str, dict[str, float]]:
+        """
+        Calculates the Pearson correlation matrix for a given list of asset symbols based on daily returns.
+        """
+        if self._market_data is None or len(symbols) < 2:
+            return {sym: {} for sym in symbols}
+        
+        bars_by_symbol = self._market_data.ensure_history(symbols, start, end)
+        
+        # 1. Align time series closes by date
+        daily_closes: dict[date, dict[str, float]] = {}
+        for sym in symbols:
+            bars = bars_by_symbol.get(sym, [])
+            for bar in bars:
+                timestamp_date = bar.timestamp.date()
+                if timestamp_date not in daily_closes:
+                    daily_closes[timestamp_date] = {}
+                daily_closes[timestamp_date][sym] = bar.close
+                
+        # 2. Sort dates and compute returns
+        sorted_dates = sorted(daily_closes.keys())
+        returns_by_symbol: dict[str, list[float]] = {sym: [] for sym in symbols}
+        
+        for i in range(1, len(sorted_dates)):
+            prev_date = sorted_dates[i - 1]
+            curr_date = sorted_dates[i]
+            
+            for sym in symbols:
+                prev_close = daily_closes[prev_date].get(sym)
+                curr_close = daily_closes[curr_date].get(sym)
+                
+                if prev_close is not None and curr_close is not None and prev_close > 0:
+                    returns_by_symbol[sym].append((curr_close / prev_close) - 1.0)
+                else:
+                    returns_by_symbol[sym].append(0.0) # Fill missing days with 0% return
+                    
+        # 3. Compute pairwise correlations
+        matrix: dict[str, dict[str, float]] = {s: {} for s in symbols}
+        for s1 in symbols:
+            for s2 in symbols:
+                if s1 == s2:
+                    matrix[s1][s2] = 1.0
+                else:
+                    matrix[s1][s2] = round(self._correlation(returns_by_symbol[s1], returns_by_symbol[s2]), 4)
+                    
+        return matrix
+
     def _decode_monthly_returns(self, experiment: BacktestExperiment) -> list[float]:
         encoded = str(experiment.assumptions.get("correlation_key", ""))
         if not encoded:

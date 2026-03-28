@@ -9,15 +9,18 @@
     <link
       rel="preload"
       as="style"
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap"
       onload="this.rel='stylesheet'"
     />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" /></noscript>
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap" /></noscript>
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body>
     <nav class="sidebar">
-      <div class="sidebar-logo">🐱</div>
+      <div class="sidebar-logo">
+        <div class="logo-mark">TC</div>
+        <span class="logo-text">TradingCat</span>
+      </div>
       <div class="sidebar-nav">
         <a href="/dashboard" class="sidebar-item is-active" title="Dashboard">
           <span class="sidebar-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="sidebar-label">Dashboard</span>
@@ -75,11 +78,64 @@
                 <h3 id="curve-title">总账户净值曲线</h3>
                 <span id="curve-note" class="meta-text">近 90 个快照点</span>
               </div>
-              <svg id="nav-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none" aria-label="净值曲线"></svg>
+              <div class="curve-wrap">
+                <svg id="nav-curve" class="nav-curve" viewBox="0 0 640 240" preserveAspectRatio="none" aria-label="净值曲线"></svg>
+                <div id="curve-tooltip" class="curve-tooltip" hidden></div>
+              </div>
             </div>
             <div id="overview-cards" class="cards-grid six">
               <article class="metric-tile loading"><span>加载中...</span></article>
             </div>
+          </div>
+        </section>
+
+        <!-- Alpha Radar (Smart Money Flow) -->
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--primary-color);">
+          <div class="panel-header">
+            <h2>Alpha Radar <span style="font-size: 11px; padding: 2px 6px; background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color); border-radius: 4px; vertical-align: middle; margin-left: 8px;">LIVE</span></h2>
+            <span class="meta-text">期权大单与暗池资金流入模拟流</span>
+          </div>
+          <div class="table-wrap" style="max-height: 300px; overflow-y: auto;">
+            <table class="data-table compact-table">
+              <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 10;">
+                <tr>
+                  <th>时间</th>
+                  <th>标的</th>
+                  <th>类型</th>
+                  <th>情绪</th>
+                  <th>名义金额</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="alpha-radar-table">
+                <tr><td colspan="6" class="table-empty">拦截信号中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          </div>
+        </section>
+
+        <!-- Macro & Earnings Calendar -->
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--warning);">
+          <div class="panel-header">
+            <h2>Macro Calendar <span style="font-size: 11px; padding: 2px 6px; background: rgba(var(--warning-rgb), 0.1); color: var(--warning); border-radius: 4px; vertical-align: middle; margin-left: 8px;">UPCOMING</span></h2>
+            <span class="meta-text">近期高影响力宏观数据与事件</span>
+          </div>
+          <div class="table-wrap" style="max-height: 300px; overflow-y: auto;">
+            <table class="data-table compact-table">
+              <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 10;">
+                <tr>
+                  <th>时间 (UTC)</th>
+                  <th>国家</th>
+                  <th>事件</th>
+                  <th>重要性</th>
+                  <th>前值 / 预测</th>
+                </tr>
+              </thead>
+              <tbody id="macro-calendar-table">
+                <tr><td colspan="5" class="table-empty">加载中...</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
 

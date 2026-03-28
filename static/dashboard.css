@@ -8,53 +8,53 @@
    -------------------------------------------------------------------------- */
 :root {
   /* Backgrounds */
-  --bg: #0b0e13;
-  --bg-subtle: #10141b;
-  --panel: #141922;
-  --panel-strong: #1a2030;
-  --panel-hover: #1e2638;
+  --bg: #07090d;
+  --bg-subtle: #0b0e14;
+  --panel: rgba(14, 18, 25, 0.7);
+  --panel-strong: #121620;
+  --panel-hover: #181d29;
 
   /* Borders */
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.1);
 
   /* Text */
-  --text: #e8ecf1;
-  --text-secondary: #9ba4b5;
-  --muted: #5c6578;
+  --text: #f0f3f8;
+  --text-secondary: #a3b0c2;
+  --muted: #64718a;
 
-  /* Accent — ice blue */
-  --accent: #5cc4ff;
-  --accent-soft: rgba(92, 196, 255, 0.12);
+  /* Accent — vivid neon blue */
+  --accent: #2c9aff;
+  --accent-soft: rgba(44, 154, 255, 0.12);
 
-  /* Accent 2 — amber gold */
-  --accent-2: #e2a727;
-  --accent-2-soft: rgba(226, 167, 39, 0.12);
+  /* Accent 2 — technical amber */
+  --accent-2: #f5a623;
+  --accent-2-soft: rgba(245, 166, 35, 0.12);
 
   /* Semantic: profit / ok */
-  --ok: #34d399;
-  --ok-soft: rgba(52, 211, 153, 0.12);
+  --ok: #20d88a;
+  --ok-soft: rgba(32, 216, 138, 0.12);
 
   /* Semantic: warning */
-  --warn: #fbbf24;
-  --warn-soft: rgba(251, 191, 36, 0.12);
+  --warn: #ffb429;
+  --warn-soft: rgba(255, 180, 41, 0.12);
 
   /* Semantic: loss / error */
-  --block: #f87171;
-  --block-soft: rgba(248, 113, 113, 0.12);
+  --block: #ff4b4b;
+  --block-soft: rgba(255, 75, 75, 0.12);
 
   /* Shadows */
-  --shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 20px 64px rgba(0, 0, 0, 0.5);
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
 
-  /* Radius tokens */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 14px;
+  /* Radius tokens - tighter for density */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
 
   /* Font stacks */
-  --font-display: "Outfit", sans-serif;
-  --font-body: "DM Sans", sans-serif;
+  --font-display: "Syne", "Inter", sans-serif;
+  --font-body: "DM Sans", "Inter", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 }
 
@@ -70,14 +70,15 @@ body {
   min-height: 100vh;
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 13px; /* Slightly smaller base font for density */
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
   background:
-    radial-gradient(ellipse at 10% 0%, rgba(92, 196, 255, 0.08), transparent 50%),
-    radial-gradient(ellipse at 85% 5%, rgba(52, 211, 153, 0.05), transparent 45%),
-    radial-gradient(ellipse at 50% 80%, rgba(226, 167, 39, 0.03), transparent 50%),
+    radial-gradient(ellipse at 15% 0%, rgba(44, 154, 255, 0.06), transparent 50%),
+    radial-gradient(ellipse at 85% 5%, rgba(32, 216, 138, 0.04), transparent 45%),
+    radial-gradient(ellipse at 50% 90%, rgba(245, 166, 35, 0.03), transparent 55%),
     var(--bg);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -87,27 +88,27 @@ body {
    -------------------------------------------------------------------------- */
 /* Webkit (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px; /* Thinner */
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-subtle);
+  background: transparent; /* Cleaner track */
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--panel-hover);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--panel-hover) var(--bg-subtle);
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
 /* --------------------------------------------------------------------------
@@ -170,23 +171,41 @@ body {
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   height: 56px;
-  padding: 0 16px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--border);
-  color: var(--accent);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 15px;
   white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-logo::before { content: none; }
+
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 7px;
+  background: rgba(92, 196, 255, 0.12);
+  border: 1px solid rgba(92, 196, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 0.06em;
   flex-shrink: 0;
 }
 
-.sidebar-logo::before {
-  content: "\25C8";
-  font-size: 20px;
-  min-width: 24px;
-  text-align: center;
+.logo-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
 }
 
 .sidebar-nav {
@@ -332,47 +351,56 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
+  min-height: 32px; /* Denser height */
+  padding: 0 16px;
+  border-radius: var(--radius-sm); /* Sharper corners for trading terminal */
   border: 1px solid var(--border-strong);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--text-secondary);
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease-out;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .button:hover {
-  background: var(--panel-hover);
+  background: rgba(255, 255, 255, 0.08); /* Sophisticated light overlay */
   color: var(--text);
+  border-color: rgba(255, 255, 255, 0.2);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .button:active {
-  transform: scale(0.96);
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
 }
 
 .button-primary {
   border-color: transparent;
   color: #fff;
-  background: linear-gradient(135deg, #3ba8e8 0%, #5cc4ff 100%);
+  background: var(--accent); /* Solid vibrant blue instead of gradient */
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(92, 196, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 2px 8px rgba(44, 154, 255, 0.3);
 }
 
 .button-primary:hover {
-  background: linear-gradient(135deg, #4cb5f0 0%, #72cfff 100%);
-  box-shadow: 0 6px 20px rgba(92, 196, 255, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  background: #40a9ff; /* slightly lighter on hover */
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 6px 16px rgba(44, 154, 255, 0.4);
+}
+
+.button-primary:active {
+  background: #1890ff; /* slightly darker on active */
 }
 
 .button-sm {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 12px;
   font-size: 12px;
 }
 
@@ -402,7 +430,7 @@ body {
    -------------------------------------------------------------------------- */
 .dashboard-grid {
   display: grid;
-  gap: 18px;
+  gap: 14px; /* Tighter gap */
 }
 
 .hero-grid,
@@ -411,7 +439,7 @@ body {
 .summary-grid,
 .strategy-card-grid {
   display: grid;
-  gap: 14px;
+  gap: 12px; /* Tighter inner gap */
 }
 
 .hero-grid {
@@ -444,20 +472,20 @@ body {
    11. Panel
    -------------------------------------------------------------------------- */
 .panel {
-  padding: 22px;
+  padding: 18px 20px; /* More compact padding */
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: rgba(20, 25, 34, 0.6);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06), 0 4px 16px rgba(0, 0, 0, 0.1);
-  animation: fadeSlideUp 0.4s ease both;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--panel);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.04), 0 4px 16px rgba(0, 0, 0, 0.3);
+  animation: fadeSlideUp 0.3s ease both;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .panel:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 8px 32px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06), 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Staggered entrance delays for panels */
@@ -475,9 +503,10 @@ body {
 
 .panel-highlight {
   background:
-    radial-gradient(ellipse at 0% 0%, rgba(92, 196, 255, 0.08), transparent 40%),
-    radial-gradient(ellipse at 100% 0%, rgba(52, 211, 153, 0.06), transparent 35%),
-    rgba(20, 25, 34, 0.65);
+    radial-gradient(ellipse at 0% 0%, rgba(44, 154, 255, 0.08), transparent 45%),
+    radial-gradient(ellipse at 100% 100%, rgba(32, 216, 138, 0.05), transparent 40%),
+    rgba(14, 18, 25, 0.75);
+  border-color: rgba(44, 154, 255, 0.15);
 }
 
 .panel-header {
@@ -485,7 +514,9 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
 }
 
 .panel h2 {
@@ -533,8 +564,9 @@ body {
 .tab.is-active {
   color: #fff;
   border-color: transparent;
-  background: var(--accent);
-  box-shadow: 0 0 16px rgba(92, 196, 255, 0.2);
+  background: linear-gradient(135deg, #3fa8e8 0%, #5cc4ff 100%);
+  box-shadow: 0 0 20px rgba(92, 196, 255, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  font-weight: 600;
 }
 
 /* --------------------------------------------------------------------------
@@ -551,9 +583,14 @@ body {
 }
 
 .metric-tile:hover {
-  border-color: var(--accent);
+  border-color: rgba(255, 255, 255, 0.12);
   transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(92, 196, 255, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.metric-tile:hover::before {
+  top: 8px;
+  bottom: 8px;
 }
 
 .detail-card:hover {
@@ -564,22 +601,23 @@ body {
 
 .curve-card,
 .detail-card {
-  padding: 18px;
+  padding: 14px 16px; /* Tighter padding */
 }
 
 .curve-card h3,
 .detail-card h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 13px; /* Slightly smaller */
   font-weight: 600;
   color: var(--text);
+  letter-spacing: 0.02em;
 }
 
 /* Left accent bar on detail card headings */
 .detail-card h3 {
-  margin-bottom: 10px;
-  padding-left: 10px;
+  margin-bottom: 8px;
+  padding-left: 8px;
   border-left: 3px solid var(--accent);
 }
 
@@ -588,7 +626,7 @@ body {
   justify-content: space-between;
   gap: 10px;
   align-items: baseline;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 /* --------------------------------------------------------------------------
@@ -596,7 +634,7 @@ body {
    -------------------------------------------------------------------------- */
 .nav-curve {
   width: 100%;
-  height: 240px;
+  height: 200px; /* Slightly shorter default */
   display: block;
   border-radius: var(--radius-sm);
   background:
@@ -605,32 +643,78 @@ body {
       180deg,
       transparent,
       transparent 39px,
-      rgba(255, 255, 255, 0.03) 39px,
-      rgba(255, 255, 255, 0.03) 40px
+      rgba(255, 255, 255, 0.02) 39px,
+      rgba(255, 255, 255, 0.02) 40px
     ),
     repeating-linear-gradient(
       90deg,
       transparent,
       transparent 79px,
-      rgba(255, 255, 255, 0.02) 79px,
-      rgba(255, 255, 255, 0.02) 80px
+      rgba(255, 255, 255, 0.015) 79px,
+      rgba(255, 255, 255, 0.015) 80px
     ),
     var(--panel-strong);
 }
 
 /* --------------------------------------------------------------------------
+   15b. Curve Wrapper & Tooltip
+   -------------------------------------------------------------------------- */
+.curve-wrap {
+  position: relative;
+}
+
+.curve-tooltip {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(14, 18, 25, 0.95);
+  border: 1px solid var(--border-strong);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  z-index: 10;
+  transition: opacity 0.12s ease;
+}
+
+.curve-tooltip[hidden] { display: none; }
+
+/* --------------------------------------------------------------------------
    16. Metric Tiles
    -------------------------------------------------------------------------- */
 .metric-tile {
-  padding: 16px;
-  border-top: 2px solid var(--border-strong);
+  padding: 14px 14px 14px 18px; /* Compact padding */
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.metric-tile:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-strong);
-  border-top-color: var(--accent);
+.metric-tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--border-strong);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+.metric-tile--ok::before { background: var(--ok); opacity: 0.85; }
+.metric-tile--warning::before { background: var(--warn); opacity: 0.85; }
+.metric-tile--blocked::before { background: var(--block); opacity: 0.85; }
+
+
+/* metric-tile hover handled above */
 
 .metric-label {
   display: block;
@@ -646,7 +730,7 @@ body {
 .metric-value {
   display: block;
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: 28px;
   line-height: 1.1;
   font-weight: 500;
   color: var(--text);
@@ -824,21 +908,22 @@ body {
 
 .data-table th,
 .data-table td {
-  padding: 12px 16px;
+  padding: 8px 12px; /* Denser padding for tables */
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  vertical-align: middle; /* Better alignment for dense text */
   text-align: left;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .data-table th {
-  color: var(--muted);
+  color: var(--text-secondary); /* Slightly brighter table headers */
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.015); /* Distinct header background */
 }
 
 .data-table tr:last-child td {
@@ -846,12 +931,12 @@ body {
 }
 
 .data-table tbody tr {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease-in-out;
   position: relative;
 }
 
 .data-table tbody tr:hover td {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .data-table tbody tr:hover td:first-child {
@@ -860,11 +945,11 @@ body {
 
 /* Subtle alternating rows */
 .data-table tbody tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(255, 255, 255, 0.005);
 }
 
 .data-table tbody tr:nth-child(even):hover td {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .data-table tbody tr.is-selected td {
@@ -873,7 +958,7 @@ body {
 
 .data-table.compact-table th,
 .data-table.compact-table td {
-  padding: 10px 14px;
+  padding: 6px 10px;
 }
 
 .table-empty {

@@ -49,11 +49,37 @@ class AuditService:
         cycle_events = [
             event
             for event in execution_events
-            if event.action in {"preview_ok", "preview_error", "run_ok", "run_error", "run_partial"}
+            if event.action in {"preview_ok", "preview_error", "run_ok", "run_error", "run_partial", "fill_ok"}
         ]
         risk_events = [event for event in events if event.category == "risk" and event.action == "violation"]
         total_cycles = len(cycle_events) + len(risk_events)
         exception_events = sum(1 for event in cycle_events if event.status == "error")
+        
+        # TCA Metrics
+        fills = [e for e in execution_events if e.action == "fill_ok"]
+        total_slippage = 0.0
+        total_latency = 0.0
+        slippage_count = 0
+        sentiment_impact: dict[str, float] = {}
+
+        for fill in fills:
+            details = fill.details
+            slip = details.get("slippage_bps")
+            lat = details.get("latency_sec")
+            emo = details.get("emotional_tag")
+            
+            if isinstance(slip, (int, float)):
+                total_slippage += slip
+                slippage_count += 1
+                if emo:
+                    sentiment_impact[str(emo)] = sentiment_impact.get(str(emo), 0.0) + slip
+            
+            if isinstance(lat, (int, float)):
+                total_latency += lat
+
+        avg_slippage = total_slippage / slippage_count if slippage_count else 0.0
+        avg_latency = total_latency / len(fills) if fills else 0.0
+
         return {
             "cycle_count": total_cycles,
             "execution_cycle_count": len(cycle_events),
@@ -61,6 +87,9 @@ class AuditService:
             "exception_count": exception_events,
             "exception_rate": round(exception_events / total_cycles, 4) if total_cycles else 0.0,
             "risk_hit_rate": round(len(risk_events) / total_cycles, 4) if total_cycles else 0.0,
+            "avg_slippage_bps": round(avg_slippage, 2),
+            "avg_latency_sec": round(avg_latency, 3),
+            "sentiment_impact": {k: round(v, 2) for k, v in sentiment_impact.items()},
             "latest_execution_event": cycle_events[0] if cycle_events else None,
             "latest_risk_event": risk_events[0] if risk_events else None,
         }
