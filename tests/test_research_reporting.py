@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
+from tradingcat.domain.models import AssetClass, Bar, Instrument, Market
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.services.market_data import MarketDataService
@@ -220,6 +221,20 @@ def test_research_strategy_detail_returns_curve(tmp_path):
     assert "symbol" in detail["benchmark"]
     assert "rolling_excess_curve" in detail["benchmark"]
     assert "yearly_performance" in detail
+
+
+def test_research_monthly_returns_support_mixed_timezone_bars(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    instrument = Instrument(symbol="QQQ", market=Market.US, asset_class=AssetClass.ETF)
+    bars = [
+        Bar(instrument=instrument, timestamp=datetime(2026, 3, 31, tzinfo=timezone.utc), open=105, high=105, low=105, close=105, volume=1),
+        Bar(instrument=instrument, timestamp=datetime(2026, 1, 31, tzinfo=timezone.utc), open=100, high=100, low=100, close=100, volume=1),
+        Bar(instrument=instrument, timestamp=datetime(2026, 2, 28), open=102, high=102, low=102, close=102, volume=1),
+    ]
+
+    returns = service.strategy_analysis._monthly_returns_from_bars(bars)
+
+    assert returns == [0.02, 0.029412]
 
 
 def test_research_suggest_experiments_returns_ideas(tmp_path):

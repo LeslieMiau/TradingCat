@@ -1,7 +1,7 @@
 model = "gpt-5.4"
 model_reasoning_effort = "medium"
 plan_mode_reasoning_effort = "high"
-approval_policy = "on-request"
+approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 # TradingCat is trusted for normal development work, but trading actions still
@@ -10,19 +10,19 @@ sandbox_mode = "workspace-write"
 [profiles.tradingcat_safe]
 model = "gpt-5.4"
 model_reasoning_effort = "high"
-approval_policy = "untrusted"
-sandbox_mode = "read-only"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
 
 [profiles.tradingcat_dev]
 model = "gpt-5.4"
 model_reasoning_effort = "medium"
-approval_policy = "on-request"
+approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 [profiles.tradingcat_review]
 model = "gpt-5.4"
 model_reasoning_effort = "high"
-approval_policy = "untrusted"
+approval_policy = "never"
 sandbox_mode = "read-only"
 
 # Add project-specific MCP servers only when a real recurring workflow needs

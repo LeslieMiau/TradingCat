@@ -478,7 +478,21 @@ class StrategyAnalysisService:
     def _monthly_returns_from_bars(self, bars) -> list[float]:
         if not bars:
             return []
-        ordered = sorted(bars, key=lambda item: item.timestamp)
+        # Historical bars can mix naive and timezone-aware datetimes depending on
+        # which adapter populated local history. Sort by wall-clock components so
+        # Python 3.12+ does not raise on direct datetime comparisons.
+        ordered = sorted(
+            bars,
+            key=lambda item: (
+                item.timestamp.year,
+                item.timestamp.month,
+                item.timestamp.day,
+                item.timestamp.hour,
+                item.timestamp.minute,
+                item.timestamp.second,
+                item.timestamp.microsecond,
+            ),
+        )
         month_end_closes: list[float] = []
         current_period = None
         current_close = None
