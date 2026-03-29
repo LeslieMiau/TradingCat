@@ -21,6 +21,14 @@
 - `data/`: local state, reports, and generated artifacts. Treat it as runtime data, not source.
 - `templates/` and `static/`: dashboard UI assets.
 
+## Architecture Boundaries
+- Keep `tradingcat/routes/` thin. Routes should delegate; do not rebuild research/reporting/readiness orchestration in route modules.
+- Prefer `tradingcat/services/query_services.py`, `tradingcat/services/portfolio_projections.py`, and `tradingcat/services/strategy_reporting.py` for read-model assembly before adding more logic to `app.py` or `facades.py`.
+- `TradingCatApplication` should primarily own wiring, caching, lifecycle, and delegation. If a new read path needs multiple services, extract a query/projection/reporting service instead of growing `app.py`.
+- `tradingcat/facades.py` should consume app/query/projection/reporting surfaces and return transport-ready payloads. Avoid direct `strategy_analysis.` orchestration from facades.
+- Production strategies belong in `tradingcat/strategies/simple.py`; research-only candidates belong in `tradingcat/strategies/research_candidates.py`. Do not mix new candidate strategies back into `simple.py`.
+- Treat the persisted instrument catalog as the default truth for research/execution. `sample_instruments()` is for fallback/diagnostic paths only.
+
 ## Standard Workflow
 - Read the relevant code paths and the nearby tests before editing.
 - If a request will likely require more than 100 lines of code changes or is clearly multi-step, plan first before implementation.

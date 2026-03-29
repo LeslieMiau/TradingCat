@@ -815,3 +815,16 @@
   - fallback/sample 路径本身还没完全抽成显式诊断策略；本次只先把“生产策略”和“research candidate”从文件层面拆开，给下一步继续治理 sample 回退留出结构空间。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先考虑补 README / AGENTS 级架构约束，或者继续治理 dashboard/readiness 的真实重链路性能与 `app.py` 最后几段 orchestration。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 补齐 README / AGENTS 级架构约束，把这轮落地的 query/reporting/strategy-module 边界写成可持续规则。
+- Code changes:
+  - `README.md` 新增 `Current Architecture Boundaries`，明确 routes、facades、query services、portfolio projections、strategy reporting、strategy modules 和 persistent universe 的职责边界。
+  - `AGENTS.md` 新增 `Architecture Boundaries`，把 agent 级落地约束写清楚：新读链路优先落到 query/projection/reporting service，facade 不要直接回到 `strategy_analysis`，新 candidate strategy 不要再混回 `simple.py`。
+- Validation:
+  - `rg -n "Current Architecture Boundaries|## Architecture Boundaries|sample_instruments\\(\\)|strategy_reporting.py|research_candidates.py" README.md AGENTS.md` 能命中新增约束段落与关键边界关键词。
+- Decisions:
+  - 这一步保持文档最小增量，只补“防回潮”的操作性规则，不在 README/AGENTS 里重复长篇产品说明或历史背景。
+  - 文档规则直接对应本轮已完成的代码边界：query/reporting/projection service、candidate strategy 独立模块、persistent universe 优先，而不是额外发明一套与代码不一致的新术语。
+- Remaining focus for next session:
+  - 新 architecture harness 剩下更像“性能和尾部收尾”工作：dashboard/readiness 真正的重链路优化、`app.py` 剩余 orchestration 再收口，以及 fallback/sample 路径是否继续做显式诊断隔离。

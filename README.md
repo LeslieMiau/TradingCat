@@ -214,6 +214,16 @@ Operator notes:
 - Use `liquidity_bucket=low` or `enabled=false` to keep a symbol persisted but out of the default personal-trading universe.
 - After a universe change, run `POST /data/history/sync` for the affected symbols and then verify `GET /data/history/coverage`.
 
+## Current Architecture Boundaries
+
+- `tradingcat/routes/` stays thin. Route handlers should delegate to `app.py` properties, facades, or dedicated services instead of composing research/reporting logic inline.
+- `tradingcat/facades.py` is for transport-facing read models. Dashboard and research facades should assemble response payloads from query/projection/reporting services, not reach directly into heavy orchestration code.
+- `tradingcat/services/query_services.py` owns read-side aggregation such as readiness, data quality, and research query composition.
+- `tradingcat/services/portfolio_projections.py` owns account-position/cash/nav-curve/allocation projection helpers shared by dashboard surfaces.
+- `tradingcat/services/strategy_reporting.py` owns research report, stability, recommendation, scorecard, and strategy-detail assembly. `StrategyAnalysisService` remains the lower-level analysis core for experiment, correlation, benchmark, and history helpers.
+- `tradingcat/strategies/simple.py` now holds production strategy implementations plus shared metadata/helpers. Research-only candidate strategies live in `tradingcat/strategies/research_candidates.py`.
+- `sample_instruments()` is still available for fallback/diagnostic paths, but the persistent instrument catalog is the default source of truth for research and strategy detail flows.
+
 ## Quick Start
 
 ```bash
