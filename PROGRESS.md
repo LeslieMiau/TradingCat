@@ -600,3 +600,20 @@
 - Decisions:
   - 为了避免这次 harness 再次把 `app.py` / facade 推成大对象，这轮优先做“复用已有 service + 缓存聚合 + 去掉 GET 副作用”，而不是继续往 route 或 dashboard facade 里硬塞新判断。
   - 老的 `tests/test_api.py::test_preflight_and_broker_recovery_endpoints` 单跑仍然非常慢，当前没有把它作为这轮 feature 收尾的 gating；相应功能由更窄的 API 回归测试和真实 HTTP 验证覆盖。后续若要继续优化，可单独把 broker recovery 测试拆开做轻量化。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 抽出 `DataQualityQueryService` 与 `ReadinessQueryService`，把 readiness / data-quality 聚合从 `TradingCatApplication` 收口到独立 query service。
+- Code changes:
+  - 新增 `tradingcat/services/query_services.py`，集中承接 `data_quality_summary`、`repair_priority_symbols`、`history_baseline_symbols`、`baseline_quote_currencies`，以及 `research_readiness`、`startup_preflight`、`base_validation`、`execution_gate`、`operations_readiness` 的读模型聚合。
+  - `TradingCatApplication` 现在主要保留缓存与 delegation：`data_quality_summary()`、`_repair_priority_symbols()`、`history_baseline_symbols()`、`_baseline_quote_currencies()`、`_build_base_validation_snapshot()`、`_build_research_readiness_summary()`、`_build_startup_preflight_summary()`、`_build_execution_gate_summary()`、`_build_operations_readiness()` 都改成委托给新 query service。
+  - query service 的依赖全部通过 getter / callable 注入，避免 runtime recovery 后继续偷绑旧的 registry / execution / strategy-analysis 对象；新增 `tests/test_runtime_recovery.py::test_data_quality_queries_follow_recovered_strategy_registry` 锁定这一点。
+- Validation:
+  - `.venv/bin/pytest tests/test_runtime_recovery.py tests/test_selection_service.py -q` -> `13 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+  - 隔离 HTTP 验证：
+    - 在 `http://127.0.0.1:8032` 的临时实例上，`GET /data/quality` -> `200 OK`，返回 `ready=true`、`scope="research_universe"`、以及基于 query service 生成的 `target_symbols` / `reports`
+- Decisions:
+  - 这一步先收口 query 读模型，不顺手去碰 `DashboardFacade` / `ResearchFacade`，避免一次 session 同时拆编排层和 facade，导致边界重新变糊。
+  - 真实 `preflight/startup`、`ops/readiness`、`execution/gate` 在空数据目录下仍会被当前研究/验证链路拖慢；本次把它们的结构性回归交给 focused pytest 和 runtime-safe 边界测试兜住，下一轮若继续优化会优先处理这条重链路的启动成本。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先做 `PortfolioProjectionService` 与 facade 瘦身，把账户投影、cash map、curve / allocation mix 从 `app.py` 和 `facades.py` 的重复逻辑里收口出来。
