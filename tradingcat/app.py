@@ -892,7 +892,7 @@ class TradingCatApplication:
             current_stage=policy.stage,
             allowed=allowed,
             reason=reason,
-            blocker=rollout["blockers"][0]["detail"] if rollout["blockers"] else None,
+            blocker=str(rollout["blockers"][0]) if rollout["blockers"] else None,
         )
         if allowed:
             policy = self.rollout_policy.set_policy(stage, reason=reason or "Promotion approved", source="manual")
@@ -901,7 +901,7 @@ class TradingCatApplication:
     def rollout_checklist(self, stage: str | None = None, as_of: date | None = None) -> dict[str, object]:
         rollout = self.operations_rollout()
         target_stage = stage or str(rollout["current_recommendation"])
-        blockers = [blocker["detail"] for blocker in rollout["blockers"]]
+        blockers = [str(blocker) for blocker in rollout["blockers"]]
         return {"stage": target_stage, "ready": not blockers, "as_of": as_of or date.today(), "blockers": blockers}
 
     def go_live_summary(self, as_of: date | None = None) -> dict[str, object]:
@@ -909,20 +909,34 @@ class TradingCatApplication:
         rollout = self.operations_rollout()
         milestones = self.operations.rollout_milestones()
         policy = self.rollout_policy_summary()
+        acceptance = self.operations.acceptance_summary()
+        blockers = list(dict.fromkeys(
+            [str(reason) for reason in gate.get("reasons", [])]
+            + [str(blocker) for blocker in rollout.get("blockers", [])]
+        ))
+        next_actions = list(dict.fromkeys(
+            list(gate.get("next_actions", []))
+            + [f"Resolve rollout blocker: {blocker}" for blocker in rollout.get("blockers", [])[:3]]
+        ))
         return {
             "as_of": gate["as_of"],
             "promotion_allowed": bool(gate["ready"]) and bool(rollout["ready_for_rollout"]),
             "gate": gate,
+            "acceptance": acceptance,
             "rollout": rollout,
             "milestones": milestones,
             "policy": policy,
             "promotion_history": self.rollout_promotions.summary(),
+            "blockers": blockers,
+            "next_actions": next_actions,
         }
 
     def live_acceptance_summary(self, as_of: date | None = None, incident_window_days: int = 14) -> dict[str, object]:
         go_live = self.go_live_summary(as_of)
         metrics = self.operations_execution_metrics()
         alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=incident_window_days)
+        acceptance = self.operations.acceptance_summary()
+        evidence = acceptance.get("evidence", {}) if isinstance(acceptance, dict) else {}
         blockers = []
         if not go_live["promotion_allowed"]:
             blockers.append("Go-live promotion is currently blocked.")
@@ -932,14 +946,21 @@ class TradingCatApplication:
             blockers.append("Execution authorization summary is not clean.")
         if not slip_ok:
             blockers.append("Execution quality is outside the configured thresholds.")
+        clean_week_streak = int(evidence.get("current_clean_week_streak", 0))
+        if clean_week_streak < 4:
+            blockers.append(f"Need {max(0, 4 - clean_week_streak)} more clean week(s) before go-live consideration.")
+        incident_days = int((evidence.get("counts") or {}).get("incident_day", 0)) if isinstance(evidence, dict) else 0
+        if incident_days > 0:
+            blockers.append(f"{incident_days} incident day(s) remain in the acceptance evidence history.")
         return {
             "as_of": as_of or date.today(),
-            "ready_for_live": not blockers,
+            "ready_for_live": len(blockers) == 0,
             "incident_count": len(alerts),
             "blockers": blockers,
             "go_live": go_live,
             "authorization_ok": auth_ok,
             "slippage_within_limits": slip_ok,
+            "acceptance_evidence": evidence,
         }
 
     def operations_period_report(self, window_days: int, label: str) -> dict[str, object]:

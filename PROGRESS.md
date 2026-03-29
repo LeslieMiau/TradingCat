@@ -258,6 +258,29 @@
 - Completed feature #24: smart order 的 SMA 条件现在使用真实均线计算，而不是 `price * 0.95`。
 - Code changes:
   - `RuleEngine._metric_value()` 里的 `SMA_*` 分支现在会按最近历史 bars 计算真实简单均线，并支持从指标名里解析周期参数，例如 `SMA_10`。
+
+## Session update — 2026-03-29
+- Completed features #37-#42: acceptance / rollout / go-live / report archive 现在会把连续 clean day/week 证据与 blocker 链路串完整，周报和归档都能直接消费这些状态。
+- Code changes:
+  - `OperationsJournalService` 现在会在 acceptance summary / timeline / rollout summary 中暴露 `current_clean_day_streak`、`current_clean_week_streak`、`blocked_days` 和 `next_requirement`，rollout blocker 也会直接消费 incident-day 与 clean-week gate。
+  - `TradingCatApplication.go_live_summary()` 与 `live_acceptance_summary()` 现在会汇总 gate reason、rollout blocker 和 acceptance evidence，明确给出统一 blocker 列表、next actions 与 `acceptance_evidence`。
+  - `build_operations_period_report()` 现在会输出 `acceptance_window`、周报 highlight 和 blocker-derived next actions；`load_report_summary()` 兼容 validate archive 写出的 unwrapped diagnostics payload，不再让 `/reports/latest` 因 `summary` 包装差异炸掉。
+  - 归档脚本 `validate_broker.sh`、`latest_report.sh`、`report_markdown.sh` 现在都会写入/读取 `ops_acceptance` 快照；dashboard report summary 也开始消费 acceptance ready weeks、blocked days 和 clean-week streak。
+- Validation:
+  - `.venv/bin/pytest tests/test_operations_journal.py tests/test_reports_helper.py tests/test_api.py tests/test_dashboard_facade.py -q` -> `58 passed`
+  - 隔离 HTTP `8033`:
+    - `GET /ops/weekly-report` -> `acceptance_window.clean_day_count=6`、`incident_day_count=1`，highlight 含 `Acceptance evidence`
+    - `GET /ops/acceptance/timeline?window_days=21` -> 返回逐日 `clean_day_streak / clean_week_streak` 和 `next_requirement.explanation`
+    - `GET /ops/rollout` -> 返回 evidence counts，blockers 含 `incident day` 与 `Need 4 more clean week(s)`
+    - `GET /ops/live-acceptance` / `GET /ops/go-live` -> 返回 `acceptance_evidence`、统一 blockers 和 `Resolve rollout blocker` next actions
+  - 隔离 HTTP `8035` + `TRADINGCAT_ARCHIVE_REPORTS=true bash scripts/validate_broker.sh http://127.0.0.1:8035`:
+    - `GET /reports/latest` -> 返回 `ops_acceptance`、`selection_summary`、`allocation_summary`、`ops_go_live`、`ops_live_acceptance`
+    - `GET /reports/latest/dashboard` -> `cards.operations.acceptance_ready_weeks=2`、`cards.rollout.current_clean_week_streak=0`、`cards.live_acceptance.current_clean_week_streak=0`
+- Decisions:
+  - 没有把 acceptance / rollout 计算塞进 route；所有新逻辑继续留在 `services/operations.py`、`services/reporting.py` 和 `app.py` 编排层，避免再加新的 route-level orchestration。
+  - archive 验证过程中顺手修掉了一个真实兼容性 bug：`validate_broker.sh` 写出的 diagnostics JSON 不是所有场景都会包 `summary`，所以 report loader 改成兼容 wrapped / unwrapped 两种格式。
+- Remaining focus for next session:
+  - features #3-#10：补齐持久化 universe、真实研究 signal 链路、策略指标快照和 sample-only 主链路移除。
   - 当 SMA 条件未满足时，rule engine 同样会记录带有 `metric / value / target / operator` 的日志，能直接看到真实均线值。
   - `tests/test_rule_engine.py` 新增上涨/下跌序列下的 SMA 触发与日志断言，API 测试也锁定 `/ops/evaluate-triggers` 使用的 SMA 不是旧的 `95.0` 假值。
 - Validation:

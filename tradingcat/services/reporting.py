@@ -34,7 +34,7 @@ def load_report_summary(report_dir: Path) -> dict[str, object]:
     doctor_file = report_dir / "doctor.json"
     if diagnostics_file.exists():
         payload = json.loads(diagnostics_file.read_text(encoding="utf-8"))
-        summary = payload["summary"]
+        summary = payload.get("summary", payload)
     elif doctor_file.exists():
         summary = json.loads(doctor_file.read_text(encoding="utf-8"))
     else:
@@ -47,6 +47,7 @@ def load_report_summary(report_dir: Path) -> dict[str, object]:
 
     optional_files = {
         "operations_readiness": "*_operations_readiness.json",
+        "ops_acceptance": "*_ops_acceptance.json",
         "ops_execution_metrics": "*_ops_execution_metrics.json",
         "ops_rollout": "*_ops_rollout.json",
         "ops_go_live": "*_ops_go_live.json",
@@ -88,6 +89,7 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
     manual_reconcile = payload.get("manual_reconcile", {})
     operations_readiness = payload.get("operations_readiness", {})
     ops_execution_metrics = payload.get("ops_execution_metrics", {})
+    ops_acceptance = payload.get("ops_acceptance", {})
     ops_rollout = payload.get("ops_rollout", {})
     ops_go_live = payload.get("ops_go_live", {})
     ops_live_acceptance = payload.get("ops_live_acceptance", {})
@@ -100,6 +102,12 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
     allocation_summary = payload.get("allocation_summary", {})
     alerts_summary = payload.get("alerts_summary", {})
     compliance_summary = payload.get("compliance_summary", {})
+    acceptance_evidence = ops_acceptance.get("evidence", {}) if isinstance(ops_acceptance, dict) else {}
+    live_acceptance_evidence = (
+        ops_live_acceptance.get("acceptance_evidence", {})
+        if isinstance(ops_live_acceptance, dict)
+        else {}
+    )
 
     submission = broker_order_check.get("submission", {}) if isinstance(broker_order_check, dict) else {}
     cancellation = broker_order_check.get("cancellation", {}) if isinstance(broker_order_check, dict) else {}
@@ -124,6 +132,8 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
                 "paper_only_strategy_count": len(selection_summary.get("paper_only", [])) if isinstance(selection_summary, dict) else 0,
                 "allocated_strategy_count": len(allocation_summary.get("active", [])) if isinstance(allocation_summary, dict) else 0,
                 "allocated_target_weight": allocation_summary.get("total_target_weight") if isinstance(allocation_summary, dict) else None,
+                "acceptance_ready_weeks": ops_acceptance.get("ready_weeks") if isinstance(ops_acceptance, dict) else None,
+                "acceptance_blocked_days": acceptance_evidence.get("blocked_days") if isinstance(acceptance_evidence, dict) else None,
                 "exception_rate": ops_execution_metrics.get("exception_rate") if isinstance(ops_execution_metrics, dict) else None,
                 "risk_hit_rate": ops_execution_metrics.get("risk_hit_rate") if isinstance(ops_execution_metrics, dict) else None,
                 "top_execution_drag": (
@@ -152,6 +162,13 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
                 "active_stage": rollout_policy.get("stage") if isinstance(rollout_policy, dict) else None,
                 "allocation_ratio": rollout_policy.get("allocation_ratio") if isinstance(rollout_policy, dict) else None,
                 "policy_matches_recommendation": rollout_policy.get("policy_matches_recommendation") if isinstance(rollout_policy, dict) else None,
+                "acceptance_ready_weeks": ops_acceptance.get("ready_weeks") if isinstance(ops_acceptance, dict) else None,
+                "current_clean_week_streak": (
+                    acceptance_evidence.get("current_clean_week_streak")
+                    if isinstance(acceptance_evidence, dict)
+                    else None
+                ),
+                "blocked_days": acceptance_evidence.get("blocked_days") if isinstance(acceptance_evidence, dict) else None,
             },
             "broker_order_check": {
                 "symbol": broker_order_check.get("instrument", {}).get("symbol") if isinstance(broker_order_check, dict) else None,
@@ -190,6 +207,11 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
                 "ready_for_live": ops_live_acceptance.get("ready_for_live") if isinstance(ops_live_acceptance, dict) else None,
                 "incident_count": ops_live_acceptance.get("incident_count") if isinstance(ops_live_acceptance, dict) else None,
                 "blocker_count": len(ops_live_acceptance.get("blockers", [])) if isinstance(ops_live_acceptance, dict) else 0,
+                "current_clean_week_streak": (
+                    live_acceptance_evidence.get("current_clean_week_streak")
+                    if isinstance(live_acceptance_evidence, dict)
+                    else None
+                ),
             },
             "rollout_checklist": {
                 "stage": ops_rollout_checklist.get("stage") if isinstance(ops_rollout_checklist, dict) else None,
@@ -234,6 +256,7 @@ def build_operations_period_report(
     period_insights = period_insights or {}
     top_execution_drags = list(period_insights.get("top_execution_drags", []))
     top_anomaly_sources = list(period_insights.get("top_anomaly_sources", []))
+    acceptance_window = _acceptance_window_summary(journal_entries)
 
     highlights: list[str] = []
     if readiness.get("ready", False):
@@ -257,11 +280,19 @@ def build_operations_period_report(
     if top_anomaly_sources:
         top_anomaly = top_anomaly_sources[0]
         highlights.append(f"Top anomaly source: {top_anomaly['source']} ({top_anomaly['count']}).")
+    if acceptance_window["clean_day_count"] or acceptance_window["incident_day_count"] or acceptance_window["manual_day_count"]:
+        highlights.append(
+            f"Acceptance evidence: {acceptance_window['clean_day_count']} clean day(s), "
+            f"{acceptance_window['incident_day_count']} incident day(s), "
+            f"{acceptance_window['manual_day_count']} manual day(s)."
+        )
 
     blocker_actions = []
     for blocker in rollout.get("blockers", []):
         if isinstance(blocker, dict):
             blocker_actions.extend(str(action) for action in blocker.get("actions", []))
+        elif blocker:
+            blocker_actions.append(str(blocker))
     next_actions = _dedupe_strings(
         blocker_actions
         + [alert.recovery_action for alert in alerts[:5]]
@@ -274,6 +305,7 @@ def build_operations_period_report(
         "generated_at": datetime.now(UTC).isoformat(),
         "readiness": readiness,
         "acceptance": acceptance,
+        "acceptance_window": acceptance_window,
         "rollout": rollout,
         "counts": {
             "audit_events": len(audit_events),
@@ -488,4 +520,30 @@ def _recovery_summary(attempt: RecoveryAttempt) -> dict[str, object]:
         "status": attempt.status,
         "changed": attempt.changed,
         "detail": attempt.detail,
+    }
+
+
+def _acceptance_window_summary(journal_entries: list[OperationsJournalEntry]) -> dict[str, object]:
+    counts: dict[str, int] = {}
+    current_clean_day_streak = 0
+    current_clean_week_streak = 0
+    for entry in sorted(journal_entries, key=lambda item: item.recorded_at):
+        tags = list(entry.evidence_tags)
+        for tag in tags:
+            counts[tag] = counts.get(tag, 0) + 1
+        if "clean_day" in tags:
+            current_clean_day_streak += 1
+            current_clean_week_streak = current_clean_day_streak // 7
+        else:
+            current_clean_day_streak = 0
+            current_clean_week_streak = 0
+    return {
+        "window_entry_count": len(journal_entries),
+        "clean_day_count": counts.get("clean_day", 0),
+        "manual_day_count": counts.get("manual_day", 0),
+        "incident_day_count": counts.get("incident_day", 0),
+        "blocked_day_count": counts.get("blocked_day", 0),
+        "current_clean_day_streak": current_clean_day_streak,
+        "current_clean_week_streak": current_clean_week_streak,
+        "counts": counts,
     }

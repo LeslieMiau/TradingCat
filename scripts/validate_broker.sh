@@ -182,6 +182,9 @@ STEP_OUTPUT="$(curl --silent --show-error "$BASE_URL/ops/live-acceptance")"
 write_step "22_ops_live_acceptance" "$STEP_OUTPUT"
 printf '%s' "$STEP_OUTPUT"
 
+STEP_OUTPUT="$(curl --silent --show-error "$BASE_URL/ops/acceptance")"
+write_step "22_ops_acceptance" "$STEP_OUTPUT"
+
 printf '\n\n'
 echo "[23/$TOTAL_STEPS] rollout checklist"
 STEP_OUTPUT="$(curl --silent --show-error "$BASE_URL/ops/rollout/checklist?stage=10%")"

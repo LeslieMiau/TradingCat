@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -8,6 +8,33 @@ from tradingcat.main import app, app_state
 from tests.support import record_test_alert, reset_runtime_state, seed_execution_fill
 
 client = TestClient(app)
+
+
+def _record_acceptance_snapshot(
+    *,
+    offset_days: int,
+    ready: bool,
+    alert_count: int = 0,
+    pending_approval_count: int = 0,
+) -> None:
+    entry = app_state.operations.record(
+        {
+            "ready": ready,
+            "diagnostics": {
+                "category": "ready_for_validation" if ready and alert_count == 0 else "trade_channel_failed",
+                "severity": "info" if ready and alert_count == 0 else "error",
+                "findings": [],
+                "next_actions": [],
+            },
+            "alerts": {"count": alert_count, "latest": None, "active": []},
+            "execution": {"pending_approval_count": pending_approval_count},
+            "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+            "latest_report_dir": f"data/reports/acceptance-{offset_days}",
+        }
+    )
+    entry.recorded_at = datetime.now(UTC) - timedelta(days=offset_days)
+    app_state.operations._entries[entry.id] = entry
+    app_state.operations._repository.save(app_state.operations._entries)
 
 
 def test_research_backtest_endpoints():
@@ -890,6 +917,98 @@ def test_acceptance_endpoints_expose_daily_evidence_tags():
     finally:
         app_state.operations_readiness = original_operations_readiness
         app_state.reset_state()
+
+
+def test_weekly_report_and_acceptance_timeline_surface_acceptance_progress():
+    reset_runtime_state(app_state)
+    try:
+        app_state.operations.clear()
+        for offset_days in range(6, 2, -1):
+            _record_acceptance_snapshot(offset_days=offset_days, ready=False, alert_count=1, pending_approval_count=1 if offset_days == 6 else 0)
+        for offset_days in range(2, -1, -1):
+            _record_acceptance_snapshot(offset_days=offset_days, ready=True)
+
+        weekly = client.get("/ops/weekly-report")
+        timeline = client.get("/ops/acceptance/timeline", params={"window_days": 7})
+
+        assert weekly.status_code == 200
+        assert timeline.status_code == 200
+        weekly_payload = weekly.json()
+        timeline_payload = timeline.json()
+        assert weekly_payload["acceptance_window"]["window_entry_count"] == 7
+        assert weekly_payload["acceptance_window"]["clean_day_count"] == 3
+        assert weekly_payload["acceptance_window"]["incident_day_count"] == 4
+        assert weekly_payload["acceptance_window"]["manual_day_count"] == 1
+        assert any("Acceptance evidence:" in item for item in weekly_payload["highlights"])
+        assert timeline_payload["current_clean_day_streak"] == 3
+        assert timeline_payload["current_clean_week_streak"] == 0
+        assert timeline_payload["next_requirement"]["remaining_clean_days"] == 25
+        assert "4-week gate" in timeline_payload["next_requirement"]["explanation"]
+    finally:
+        reset_runtime_state(app_state)
+
+
+def test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers():
+    original_execution_gate_summary = app_state.execution_gate_summary
+    original_operations_execution_metrics = app_state.operations_execution_metrics
+    original_operations_readiness = app_state.operations_readiness
+    reset_runtime_state(app_state)
+    try:
+        app_state.operations.clear()
+        for offset_days in range(20, 0, -1):
+            _record_acceptance_snapshot(offset_days=offset_days, ready=True)
+        _record_acceptance_snapshot(offset_days=0, ready=False, alert_count=1)
+
+        app_state.execution_gate_summary = lambda as_of=None: {
+            "as_of": as_of or date.today(),
+            "ready": True,
+            "should_block": False,
+            "reasons": ["Research history still incomplete."],
+            "next_actions": ["Repair missing research history."],
+            "policy_stage": "10%",
+            "recommended_stage": "10%",
+            "preflight": {"healthy": True},
+            "broker_validation": {},
+            "market_data": {},
+            "diagnostics": {"ready": True, "findings": [], "next_actions": []},
+            "execution": {"ready": True, "blockers": []},
+        }
+        app_state.operations_execution_metrics = lambda: {
+            "authorization_ok": True,
+            "slippage_within_limits": True,
+        }
+        app_state.operations_readiness = lambda: {
+            "ready": True,
+            "diagnostics": {"next_actions": []},
+            "blockers": [],
+        }
+
+        rollout = client.get("/ops/rollout")
+        live_acceptance = client.get("/ops/live-acceptance")
+        go_live = client.get("/ops/go-live")
+
+        assert rollout.status_code == 200
+        assert live_acceptance.status_code == 200
+        assert go_live.status_code == 200
+        rollout_payload = rollout.json()
+        live_acceptance_payload = live_acceptance.json()
+        go_live_payload = go_live.json()
+        assert rollout_payload["evidence"]["counts"]["incident_day"] == 1
+        assert any("incident day" in blocker.lower() for blocker in rollout_payload["blockers"])
+        assert any("clean week" in blocker.lower() for blocker in rollout_payload["blockers"])
+        assert live_acceptance_payload["ready_for_live"] is False
+        assert live_acceptance_payload["acceptance_evidence"]["current_clean_week_streak"] == 0
+        assert any("clean week" in blocker.lower() for blocker in live_acceptance_payload["blockers"])
+        assert any("incident day" in blocker.lower() for blocker in live_acceptance_payload["blockers"])
+        assert "Research history still incomplete." in go_live_payload["blockers"]
+        assert any("Resolve rollout blocker:" in item for item in go_live_payload["next_actions"])
+        assert "Repair missing research history." in go_live_payload["next_actions"]
+        assert go_live_payload["acceptance"]["evidence"]["counts"]["incident_day"] == 1
+    finally:
+        app_state.execution_gate_summary = original_execution_gate_summary
+        app_state.operations_execution_metrics = original_operations_execution_metrics
+        app_state.operations_readiness = original_operations_readiness
+        reset_runtime_state(app_state)
 
 
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():

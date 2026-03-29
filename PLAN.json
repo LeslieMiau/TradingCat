@@ -404,7 +404,7 @@
       "周报与 acceptance timeline 中的统计保持一致。",
       "weekly report / operations 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 38,
@@ -415,7 +415,7 @@
       "时间线能解释为什么还未达到 4 周或 6 周门槛。",
       "timeline 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 39,
@@ -426,7 +426,7 @@
       "数据不足、incident 或授权异常会成为 rollout blocker。",
       "rollout 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 40,
@@ -437,7 +437,7 @@
       "满足连续 clean 周数前不会出现误导性的 ready 状态。",
       "live acceptance 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 41,
@@ -448,7 +448,7 @@
       "研究未就绪、执行异常或验收不足都会进入同一判断面板。",
       "go-live / reporting 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 42,
@@ -459,7 +459,7 @@
       "dashboard report 视图能消费这些归档字段。",
       "reports helper / reporting 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 43,

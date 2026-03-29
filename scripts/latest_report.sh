@@ -37,6 +37,7 @@ cancel_open_file = next((path for path in sorted(report_dir.glob("*_cancel_open_
 execution_run_file = next((path for path in sorted(report_dir.glob("*_execution_run.json"))), None)
 execution_gate_file = next((path for path in sorted(report_dir.glob("*_execution_gate.json"))), None)
 manual_reconcile_file = next((path for path in sorted(report_dir.glob("*_manual_reconcile.json"))), None)
+acceptance_file = next((path for path in sorted(report_dir.glob("*_ops_acceptance.json"))), None)
 go_live_file = next((path for path in sorted(report_dir.glob("*_ops_go_live.json"))), None)
 live_acceptance_file = next((path for path in sorted(report_dir.glob("*_ops_live_acceptance.json"))), None)
 rollout_checklist_file = next((path for path in sorted(report_dir.glob("*_ops_rollout_checklist.json"))), None)
@@ -109,6 +110,14 @@ if manual_reconcile_file is not None:
         print(f"- reconcile_status: {reconciliation.get('status')}")
     else:
         print(f"- detail: {manual_reconcile.get('detail')}")
+
+if acceptance_file is not None:
+    acceptance = json.loads(acceptance_file.read_text(encoding="utf-8"))
+    evidence = acceptance.get("evidence", {})
+    print("acceptance:")
+    print(f"- ready_weeks: {acceptance.get('ready_weeks')}")
+    print(f"- current_clean_week_streak: {evidence.get('current_clean_week_streak')}")
+    print(f"- blocked_days: {evidence.get('blocked_days')}")
 
 if go_live_file is not None:
     go_live = json.loads(go_live_file.read_text(encoding="utf-8"))

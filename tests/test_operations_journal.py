@@ -94,7 +94,8 @@ def test_operations_rollout_summary_includes_blockers_and_remaining_gates(tmp_pa
     assert rollout["current_recommendation"] == "10%"
     assert rollout["next_stage"] == "30%"
     assert rollout["remaining_gates"]["hk_us_paper_weeks"] == 5
-    assert len(rollout["blockers"]) == 3
+    assert len(rollout["blockers"]) == 4
+    assert any("clean week" in blocker.lower() for blocker in rollout["blockers"])
 
 
 def test_operations_acceptance_timeline_and_milestones(tmp_path):
@@ -122,6 +123,7 @@ def test_operations_acceptance_timeline_and_milestones(tmp_path):
     assert len(timeline["points"]) == 14
     assert "evidence_tags" in timeline["points"][0]
     assert "incident_day" in timeline["evidence_counts"]
+    assert "next_requirement" in timeline
     assert "current_recommendation" in milestones
     assert len(milestones["milestones"]) == 4
 
@@ -146,3 +148,34 @@ def test_operations_journal_persists_manual_and_blocked_evidence_tags(tmp_path):
     assert set(entry.evidence_tags) == {"manual_day", "incident_day", "blocked_day"}
     assert acceptance["evidence"]["counts"]["manual_day"] == 1
     assert timeline["points"][0]["evidence_tags"] == ["blocked_day", "incident_day", "manual_day"]
+
+
+def test_operations_rollout_summary_uses_acceptance_evidence(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for index in range(21):
+        entry = service.record(
+            {
+                "ready": index < 14,
+                "diagnostics": {"category": "ready_for_validation" if index < 14 else "trade_channel_failed", "severity": "info" if index < 14 else "error", "findings": [], "next_actions": []},
+                "alerts": {"count": 0 if index < 14 else 1},
+                "execution": {"pending_approval_count": 0},
+                "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+                "latest_report_dir": f"data/reports/{index}",
+            }
+        )
+        entry.recorded_at = base + timedelta(days=index)
+        service._entries[entry.id] = entry
+    service._repository.save(service._entries)
+
+    rollout = service.rollout_summary(
+        readiness={"ready": True, "diagnostics": {"next_actions": []}},
+        compliance_summary={"checklists": []},
+        alerts_summary={"count": 0},
+    )
+
+    assert rollout["evidence"]["ready_weeks"] == 2
+    assert rollout["evidence"]["counts"]["incident_day"] == 7
+    assert rollout["ready_for_rollout"] is False
+    assert any("incident day" in blocker.lower() for blocker in rollout["blockers"])

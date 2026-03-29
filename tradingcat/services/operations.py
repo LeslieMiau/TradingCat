@@ -55,6 +55,16 @@ class OperationsJournalService:
         ready_dates = self._qualified_dates(entries, lambda e: e.ready and e.alert_count == 0)
         cn_clean_dates = self._qualified_dates(entries, lambda e: e.checklist_blocked == 0)
         evidence_counts = self._evidence_counts(entries)
+        timeline = self.readiness_timeline(window_days=max(len({entry.recorded_at.date() for entry in entries}), 1)) if entries else {
+            "window_days": 0,
+            "points": [],
+            "ready_days": 0,
+            "clean_cn_days": 0,
+            "evidence_counts": {},
+            "current_clean_day_streak": 0,
+            "current_clean_week_streak": 0,
+            "blocked_days": 0,
+        }
         ready_weeks = len(ready_dates) // 7
         cn_manual_weeks = len(cn_clean_dates) // 7
         hk_us_passed = ready_weeks >= 4
@@ -77,6 +87,9 @@ class OperationsJournalService:
             "evidence": {
                 "counts": evidence_counts,
                 "latest_tags": entries[0].evidence_tags if entries else [],
+                "current_clean_day_streak": timeline["current_clean_day_streak"],
+                "current_clean_week_streak": timeline["current_clean_week_streak"],
+                "blocked_days": timeline["blocked_days"],
             },
             "rollout": {
                 "recommended_stage": recommended_stage,
@@ -95,6 +108,9 @@ class OperationsJournalService:
         recommended_stage = str(rollout.get("recommended_stage", "hold"))
         ready_weeks = int(acceptance.get("ready_weeks", 0))
         cn_weeks = int(acceptance.get("cn_manual_weeks", 0))
+        evidence = acceptance.get("evidence", {}) if isinstance(acceptance, dict) else {}
+        evidence_counts = evidence.get("counts", {}) if isinstance(evidence, dict) else {}
+        current_clean_week_streak = int(evidence.get("current_clean_week_streak", 0))
 
         blockers: list[str] = []
         if not readiness.get("ready", False):
@@ -109,6 +125,10 @@ class OperationsJournalService:
         alert_count = int(alerts_summary.get("count", 0))
         if alert_count > 0:
             blockers.append(f"{alert_count} active alert(s).")
+        if int(evidence_counts.get("incident_day", 0)) > 0:
+            blockers.append(f"{int(evidence_counts.get('incident_day', 0))} incident day(s) were recorded in the current evidence window.")
+        if current_clean_week_streak < 4:
+            blockers.append(f"Need {max(0, 4 - current_clean_week_streak)} more clean week(s) before the next rollout gate.")
 
         stages = ["10%", "30%", "100%"]
         current_index = stages.index(recommended_stage) if recommended_stage in stages else -1
@@ -128,6 +148,12 @@ class OperationsJournalService:
                 "hk_us_paper_weeks": remaining_hk_us,
                 "cn_manual_weeks": remaining_cn,
             },
+            "evidence": {
+                "ready_weeks": ready_weeks,
+                "cn_manual_weeks": cn_weeks,
+                "current_clean_week_streak": current_clean_week_streak,
+                "counts": evidence_counts,
+            },
             "blockers": blockers,
         }
 
@@ -138,6 +164,8 @@ class OperationsJournalService:
         entries = self.list_entries()
         today = date.today()
         timeline: list[dict[str, object]] = []
+        clean_day_streak = 0
+        clean_week_streak = 0
         for offset in range(window_days):
             day = today - timedelta(days=window_days - 1 - offset)
             day_entries = [e for e in entries if e.recorded_at.date() == day]
@@ -145,6 +173,9 @@ class OperationsJournalService:
             alert_count = sum(e.alert_count for e in day_entries)
             checklist_blocked = sum(e.checklist_blocked for e in day_entries)
             evidence_tags = sorted({tag for entry in day_entries for tag in entry.evidence_tags})
+            is_clean_day = "clean_day" in evidence_tags
+            clean_day_streak = clean_day_streak + 1 if is_clean_day else 0
+            clean_week_streak = clean_day_streak // 7
             timeline.append(
                 {
                     "date": day.isoformat(),
@@ -153,6 +184,8 @@ class OperationsJournalService:
                     "checklist_blocked": checklist_blocked,
                     "entry_count": len(day_entries),
                     "evidence_tags": evidence_tags,
+                    "clean_day_streak": clean_day_streak,
+                    "clean_week_streak": clean_week_streak,
                 }
             )
         ready_days = sum(1 for item in timeline if item["ready"] and item["alert_count"] == 0)
@@ -163,6 +196,10 @@ class OperationsJournalService:
             "ready_days": ready_days,
             "clean_cn_days": clean_cn_days,
             "evidence_counts": self._evidence_counts(entries),
+            "current_clean_day_streak": timeline[-1]["clean_day_streak"] if timeline else 0,
+            "current_clean_week_streak": timeline[-1]["clean_week_streak"] if timeline else 0,
+            "blocked_days": sum(1 for item in timeline if "blocked_day" in item["evidence_tags"]),
+            "next_requirement": self._timeline_next_requirement(timeline),
         }
 
     def rollout_milestones(self) -> dict[str, object]:
@@ -245,6 +282,21 @@ class OperationsJournalService:
             for tag in entry.evidence_tags:
                 counts[tag] = counts.get(tag, 0) + 1
         return counts
+
+    def _timeline_next_requirement(self, timeline: list[dict[str, object]]) -> dict[str, object]:
+        current_clean_day_streak = int(timeline[-1]["clean_day_streak"]) if timeline else 0
+        current_clean_week_streak = int(timeline[-1]["clean_week_streak"]) if timeline else 0
+        next_gate_weeks = 4 if current_clean_week_streak < 4 else 8
+        remaining_clean_days = max(0, (next_gate_weeks * 7) - current_clean_day_streak)
+        return {
+            "current_clean_day_streak": current_clean_day_streak,
+            "current_clean_week_streak": current_clean_week_streak,
+            "next_gate_weeks": next_gate_weeks,
+            "remaining_clean_days": remaining_clean_days,
+            "explanation": f"Need {remaining_clean_days} more clean day(s) to reach the {next_gate_weeks}-week gate."
+            if remaining_clean_days > 0
+            else f"Current evidence already meets the {next_gate_weeks}-week gate.",
+        }
 
 
 class RecoveryService:

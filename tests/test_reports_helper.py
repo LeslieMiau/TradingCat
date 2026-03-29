@@ -83,6 +83,20 @@ def test_reporting_service_loads_latest_summary(tmp_path):
     assert payload["execution_run"]["approval_count"] == 1
 
 
+def test_reporting_service_accepts_unwrapped_diagnostics_summary(tmp_path):
+    report_dir = tmp_path / "reports" / "20260308-100500"
+    report_dir.mkdir(parents=True)
+    (report_dir / "01_diagnostics_summary.json").write_text(
+        '{"ready":true,"category":"ready_for_validation","severity":"info","findings":[]}',
+        encoding="utf-8",
+    )
+
+    payload = load_report_summary(report_dir)
+
+    assert payload["summary"]["category"] == "ready_for_validation"
+    assert payload["summary"]["ready"] is True
+
+
 def test_reporting_service_builds_dashboard_summary():
     payload = {
         "report_dir": "data/reports/20260308-100000",
@@ -94,9 +108,15 @@ def test_reporting_service_builds_dashboard_summary():
             "top_execution_drags": [{"symbol": "SPY", "direction": "buy", "deviation_metric": "slippage_bps", "deviation_value": 25.0}],
             "top_anomaly_sources": [{"source": "alert:trade_channel_failed", "count": 2}],
         },
+        "ops_acceptance": {"ready_weeks": 2, "evidence": {"blocked_days": 1, "current_clean_week_streak": 1}},
         "ops_rollout": {"ready_for_rollout": True, "current_recommendation": "10%", "next_stage": "30%", "blockers": []},
         "ops_go_live": {"promotion_allowed": False},
-        "ops_live_acceptance": {"ready_for_live": False, "incident_count": 2, "blockers": ["gate"]},
+        "ops_live_acceptance": {
+            "ready_for_live": False,
+            "incident_count": 2,
+            "blockers": ["gate"],
+            "acceptance_evidence": {"current_clean_week_streak": 1},
+        },
         "ops_rollout_checklist": {"stage": "10%", "ready": False, "blockers": ["gate"]},
         "ops_rollout_milestones": {"next_pending_stage": "30%"},
         "rollout_policy": {"stage": "30%", "allocation_ratio": 0.3, "policy_matches_recommendation": False},
@@ -134,6 +154,8 @@ def test_reporting_service_builds_dashboard_summary():
     assert summary["cards"]["operations"]["paper_only_strategy_count"] == 1
     assert summary["cards"]["operations"]["allocated_strategy_count"] == 1
     assert summary["cards"]["operations"]["allocated_target_weight"] == 1.0
+    assert summary["cards"]["operations"]["acceptance_ready_weeks"] == 2
+    assert summary["cards"]["operations"]["acceptance_blocked_days"] == 1
     assert summary["cards"]["operations"]["exception_rate"] == 0.0
     assert summary["cards"]["operations"]["top_execution_drag"]["symbol"] == "SPY"
     assert summary["cards"]["operations"]["top_anomaly_source"]["source"] == "alert:trade_channel_failed"
@@ -147,6 +169,9 @@ def test_reporting_service_builds_dashboard_summary():
     assert summary["cards"]["rollout"]["next_pending_stage"] == "30%"
     assert summary["cards"]["rollout"]["active_stage"] == "30%"
     assert summary["cards"]["rollout"]["allocation_ratio"] == 0.3
+    assert summary["cards"]["rollout"]["acceptance_ready_weeks"] == 2
+    assert summary["cards"]["rollout"]["current_clean_week_streak"] == 1
+    assert summary["cards"]["rollout"]["blocked_days"] == 1
     assert summary["cards"]["broker_order_check"]["symbol"] == "0700"
     assert summary["cards"]["execution_run"]["submitted_count"] == 2
     assert summary["cards"]["execution_gate"]["ready"] is True
@@ -155,6 +180,7 @@ def test_reporting_service_builds_dashboard_summary():
     assert summary["cards"]["execution_authorization"]["all_authorized"] is True
     assert summary["cards"]["live_acceptance"]["ready_for_live"] is False
     assert summary["cards"]["live_acceptance"]["incident_count"] == 2
+    assert summary["cards"]["live_acceptance"]["current_clean_week_streak"] == 1
     assert summary["cards"]["rollout_checklist"]["stage"] == "10%"
     assert summary["cards"]["rollout_checklist"]["ready"] is False
     assert summary["cards"]["manual_reconcile"]["reconcile_status"] == "filled"
@@ -178,6 +204,10 @@ def test_reporting_service_loads_operations_files(tmp_path):
     )
     (report_dir / "11_ops_execution_metrics.json").write_text(
         '{"exception_rate":0.0,"risk_hit_rate":0.0}',
+        encoding="utf-8",
+    )
+    (report_dir / "11_ops_acceptance.json").write_text(
+        '{"ready_weeks":2,"cn_manual_weeks":1,"evidence":{"counts":{"clean_day":14,"incident_day":1},"current_clean_week_streak":1,"blocked_days":1}}',
         encoding="utf-8",
     )
     (report_dir / "11_data_quality.json").write_text(
@@ -241,6 +271,7 @@ def test_reporting_service_loads_operations_files(tmp_path):
 
     assert payload["operations_readiness"]["ready"] is True
     assert payload["ops_execution_metrics"]["exception_rate"] == 0.0
+    assert payload["ops_acceptance"]["ready_weeks"] == 2
     assert payload["data_quality"]["ready"] is True
     assert payload["history_sync"]["healthy"] is True
     assert payload["selection_summary"]["active"] == ["strategy_a_etf_rotation"]
@@ -308,7 +339,18 @@ def test_reporting_service_builds_period_report():
         recoveries=[
             RecoveryAttempt(attempted_at=now, trigger="automatic", status="failed", detail="still down")
         ],
-        journal_entries=[OperationsJournalEntry(recorded_at=now, ready=False, diagnostics_category="trade_channel_failed", diagnostics_severity="error", alert_count=1, checklist_pending=0, checklist_blocked=0)],
+        journal_entries=[
+            OperationsJournalEntry(
+                recorded_at=now,
+                ready=False,
+                diagnostics_category="trade_channel_failed",
+                diagnostics_severity="error",
+                alert_count=1,
+                checklist_pending=0,
+                checklist_blocked=0,
+                evidence_tags=["manual_day", "incident_day", "blocked_day"],
+            )
+        ],
         period_insights={
             "tca_sample_count": 1,
             "top_execution_drags": [
@@ -336,6 +378,9 @@ def test_reporting_service_builds_period_report():
     assert payload["metrics"]["tca_sample_count"] == 1
     assert payload["top_execution_drags"][0]["symbol"] == "SPY"
     assert payload["top_anomaly_sources"][0]["source"] == "alert:trade_channel_failed"
+    assert payload["acceptance_window"]["manual_day_count"] == 1
+    assert payload["acceptance_window"]["incident_day_count"] == 1
+    assert any("Acceptance evidence:" in item for item in payload["highlights"])
     assert payload["next_actions"]
 
 
