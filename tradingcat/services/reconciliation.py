@@ -129,21 +129,81 @@ class ReconciliationService:
                 }
             )
 
-        equity_samples = [sample for sample in samples if sample["asset_class"] != "option"]
+        stock_samples = [sample for sample in samples if sample["asset_class"] == "stock"]
+        etf_samples = [sample for sample in samples if sample["asset_class"] == "etf"]
         option_samples = [sample for sample in samples if sample["asset_class"] == "option"]
+        equity_samples = [sample for sample in samples if sample["asset_class"] != "option"]
+        asset_class_summary = {
+            "stock": self._asset_class_quality_summary("stock", stock_samples),
+            "etf": self._asset_class_quality_summary("etf", etf_samples),
+            "option": self._asset_class_quality_summary("option", option_samples),
+        }
+        stock_breaches = sum(1 for sample in stock_samples if not sample["within_threshold"])
+        etf_breaches = sum(1 for sample in etf_samples if not sample["within_threshold"])
         equity_breaches = sum(1 for sample in equity_samples if not sample["within_threshold"])
         option_breaches = sum(1 for sample in option_samples if not sample["within_threshold"])
         return {
             "filled_samples": len(samples),
             "missing_baselines": missing_baselines,
+            "stock_samples": len(stock_samples),
+            "etf_samples": len(etf_samples),
             "equity_samples": len(equity_samples),
             "option_samples": len(option_samples),
+            "stock_breaches": stock_breaches,
+            "etf_breaches": etf_breaches,
             "equity_breaches": equity_breaches,
             "option_breaches": option_breaches,
             "equity_slippage_limit_bps": 20.0,
             "option_premium_deviation_limit": 0.10,
             "within_limits": equity_breaches == 0 and option_breaches == 0,
+            "asset_class_summary": asset_class_summary,
             "samples": samples,
+        }
+
+    def _asset_class_quality_summary(self, asset_class: str, samples: list[dict[str, object]]) -> dict[str, object]:
+        metric_name = "premium_deviation" if asset_class == "option" else "slippage_bps"
+        threshold = 0.10 if asset_class == "option" else 20.0
+        sample_count = len(samples)
+        if sample_count == 0:
+            return {
+                "asset_class": asset_class,
+                "sample_count": 0,
+                "breach_count": 0,
+                "breach_ratio": None,
+                "within_limits": None,
+                "metric_name": metric_name,
+                "threshold": threshold,
+                "average_metric": None,
+                "max_metric": None,
+                "severity": "insufficient_data",
+                "message": f"No filled {asset_class} samples available yet.",
+            }
+
+        metric_values = [float(sample[metric_name]) for sample in samples]
+        breach_count = sum(1 for sample in samples if not sample["within_threshold"])
+        breach_ratio = breach_count / sample_count
+        rounding = 4 if asset_class == "option" else 2
+        severity = "info"
+        message = f"All filled {asset_class} samples are within threshold."
+        if breach_count > 0:
+            severity = "error" if sample_count >= 3 and breach_ratio >= 0.5 else "warning"
+            message = (
+                f"{breach_count}/{sample_count} filled {asset_class} samples breached threshold."
+                if severity == "warning"
+                else f"Most filled {asset_class} samples breached threshold."
+            )
+        return {
+            "asset_class": asset_class,
+            "sample_count": sample_count,
+            "breach_count": breach_count,
+            "breach_ratio": round(breach_ratio, 4),
+            "within_limits": breach_count == 0,
+            "metric_name": metric_name,
+            "threshold": threshold,
+            "average_metric": round(sum(metric_values) / sample_count, rounding),
+            "max_metric": round(max(metric_values), rounding),
+            "severity": severity,
+            "message": message,
         }
 
     def order_state_summary(self, orders: dict[str, ExecutionReport]) -> dict[str, int]:

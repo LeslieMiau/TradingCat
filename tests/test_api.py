@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from tradingcat.domain.models import Market, OrderSide
+from tradingcat.domain.models import AssetClass, Instrument, ManualFill, Market, OrderIntent, OrderSide
 from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.main import app, app_state
 
@@ -480,6 +480,50 @@ def test_orders_endpoint_exposes_expected_vs_realized_price_context():
     assert payload["expected_price"] == 100.0
     assert payload["realized_price"] == 100.5
     assert payload["reference_source"] == "manual_order_reference"
+
+
+def test_execution_quality_endpoint_exposes_asset_class_summary():
+    app_state.execution.clear()
+    stock_intent = OrderIntent(
+        signal_id="api-stock-quality",
+        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=1,
+    )
+    etf_intent = OrderIntent(
+        signal_id="api-etf-quality",
+        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=1,
+    )
+    app_state.execution.register_expected_prices([stock_intent, etf_intent], {"MSFT": 100.0, "SPY": 200.0})
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=stock_intent.id,
+            broker_order_id="api-stock-quality",
+            filled_quantity=1.0,
+            average_price=100.1,
+        )
+    )
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=etf_intent.id,
+            broker_order_id="api-etf-quality",
+            filled_quantity=1.0,
+            average_price=200.8,
+        )
+    )
+
+    response = client.get("/execution/quality")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stock_samples"] == 1
+    assert payload["etf_samples"] == 1
+    assert payload["asset_class_summary"]["stock"]["severity"] == "info"
+    assert payload["asset_class_summary"]["etf"]["severity"] == "warning"
+    assert payload["asset_class_summary"]["option"]["severity"] == "insufficient_data"
+    assert payload["asset_class_summary"]["option"]["message"] == "No filled option samples available yet."
 
 
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():

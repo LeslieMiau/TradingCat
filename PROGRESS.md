@@ -310,3 +310,18 @@
   - 没有做真实 HTTP 的 `/reconcile/manual-fill` 演练，因为仓库规则把该接口列为需要显式批准的 side-effect 路径；本次改用 API pytest 完成完整链路验证，并在这里显式记录这个边界。
 - Remaining focus for next session:
   - feature #28：execution quality 按资产类别给出偏差等级与样本数，帮助个人识别实现拖累。
+
+## Session update — 2026-03-29
+- Completed feature #28: execution quality 现在会按资产类别给出偏差等级与样本数，帮助个人识别实现拖累。
+- Code changes:
+  - `ReconciliationService.execution_quality_summary()` 现在会额外返回 `stock_samples`、`etf_samples`、对应 breach 计数以及 `asset_class_summary`，把股票、ETF、期权拆开看，而不是只剩 equity/option 两团粗粒度统计。
+  - `asset_class_summary` 里每个资产类别都会暴露 `sample_count`、`breach_count`、`breach_ratio`、`metric_name`、`threshold`、`average_metric`、`max_metric`、`severity` 和 `message`；当没有成交样本时，会明确标成 `insufficient_data` 而不是给一堆空洞零值。
+  - execution/API 测试新增了资产类别分层断言，锁定“小样本 breach 先 warning、无样本返回 insufficient_data”这两条个人交易者更可用的语义。
+- Validation:
+  - `.venv/bin/pytest tests/test_execution_reconciliation.py tests/test_api.py -q` -> `34 passed`
+  - 在临时只读实例上运行 `curl -sS http://127.0.0.1:8022/execution/quality` -> 返回 `asset_class_summary.stock/etf/option`，且空样本场景明确给出 `severity="insufficient_data"` 与对应 message
+- Decisions:
+  - 这一步只把 `/execution/quality` 做成按资产类别可读的质量摘要，不提前把完整 TCA 样本拆解塞进来，避免和 `#29` 范围重叠。
+  - 偏差等级规则收敛为“小样本 breach 先 warning、样本够多且多数 breach 再 error”，避免单笔噪声把个人交易者误导成系统性故障。
+- Remaining focus for next session:
+  - feature #29：ops TCA 输出样本拆解，至少覆盖预期价、成交价、偏差、方向与样本量。

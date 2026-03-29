@@ -59,9 +59,64 @@ def test_execution_quality_summary_tracks_threshold_breaches(tmp_path):
     summary = service.execution_quality_summary()
 
     assert summary["filled_samples"] == 1
+    assert summary["stock_samples"] == 0
+    assert summary["etf_samples"] == 1
     assert summary["equity_breaches"] == 1
+    assert summary["etf_breaches"] == 1
     assert summary["within_limits"] is False
     assert summary["samples"][0]["reference_source"] == "market_quote"
+    assert summary["asset_class_summary"]["etf"]["severity"] == "warning"
+    assert summary["asset_class_summary"]["option"]["severity"] == "insufficient_data"
+
+
+def test_execution_quality_summary_groups_samples_by_asset_class(tmp_path):
+    service = ExecutionService(
+        live_broker=SimulatedBrokerAdapter(),
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    stock_intent = OrderIntent(
+        signal_id="sig-stock-quality",
+        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=5,
+    )
+    etf_intent = OrderIntent(
+        signal_id="sig-etf-quality",
+        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=5,
+    )
+
+    service.register_expected_prices([stock_intent, etf_intent], {"MSFT": 100.0, "SPY": 200.0})
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=stock_intent.id,
+            broker_order_id="manual-stock-quality",
+            filled_quantity=5.0,
+            average_price=100.1,
+        )
+    )
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=etf_intent.id,
+            broker_order_id="manual-etf-quality",
+            filled_quantity=5.0,
+            average_price=200.8,
+        )
+    )
+
+    summary = service.execution_quality_summary()
+
+    assert summary["stock_samples"] == 1
+    assert summary["etf_samples"] == 1
+    assert summary["asset_class_summary"]["stock"]["sample_count"] == 1
+    assert summary["asset_class_summary"]["stock"]["severity"] == "info"
+    assert summary["asset_class_summary"]["etf"]["sample_count"] == 1
+    assert summary["asset_class_summary"]["etf"]["severity"] == "warning"
+    assert summary["asset_class_summary"]["option"]["message"] == "No filled option samples available yet."
 
 
 def test_execution_price_context_persists_expected_and_realized_price(tmp_path):

@@ -305,7 +305,7 @@
       "数据不足时，返回明确说明而不是空洞统计。",
       "execution quality 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 29,
