@@ -399,9 +399,18 @@ def test_preflight_and_diagnostics_publish_response_models_in_openapi():
 
     preflight_schema = schema["paths"]["/preflight/startup"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     diagnostics_schema = schema["paths"]["/diagnostics/summary"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    components = schema["components"]["schemas"]
+    preflight_properties = components["StartupPreflightResponse"]["properties"]
+    diagnostics_properties = components["OperationsReadinessResponse"]["properties"]
 
     assert preflight_schema["$ref"].endswith("/StartupPreflightResponse")
     assert diagnostics_schema["$ref"].endswith("/OperationsReadinessResponse")
+    assert preflight_properties["checks"]["items"]["$ref"].endswith("/PreflightCheckView")
+    assert diagnostics_properties["diagnostics"]["$ref"].endswith("/DiagnosticsSummaryView")
+    assert diagnostics_properties["preflight"]["$ref"].endswith("/StartupPreflightResponse")
+    assert diagnostics_properties["research_readiness"]["$ref"].endswith("/ResearchReadinessResponse")
+    assert diagnostics_properties["alerts"]["$ref"].endswith("/AlertsSummaryView")
+    assert diagnostics_properties["compliance"]["$ref"].endswith("/ComplianceSummaryView")
 
 
 def test_scheduler_and_market_session_endpoints():
@@ -1370,6 +1379,38 @@ def test_preflight_and_readiness_align_research_blockers():
         assert any("synthetic fallback data" in blocker.lower() for blocker in readiness_payload["blockers"])
     finally:
         app_state.research_readiness_summary = original
+
+
+def test_ops_readiness_typed_contract_accepts_minimal_nested_snapshots():
+    original_operations_readiness = app_state.operations_readiness
+    try:
+        app_state.operations_readiness = lambda: {
+            "ready": False,
+            "blockers": ["Manual review pending."],
+            "diagnostics": {},
+            "alerts": {},
+            "compliance": {},
+            "broker_status": {},
+            "broker_validation": {},
+        }
+
+        diagnostics = client.get("/diagnostics/summary")
+        readiness = client.get("/ops/readiness")
+
+        assert diagnostics.status_code == 200
+        assert readiness.status_code == 200
+        diagnostics_payload = diagnostics.json()
+        readiness_payload = readiness.json()
+        assert diagnostics_payload["diagnostics"]["category"] == "unknown"
+        assert diagnostics_payload["diagnostics"]["severity"] == "info"
+        assert diagnostics_payload["alerts"]["count"] == 0
+        assert diagnostics_payload["compliance"]["pending_count"] == 0
+        assert diagnostics_payload["preflight"]["checks"] == []
+        assert diagnostics_payload["research_readiness"]["report_status"] == "unknown"
+        assert readiness_payload["alerts"]["active"] == []
+        assert readiness_payload["execution"] == {}
+    finally:
+        app_state.operations_readiness = original_operations_readiness
 
 
 def test_dashboard_page_and_assets():

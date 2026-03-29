@@ -236,8 +236,30 @@
     - `POST /data/instruments` upsert `IVV` / `VOO` / `AAPL`
     - `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> `signals=["IVV","VOO"]`，`signal_source="historical_momentum_rotation"`
     - `GET /research/strategies/strategy_b_equity_momentum?as_of=2026-03-08` -> `symbol="AAPL"`，`signal_source="historical_equity_momentum"`，`blackout_active=false`
-    - `GET /research/strategies/strategy_c_option_overlay?as_of=2026-03-08` -> `underlying_symbol="IVV"`，`signal_source="historical_option_overlay"`
-    - `POST /research/report/run?as_of=2026-03-08` -> ETF `signal_insights[0]` 返回 `symbol="IVV"`、`signal_source="historical_momentum_rotation"`、`indicator_snapshot`
+  - `GET /research/strategies/strategy_c_option_overlay?as_of=2026-03-08` -> `underlying_symbol="IVV"`，`signal_source="historical_option_overlay"`
+  - `POST /research/report/run?as_of=2026-03-08` -> ETF `signal_insights[0]` 返回 `symbol="IVV"`、`signal_source="historical_momentum_rotation"`、`indicator_snapshot`
+
+## Session update — 2026-03-29
+- Completed feature: 架构治理 checkpoint，继续收紧 `/diagnostics/summary` 与 `/ops/readiness` 的 typed contract，去掉 `diagnostics / alerts / compliance / preflight / research_readiness` 这些核心嵌套对象上的裸 `dict` 边界。
+- Code changes:
+  - `tradingcat/api/view_models.py` 新增 `PreflightCheckView`、`DiagnosticsSummaryView`、`AlertEventView`、`AlertsSummaryView`、`ComplianceCountsView`、`ComplianceChecklistSummaryView`、`ComplianceSummaryView`。
+  - `StartupPreflightResponse.checks` 改为 `PreflightCheckView[]`，`OperationsReadinessResponse` 现在显式 typed 化 `diagnostics`、`preflight`、`research_readiness`、`alerts`、`compliance`，并给这些嵌套对象补了默认值，保证旧的最小 monkeypatch snapshot 仍能通过 response model 校验。
+  - `tests/test_api.py` 扩展了 OpenAPI 合同断言，锁定这些嵌套对象已经发布成独立 schema；同时新增兼容测试，验证最小 readiness snapshot 仍能返回完整默认结构，不会因为缺字段直接炸掉。
+- Validation:
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_preflight_and_diagnostics_publish_response_models_in_openapi tests/test_api.py::test_ops_readiness_typed_contract_accepts_minimal_nested_snapshots -q` -> `2 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q` -> `1 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py -q` -> `6 passed`
+  - `.venv/bin/python -m compileall tradingcat/api/view_models.py tests/test_api.py` -> passed
+  - 真实 HTTP / contract 验证：
+    - `curl -sS http://127.0.0.1:8037/preflight/startup` -> `checks` 返回 typed `name/ok/detail` 结构，且 `research_readiness.report_status="blocked"`
+    - `curl -sS http://127.0.0.1:8037/diagnostics/summary` -> `diagnostics.category="manual_pending"`、`alerts.count=1`、`compliance.pending_count=1`
+    - `curl -sS http://127.0.0.1:8037/ops/readiness` -> 与 `/diagnostics/summary` 一致返回 typed 嵌套对象，保留 `execution` 和 `latest_report_dir`
+    - `curl -sS http://127.0.0.1:8037/broker/status` -> `backend="simulated"`、`healthy=true/false` broker detail 正常可读
+- Decisions:
+  - 当前机器上的真实 `preflight/startup` / `ops/readiness` 聚合仍然可能因环境检查过慢而拖住长时间验证，所以这次 HTTP contract 继续沿用临时 stub server 方式，只替换重聚合入口，保留 FastAPI route/response-model/curl 链路不变。
+  - `broker_status` / `broker_validation` / `execution` 这几块暂时保持宽结构；这次先收口最容易漂移、又被前后端直接消费的嵌套对象，避免一次 session 把整个 readiness payload 全部硬编码死。
+- Remaining focus for next session:
+  - 继续新的 architecture harness：优先考虑进一步瘦身 `ResearchFacade` / `DashboardFacade`，或者把 `StrategyAnalysisService` 再往 experiment/reporting 两层拆。
 - Decisions:
   - 这次没有改 `PLAN.json`；仓库里的现有 harness plan 是上一轮 48 个 feature 的已完成状态，且该文件按规则不能重写描述。本轮新架构治理任务只在 `PROGRESS.md` 追加 checkpoint，避免污染旧 plan。
   - 根因不是单纯 universe 过滤，而是“研究只读路径回写共享缓存”导致短窗信号被长窗样本污染；因此这一步优先切断读写耦合，而不是继续在策略层补更多 fallback 特判。

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -87,6 +87,12 @@ class HistoryCoverageResponse(FlexibleModel):
     blocker_count: int = 0
     blockers: list[str] = Field(default_factory=list)
     reports: list[HistoryCoverageReportView] = Field(default_factory=list)
+
+
+class PreflightCheckView(FlexibleModel):
+    name: str = ""
+    ok: bool = False
+    detail: str = ""
 
 
 class DataQualityResponse(FlexibleModel):
@@ -233,14 +239,31 @@ class ResearchReadinessResponse(FlexibleModel):
     strategies: list[ResearchReadinessStrategyView] = Field(default_factory=list)
 
 
+def _default_research_readiness_response() -> "ResearchReadinessResponse":
+    return ResearchReadinessResponse(
+        as_of=date.today(),
+        ready=False,
+        report_status="unknown",
+    )
+
+
 class StartupPreflightResponse(FlexibleModel):
     healthy: bool
-    checks: list[dict[str, Any]] = Field(default_factory=list)
+    checks: list[PreflightCheckView] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     research_ready: bool
     research_blockers: list[str] = Field(default_factory=list)
     research_readiness: ResearchReadinessResponse
     system_ready: bool
+
+
+def _default_startup_preflight_response() -> "StartupPreflightResponse":
+    return StartupPreflightResponse(
+        healthy=False,
+        research_ready=False,
+        research_readiness=_default_research_readiness_response(),
+        system_ready=False,
+    )
 
 
 class ResearchScorecardRowView(FlexibleModel):
@@ -273,15 +296,58 @@ class ResearchScorecardResponse(FlexibleModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
+class DiagnosticsSummaryView(FlexibleModel):
+    ready: bool = False
+    category: str = "unknown"
+    severity: str = "info"
+    findings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class AlertEventView(FlexibleModel):
+    id: str | None = None
+    severity: str = "info"
+    category: str = ""
+    message: str = ""
+    recovery_action: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class AlertsSummaryView(FlexibleModel):
+    count: int = 0
+    latest: AlertEventView | None = None
+    active: list[AlertEventView] = Field(default_factory=list)
+
+
+class ComplianceCountsView(FlexibleModel):
+    pending: int = 0
+    done: int = 0
+    blocked: int = 0
+
+
+class ComplianceChecklistSummaryView(FlexibleModel):
+    checklist_id: str | None = None
+    title: str | None = None
+    counts: ComplianceCountsView = Field(default_factory=ComplianceCountsView)
+
+
+class ComplianceSummaryView(FlexibleModel):
+    checklists: list[ComplianceChecklistSummaryView] = Field(default_factory=list)
+    pending_count: int = 0
+    blocked_count: int = 0
+
+
 class OperationsReadinessResponse(FlexibleModel):
     ready: bool
     blockers: list[str] = Field(default_factory=list)
-    diagnostics: dict[str, Any]
-    preflight: dict[str, Any]
-    broker_status: dict[str, Any]
-    broker_validation: dict[str, Any]
+    diagnostics: DiagnosticsSummaryView = Field(default_factory=DiagnosticsSummaryView)
+    preflight: StartupPreflightResponse = Field(default_factory=_default_startup_preflight_response)
+    broker_status: dict[str, Any] = Field(default_factory=dict)
+    broker_validation: dict[str, Any] = Field(default_factory=dict)
     data_quality: DataQualityResponse = Field(default_factory=lambda: DataQualityResponse(ready=True, scope="unknown"))
-    research_readiness: ResearchReadinessResponse | dict[str, Any] = Field(default_factory=dict)
-    alerts: dict[str, Any]
-    compliance: dict[str, Any]
+    research_readiness: ResearchReadinessResponse = Field(default_factory=_default_research_readiness_response)
+    alerts: AlertsSummaryView = Field(default_factory=AlertsSummaryView)
+    compliance: ComplianceSummaryView = Field(default_factory=ComplianceSummaryView)
+    execution: dict[str, Any] = Field(default_factory=dict)
     latest_report_dir: str | None = None
