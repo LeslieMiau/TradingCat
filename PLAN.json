@@ -382,7 +382,7 @@
       "修复 mismatch 后 blocker 可消失或降级。",
       "相关 operations/execution 测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 36,

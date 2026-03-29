@@ -793,6 +793,72 @@ def test_manual_fill_keeps_order_portfolio_and_audit_consistent():
         app_state.reset_state()
 
 
+def test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers():
+    original_validation = app_state._base_validation_snapshot
+    original_data_quality = app_state.data_quality_summary
+    original_rollout = app_state.operations_rollout
+    try:
+        app_state.reset_state()
+        app_state._base_validation_snapshot = lambda as_of: {
+            "preflight": {"healthy": True},
+            "broker_validation": {},
+            "market_data": {},
+            "preview": None,
+            "diagnostics": {"ready": True, "findings": [], "next_actions": []},
+        }
+        app_state.data_quality_summary = lambda: {"ready": True, "blockers": []}
+        app_state.operations_rollout = lambda: {"ready_for_rollout": True, "blockers": [], "current_recommendation": "simulate"}
+
+        submit = client.post(
+            "/orders/manual",
+            json={
+                "symbol": "600519",
+                "market": "CN",
+                "side": "buy",
+                "quantity": 1,
+            },
+        )
+        assert submit.status_code == 200
+        record_test_alert(
+            app_state,
+            severity="warning",
+            category="cash_mismatch",
+            message="Broker cash differs from local snapshot by 500.00.",
+            recovery_action="Verify broker cash before the next run.",
+            details={"cash_difference": 500.0},
+        )
+
+        readiness = client.get("/ops/readiness")
+        gate = client.get("/execution/gate")
+
+        assert readiness.status_code == 200
+        assert gate.status_code == 200
+        readiness_payload = readiness.json()
+        gate_payload = gate.json()
+        assert readiness_payload["ready"] is False
+        assert any("pending approval" in blocker.lower() for blocker in readiness_payload["blockers"])
+        assert any("broker cash differs" in blocker.lower() for blocker in readiness_payload["blockers"])
+        assert readiness_payload["execution"]["pending_approval_count"] == 1
+        assert gate_payload["should_block"] is True
+        assert any("pending approval" in reason.lower() for reason in gate_payload["reasons"])
+        assert any("broker cash differs" in reason.lower() for reason in gate_payload["reasons"])
+
+        app_state.reset_state()
+
+        readiness_cleared = client.get("/ops/readiness")
+        gate_cleared = client.get("/execution/gate")
+        assert readiness_cleared.status_code == 200
+        assert gate_cleared.status_code == 200
+        assert readiness_cleared.json()["ready"] is True
+        assert readiness_cleared.json()["blockers"] == []
+        assert gate_cleared.json()["should_block"] is False
+    finally:
+        app_state._base_validation_snapshot = original_validation
+        app_state.data_quality_summary = original_data_quality
+        app_state.operations_rollout = original_rollout
+        app_state.reset_state()
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

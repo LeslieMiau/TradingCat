@@ -445,3 +445,23 @@
   - 真实 HTTP 验证依旧使用临时数据目录和预置状态，不直接调用需要显式批准的 `/reconcile/manual-fill` 路由，继续遵守仓库 side-effect 边界。
 - Remaining focus for next session:
   - feature #35：订单状态、对账状态与 broker/portfolio mismatch 进入 readiness/blocker，避免带病运行。
+
+## Session update — 2026-03-29
+- Completed feature #35: 订单状态、对账状态与 broker/portfolio mismatch 现在会进入 readiness/gate blocker，避免带病运行。
+- Code changes:
+  - `OperationsAnalyticsService` 新增 `execution_readiness()`，统一把 `pending_approval`、待对账订单、未清洁授权状态，以及 `cash_mismatch / position_mismatch / unmatched_broker_orders / duplicate_fills_detected` 这类关键执行告警折叠成可读 blocker。
+  - `operations_readiness()` 和 `execution_gate_summary()` 现在共用这份执行健康摘要，并把它直接暴露到响应里的 `execution` 字段；这样 `/ops/readiness` 和 `/execution/gate` 不再只是“红灯”，而会明确说出为什么挡住。
+  - 这一步沿用了上一轮架构修复的原则，没有在 route 或 facade 里各自拼 blocker 文案，而是继续把共享判断放在 service 层复用。
+- Validation:
+  - `.venv/bin/pytest tests/test_api.py tests/test_dashboard_facade.py tests/test_reports_helper.py -q` -> `48 passed`
+  - 隔离 HTTP blocked 场景：
+    - 在 `http://127.0.0.1:8030` 的临时实例里预置 `pending approval` 订单和 `cash_mismatch` 告警后，`GET /ops/readiness` -> `ready=false`，`blockers` 包含 `1 order(s) remain pending approval.` 和 `Broker cash differs from local snapshot by 500.00.`
+    - 同一实例上 `GET /execution/gate` -> `should_block=true`，`reasons` 同样包含上述两条 blocker
+  - 隔离 HTTP clean 场景：
+    - 在 `http://127.0.0.1:8031` 的干净实例上，`GET /ops/readiness` -> `ready=true`, `blockers=[]`
+    - 同一实例上 `GET /execution/gate` -> `should_block=false`, `reasons=[]`
+- Decisions:
+  - 这一步没有新增独立“执行健康接口”，而是把 blocker 直接接进现有 readiness/gate，减少运维入口分叉。
+  - 对 alert blocker 的处理先聚焦于真正会影响交易安全的 mismatch / unmatched / duplicate fills；如果只有别的普通告警，仍会给出泛化 review 文案，但不把所有告警都硬编码成专门类别。
+- Remaining focus for next session:
+  - feature #36：execution preview / run 结果要显式区分“待审批”“待对账”“已完成”，形成个人可执行的日内状态看板。

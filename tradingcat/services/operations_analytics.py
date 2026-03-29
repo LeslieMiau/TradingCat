@@ -54,6 +54,38 @@ class OperationsAnalyticsService:
             "top_anomaly_sources": self._top_anomaly_sources(alerts, execution_errors, risk_violations, recoveries),
         }
 
+    def execution_readiness(
+        self,
+        *,
+        state_counts: dict[str, int],
+        authorization: dict[str, object],
+        alerts_summary: dict[str, object],
+    ) -> dict[str, object]:
+        pending_approval = int(state_counts.get("pending_approval", 0))
+        submitted = int(state_counts.get("submitted", 0))
+        partially_filled = int(state_counts.get("partially_filled", 0))
+        unauthorized = int(authorization.get("unauthorized_count", 0))
+
+        blockers: list[str] = []
+        if pending_approval:
+            blockers.append(f"{pending_approval} order(s) remain pending approval.")
+        reconcile_pending = submitted + partially_filled
+        if reconcile_pending:
+            blockers.append(f"{reconcile_pending} order(s) still need reconciliation before the next execution cycle.")
+        if unauthorized:
+            blockers.append(f"{unauthorized} order(s) are missing a clean authorization state.")
+        blockers.extend(self._alert_blockers(alerts_summary))
+
+        return {
+            "ready": len(blockers) == 0,
+            "state_counts": state_counts,
+            "pending_approval_count": pending_approval,
+            "reconcile_pending_count": reconcile_pending,
+            "unauthorized_count": unauthorized,
+            "all_authorized": bool(authorization.get("all_authorized", False)),
+            "blockers": blockers,
+        }
+
     def _recent_tca_samples(self, execution_tca: dict[str, object], window_days: int) -> list[dict[str, object]]:
         samples = execution_tca.get("samples", []) if isinstance(execution_tca, dict) else []
         if not isinstance(samples, list):
@@ -129,3 +161,27 @@ class OperationsAnalyticsService:
 
         ranked = sorted(sources.values(), key=lambda item: (int(item["count"]), str(item["latest_at"])), reverse=True)
         return ranked[:limit]
+
+    def _alert_blockers(self, alerts_summary: dict[str, object]) -> list[str]:
+        active = alerts_summary.get("active", []) if isinstance(alerts_summary, dict) else []
+        blockers: list[str] = []
+        actionable_categories = {
+            "cash_mismatch",
+            "position_mismatch",
+            "unmatched_broker_orders",
+            "duplicate_fills_detected",
+        }
+        for alert in active:
+            if isinstance(alert, dict):
+                category = alert.get("category")
+                message = alert.get("message")
+            else:
+                category = getattr(alert, "category", None)
+                message = getattr(alert, "message", None)
+            if category in actionable_categories and message:
+                blockers.append(str(message))
+        if not blockers:
+            count = int(alerts_summary.get("count", 0)) if isinstance(alerts_summary, dict) else 0
+            if count > 0:
+                blockers.append(f"{count} active alert(s) require review before the next execution cycle.")
+        return blockers

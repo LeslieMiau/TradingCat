@@ -792,13 +792,20 @@ class TradingCatApplication:
         diagnostics = validation["diagnostics"]
         rollout = self.operations_rollout()
         policy = self.rollout_policy.current()
+        execution_readiness = self.operations_analytics.execution_readiness(
+            state_counts=self.execution.order_state_summary(),
+            authorization=self.execution.authorization_summary(),
+            alerts_summary=self.alerts.latest_summary(),
+        )
         reasons = list(diagnostics["findings"])
+        reasons.extend(execution_readiness["blockers"])
         if not rollout["ready_for_rollout"]:
             reasons.extend(blocker for blocker in rollout["blockers"])
+        reasons = list(dict.fromkeys(str(reason) for reason in reasons))
         return {
             "as_of": evaluation_date,
-            "ready": bool(diagnostics["ready"]) and rollout["ready_for_rollout"],
-            "should_block": (not bool(diagnostics["ready"])) or (not rollout["ready_for_rollout"]),
+            "ready": bool(diagnostics["ready"]) and rollout["ready_for_rollout"] and execution_readiness["ready"],
+            "should_block": (not bool(diagnostics["ready"])) or (not rollout["ready_for_rollout"]) or (not execution_readiness["ready"]),
             "reasons": reasons,
             "next_actions": list(diagnostics["next_actions"]),
             "policy_stage": policy.stage,
@@ -807,6 +814,7 @@ class TradingCatApplication:
             "broker_validation": validation["broker_validation"],
             "market_data": validation["market_data"],
             "diagnostics": diagnostics,
+            "execution": execution_readiness,
         }
 
     def operations_execution_metrics(self) -> dict[str, object]:
@@ -829,12 +837,19 @@ class TradingCatApplication:
         compliance_summary = self.compliance.summary()
         compliance_counts = self._compliance_counts(compliance_summary)
         diagnostics = validation["diagnostics"]
+        execution_readiness = self.operations_analytics.execution_readiness(
+            state_counts=self.execution.order_state_summary(),
+            authorization=self.execution.authorization_summary(),
+            alerts_summary=alerts_summary,
+        )
         blockers = list(data_quality.get("blockers", []))
+        blockers.extend(execution_readiness["blockers"])
+        blockers = list(dict.fromkeys(str(blocker) for blocker in blockers))
         ready = (
             bool(diagnostics["ready"])
             and bool(data_quality.get("ready", True))
-            and alerts_summary["count"] == 0
             and compliance_counts["blocked_count"] == 0
+            and execution_readiness["ready"]
         )
         latest_dir = latest_report_dir(self.config.data_dir)
         return {
@@ -845,6 +860,7 @@ class TradingCatApplication:
             "broker_status": broker_status,
             "broker_validation": validation["broker_validation"],
             "data_quality": data_quality,
+            "execution": execution_readiness,
             "alerts": alerts_summary,
             "compliance": {**compliance_summary, **compliance_counts},
             "latest_report_dir": str(latest_dir) if latest_dir else None,
