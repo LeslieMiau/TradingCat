@@ -684,6 +684,62 @@ def test_execution_reconcile_endpoint_returns_reconciliation_traces():
         app_state.portfolio.reset()
 
 
+def test_audit_endpoints_expose_order_context_and_transition_chain():
+    app_state.reset_state()
+    try:
+        submit = client.post(
+            "/orders/manual",
+            json={
+                "symbol": "600519",
+                "market": "CN",
+                "side": "buy",
+                "quantity": 1,
+            },
+        )
+        assert submit.status_code == 200
+        order_intent_id = submit.json()["report"]["order_intent_id"]
+        approval_request_id = app_state.approvals.list_requests()[0].id
+
+        approve = client.post(f"/approvals/{approval_request_id}/approve", json={"reason": "operator approved"})
+        assert approve.status_code == 200
+
+        reconcile = client.post(
+            "/reconcile/manual-fill",
+            json={
+                "order_intent_id": order_intent_id,
+                "broker_order_id": "audit-trace",
+                "external_source": "broker_statement",
+                "filled_quantity": 1.0,
+                "average_price": 123.4,
+            },
+        )
+        assert reconcile.status_code == 200
+
+        logs = client.get(f"/audit/logs?order_intent_id={order_intent_id}")
+        summary = client.get("/audit/summary")
+
+        assert logs.status_code == 200
+        assert summary.status_code == 200
+        log_rows = logs.json()
+        assert len(log_rows) >= 3
+        assert any(row["details"].get("approval_request_id") == approval_request_id for row in log_rows)
+        assert any(row["details"].get("reconciliation_source") == "broker_statement" for row in log_rows)
+        assert any(
+            row["details"].get("previous_order_status") == "pending_approval" and row["details"].get("order_status") == "filled"
+            for row in log_rows
+        )
+
+        order_summary = summary.json()["orders"][0]
+        assert order_summary["order_intent_id"] == order_intent_id
+        assert order_summary["approval_request_id"] == approval_request_id
+        assert order_summary["authorization_mode"] == "manual_approved"
+        assert order_summary["external_source"] == "broker_statement"
+        assert "broker_statement" in order_summary["reconciliation_sources"]
+        assert order_summary["status_transitions"][-1]["to_status"] == "filled"
+    finally:
+        app_state.reset_state()
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

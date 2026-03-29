@@ -409,3 +409,21 @@
   - live reconcile 的真实 HTTP 验证使用了临时数据目录和预置 broker fill，确保是完整 FastAPI 链路，同时不污染主数据目录，也不引入真实交易副作用。
 - Remaining focus for next session:
   - feature #33：审计日志记录每笔订单的授权上下文、对账来源与关键状态迁移。
+
+## Session update — 2026-03-29
+- Completed feature #33: 审计日志现在会记录每笔订单的授权上下文、对账来源与关键状态迁移，并且可按 `order_intent_id` 直接查询。
+- Code changes:
+  - `AuditService` 新增 `build_order_details()`、`list_events(..., order_intent_id=...)` 和 `order_activity_summary()`；`/audit/summary` 现在会返回 `tracked_order_count`、`order_transition_count` 和最近订单链路摘要，里面会带 `authorization_mode`、`final_authorization_mode`、`approval_request_id`、`approval_status`、`external_source`、`reconciliation_sources` 与 `status_transitions`。
+  - `submit_manual_order()`、approval routes、`reconcile_manual_fill()`、`reconcile_execution_cycle()` 现在都会把统一的 order-audit details 写入审计，不再各自散落不同字段名；live/manual reconcile 事件会一起带上价格上下文和组合影响摘要。
+  - 审计查询逻辑继续落在 `AuditService`，route 只负责透传 query 参数，没有把订单汇总逻辑塞回接口层，保持了这轮架构修复后的边界。
+- Validation:
+  - `.venv/bin/pytest tests/test_audit.py tests/test_api.py tests/test_execution_reconciliation.py tests/test_architecture_boundaries.py -q` -> `47 passed`
+  - 隔离 HTTP 验证：
+    - 在 `http://127.0.0.1:8028` 的临时实例上执行 `POST /execution/reconcile` -> 审计写入 `live_reconcile` 事件，包含 `authorization_mode="risk_approved"`、`previous_order_status="submitted"`、`order_status="filled"`
+    - `GET /audit/logs?limit=100&order_intent_id=http-audit-order` -> 返回该订单的审计事件，含 `reconciliation_source="live_reconcile"`
+    - `GET /audit/summary` -> 返回 `tracked_order_count=1`、`order_transition_count=1`，并在 `orders[0]` 中汇总该订单的授权与状态迁移链
+- Decisions:
+  - 审计侧这一步优先保证“按订单可追链”，所以把 order-level 聚合放进 `AuditService` 而不是额外新建 route-only payload builder，避免接口层再次长胖。
+  - 手工审批路径在现有状态机下不会把订单显式推进到 `submitted`，因此测试断言按真实状态链路锁定“待审批 -> 成交”或“submitted -> filled”的现状，而没有强行伪造一个更理想化但不真实的状态。
+- Remaining focus for next session:
+  - feature #34：手工成交回填后组合快照必须一致更新，并可通过接口直接验证影响结果。

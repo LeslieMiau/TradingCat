@@ -19,7 +19,18 @@ def approve_request(request: Request, request_id: str, payload: DecisionPayload)
     app = get_app_state(request)
     approval = app.approvals.approve(request_id, payload.reason)
     report = app.execution.submit_approved(request_id)
-    app.audit.log(category="approval", action="approve", details={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""})
+    app.audit.log(
+        category="approval",
+        action="approve",
+        details=app.audit.build_order_details(
+            order_intent_id=approval.order_intent.id,
+            broker_order_id=report.broker_order_id,
+            previous_order_status="pending_approval",
+            order_status=report.status.value,
+            authorization_context=app.execution.resolve_authorization_context(approval.order_intent.id),
+            extra={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""},
+        ),
+    )
     return {"approval": approval, "report": report}
 
 
@@ -27,7 +38,15 @@ def approve_request(request: Request, request_id: str, payload: DecisionPayload)
 def reject_request(request: Request, request_id: str, payload: DecisionPayload):
     app = get_app_state(request)
     approval = app.approvals.reject(request_id, payload.reason)
-    app.audit.log(category="approval", action="reject", details={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""})
+    app.audit.log(
+        category="approval",
+        action="reject",
+        details=app.audit.build_order_details(
+            order_intent_id=approval.order_intent.id,
+            authorization_context=app.execution.resolve_authorization_context(approval.order_intent.id),
+            extra={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""},
+        ),
+    )
     return approval
 
 
@@ -35,11 +54,18 @@ def reject_request(request: Request, request_id: str, payload: DecisionPayload):
 def expire_request(request: Request, request_id: str, payload: DecisionPayload):
     app = get_app_state(request)
     approval = app.approvals.expire(request_id, payload.reason)
-    app.audit.log(category="approval", action="expire", details={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""})
+    app.audit.log(
+        category="approval",
+        action="expire",
+        details=app.audit.build_order_details(
+            order_intent_id=approval.order_intent.id,
+            authorization_context=app.execution.resolve_authorization_context(approval.order_intent.id),
+            extra={"request_id": approval.id, "status": approval.status.value, "reason": payload.reason or ""},
+        ),
+    )
     return approval
 
 
 @router.post("/expire-stale")
 def expire_stale_approvals(request: Request, reason: str | None = None):
     return get_app_state(request).expire_stale_approvals(reason)
-

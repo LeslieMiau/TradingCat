@@ -411,6 +411,7 @@ class TradingCatApplication:
 
     def reconcile_manual_fill(self, fill: ManualFill) -> dict[str, object]:
         before_snapshot = self.portfolio.current_snapshot()
+        previous_report = self.execution.get_order(fill.order_intent_id)
         report = self.execution.reconcile_manual_fill(fill)
         snapshot = self.apply_fill_to_portfolio(fill.order_intent_id, fill.filled_quantity, fill.average_price, fill.side)
         reconciliation = self.execution.build_reconciliation_trace(
@@ -420,7 +421,24 @@ class TradingCatApplication:
             after_snapshot=snapshot,
             fill_source="manual_fill",
         )
-        self.audit.log(category="execution", action="manual_fill", details={"broker_order_id": fill.broker_order_id, "order_intent_id": fill.order_intent_id})
+        self.audit.log(
+            category="execution",
+            action="manual_fill",
+            details=self.audit.build_order_details(
+                order_intent_id=fill.order_intent_id,
+                broker_order_id=report.broker_order_id,
+                previous_order_status=previous_report.status.value if previous_report is not None else None,
+                order_status=report.status.value,
+                authorization_context=reconciliation["authorization"],
+                reconciliation_source=str(reconciliation["authorization"].get("external_source") or reconciliation["fill_source"]),
+                extra={
+                    "symbol": reconciliation["order"]["symbol"],
+                    "market": reconciliation["order"]["market"],
+                    "portfolio_effect": reconciliation["portfolio_effect"],
+                    "pricing": reconciliation["pricing"],
+                },
+            ),
+        )
         return {"status": "ok", "report": report, "snapshot": snapshot, "reconciliation": reconciliation}
 
     def reconcile_manual_fill_import(self, fills: list[ManualFill]) -> dict[str, object]:
@@ -437,6 +455,10 @@ class TradingCatApplication:
         return {"count": len(fills), "reports": reports, "snapshots": snapshots, "reconciliations": reconciliations}
 
     def reconcile_execution_cycle(self) -> dict[str, object]:
+        previous_statuses = {
+            order.order_intent_id: order.status.value
+            for order in self.execution.list_orders()
+        }
         summary = self.execution.reconcile_live_state()
         applied_snapshots = []
         reconciliations = []
@@ -455,6 +477,25 @@ class TradingCatApplication:
                     after_snapshot=snapshot,
                     fill_source="live_reconcile",
                 )
+            )
+            reconciliation = reconciliations[-1]
+            self.audit.log(
+                category="execution",
+                action="live_reconcile",
+                details=self.audit.build_order_details(
+                    order_intent_id=order_id,
+                    broker_order_id=report.broker_order_id,
+                    previous_order_status=previous_statuses.get(order_id),
+                    order_status=report.status.value,
+                    authorization_context=reconciliation["authorization"],
+                    reconciliation_source=str(reconciliation["fill_source"]),
+                    extra={
+                        "symbol": reconciliation["order"]["symbol"],
+                        "market": reconciliation["order"]["market"],
+                        "portfolio_effect": reconciliation["portfolio_effect"],
+                        "pricing": reconciliation["pricing"],
+                    },
+                ),
             )
         return {"summary": summary, "applied_snapshots": applied_snapshots, "reconciliations": reconciliations}
 
@@ -1063,18 +1104,25 @@ class TradingCatApplication:
         self.execution.register_expected_prices([intent], {instrument.symbol: price}, source="manual_order_reference")
         report = self.execution.submit(intent)
         report = self.execution.update_order_report(intent.id, emotional_tag=emotional_tag)
+        authorization_context = self.execution.resolve_authorization_context(intent.id)
         self.audit.log(
             category="execution",
             action="manual_order_submitted",
             status="warning" if requires_approval else "ok",
-            details={
-                "symbol": instrument.symbol,
-                "quantity": quantity,
-                "broker_order_id": report.broker_order_id,
-                "emotional_tag": emotional_tag,
-                "requires_approval": requires_approval,
-                "strategy": algo_strategy or "DIRECT",
-            },
+            details=self.audit.build_order_details(
+                order_intent_id=intent.id,
+                broker_order_id=report.broker_order_id,
+                order_status=report.status.value,
+                authorization_context=authorization_context,
+                extra={
+                    "symbol": instrument.symbol,
+                    "market": instrument.market.value,
+                    "quantity": quantity,
+                    "emotional_tag": emotional_tag,
+                    "requires_approval": requires_approval,
+                    "strategy": algo_strategy or "DIRECT",
+                },
+            ),
         )
         return {"message": "Manual order submitted", "report": report}
 

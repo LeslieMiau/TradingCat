@@ -360,7 +360,7 @@
       "关键状态迁移在审计中顺序可追踪。",
       "audit 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 34,
