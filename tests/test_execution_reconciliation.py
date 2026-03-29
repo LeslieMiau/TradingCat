@@ -227,7 +227,50 @@ def test_execution_authorization_summary_marks_pending_and_auto_orders(tmp_path)
     service.submit(auto_intent)
     service.submit(manual_intent)
     summary = service.authorization_summary()
+    rows = {row["order_intent_id"]: row for row in summary["orders"]}
 
     assert summary["order_count"] == 2
     assert summary["authorized_count"] == 2
     assert summary["unauthorized_count"] == 0
+    assert rows[auto_intent.id]["authorization_mode"] == "risk_approved"
+    assert rows[auto_intent.id]["final_authorization_mode"] == "risk_approved"
+    assert rows[manual_intent.id]["authorization_mode"] == "manual_pending"
+    assert rows[manual_intent.id]["final_authorization_mode"] == "manual_pending"
+    assert rows[manual_intent.id]["approval_request_id"] is not None
+
+
+def test_execution_authorization_summary_links_external_fill_source_and_final_mode(tmp_path):
+    service = ExecutionService(
+        live_broker=SimulatedBrokerAdapter(),
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    manual_intent = OrderIntent(
+        signal_id="manual-external-fill",
+        instrument=Instrument(symbol="510300", market=Market.CN, asset_class=AssetClass.ETF, currency="CNY"),
+        side=OrderSide.BUY,
+        quantity=100,
+        requires_approval=True,
+    )
+
+    service.submit(manual_intent)
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=manual_intent.id,
+            broker_order_id="import-cn-fill",
+            external_source="broker_statement",
+            filled_quantity=100.0,
+            average_price=3.21,
+        )
+    )
+
+    summary = service.authorization_summary()
+    row = next(item for item in summary["orders"] if item["order_intent_id"] == manual_intent.id)
+
+    assert row["approval_request_id"] is not None
+    assert row["approval_status"] == "external_fill"
+    assert row["authorization_mode"] == "manual_pending"
+    assert row["final_authorization_mode"] == "manual_fill_external"
+    assert row["external_source"] == "broker_statement"

@@ -338,7 +338,7 @@
       "手工回填与自动路径都能被区分。",
       "authorization 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 32,

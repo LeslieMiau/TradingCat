@@ -84,16 +84,20 @@ class ExecutionService:
                 approval = self._approvals.create_request(intent)
                 self._authorizations[intent.id] = {
                     "mode": "manual_pending",
+                    "final_mode": "manual_pending",
                     "requires_approval": True,
                     "approval_request_id": approval.id,
                     "approval_status": approval.status.value,
+                    "external_source": None,
                 }
             else:
                 self._authorizations[intent.id] = {
                     "mode": "risk_approved",
+                    "final_mode": "risk_approved",
                     "requires_approval": False,
                     "approval_request_id": None,
                     "approval_status": "not_required",
+                    "external_source": None,
                 }
             try:
                 report = self._manual_broker.place_order(intent) if intent.requires_approval else self._live_broker.place_order(intent)
@@ -113,10 +117,12 @@ class ExecutionService:
             self._register_intent_metadata(request.order_intent)
             self._authorizations[request.order_intent.id] = {
                 "mode": "manual_approved",
+                "final_mode": "manual_approved",
                 "requires_approval": True,
                 "approval_request_id": request.id,
                 "approval_status": request.status.value,
                 "decision_reason": request.decision_reason,
+                "external_source": None,
             }
             try:
                 report = self._manual_broker.place_order(request.order_intent)
@@ -132,15 +138,7 @@ class ExecutionService:
             report = self._reconciliation.reconcile_manual_fill(fill, expected_prices=self._expected_prices)
             self._orders[fill.order_intent_id] = report
             self._fill_fingerprints.add(self._reconciliation.fill_fingerprint(report))
-            self._authorizations.setdefault(
-                fill.order_intent_id,
-                {
-                    "mode": "manual_fill_external",
-                    "requires_approval": True,
-                    "approval_request_id": None,
-                    "approval_status": "external_fill",
-                },
-            )
+            self._authorizations[fill.order_intent_id] = self._merge_manual_fill_authorization(fill)
             self._save_state()
             return report
 
@@ -243,8 +241,10 @@ class ExecutionService:
                     "status": report.status.value,
                     "authorized": is_authorized,
                     "authorization_mode": auth.get("mode") if auth else None,
+                    "final_authorization_mode": auth.get("final_mode") if auth else None,
                     "approval_request_id": auth.get("approval_request_id") if auth else None,
                     "approval_status": auth.get("approval_status") if auth else None,
+                    "external_source": auth.get("external_source") if auth else None,
                 }
             )
         return {
@@ -286,6 +286,37 @@ class ExecutionService:
             "strategy_id": self._infer_strategy_id(intent),
             "trigger_context": intent.metadata.get("trigger_context"),
         }
+
+    def _merge_manual_fill_authorization(self, fill: ManualFill) -> dict[str, object]:
+        current = dict(self._authorizations.get(fill.order_intent_id, {}))
+        base_mode = str(current.get("mode") or "manual_fill_external")
+        final_mode = str(current.get("final_mode") or base_mode)
+        if base_mode in {"manual_pending", "manual_fill_external"}:
+            final_mode = "manual_fill_external"
+        external_source = fill.external_source or self._infer_manual_fill_source(fill)
+        approval_status = current.get("approval_status")
+        if approval_status in {None, "pending", "external_fill"}:
+            approval_status = "external_fill"
+        return {
+            "mode": base_mode,
+            "final_mode": final_mode,
+            "requires_approval": bool(current.get("requires_approval", True)),
+            "approval_request_id": current.get("approval_request_id"),
+            "approval_status": approval_status,
+            "decision_reason": current.get("decision_reason"),
+            "external_source": external_source,
+        }
+
+    @staticmethod
+    def _infer_manual_fill_source(fill: ManualFill) -> str:
+        broker_order_id = fill.broker_order_id or ""
+        if broker_order_id.startswith("import-"):
+            return "imported_fill"
+        if broker_order_id.startswith("manual-"):
+            return "manual_reconcile"
+        if broker_order_id:
+            return "broker_backfill"
+        return "manual_reconcile"
 
     @staticmethod
     def _infer_strategy_id(intent: OrderIntent) -> str:

@@ -157,6 +157,7 @@ class ExecutionReport(BaseModel):
 class ManualFill(BaseModel):
     order_intent_id: str
     broker_order_id: str = ""
+    external_source: str | None = None
     symbol: str = ""
     side: OrderSide = OrderSide.BUY
     filled_quantity: float = 0.0

@@ -24,6 +24,7 @@ def seed_execution_fill(
     broker_order_id: str,
     currency: str = "USD",
     reference_source: str = "market_quote",
+    external_source: str | None = None,
 ) -> OrderIntent:
     intent = OrderIntent(
         signal_id=signal_id,
@@ -39,6 +40,7 @@ def seed_execution_fill(
         ManualFill(
             order_intent_id=intent.id,
             broker_order_id=broker_order_id,
+            external_source=external_source,
             filled_quantity=quantity,
             average_price=realized_price,
             side=side,

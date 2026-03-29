@@ -561,6 +561,47 @@ def test_ops_tca_endpoint_exposes_sample_breakdown():
     assert {sample["direction"] for sample in payload["samples"]} == {"buy", "sell"}
 
 
+def test_execution_authorization_endpoint_exposes_external_fill_source_and_final_mode():
+    app_state.reset_state()
+    try:
+        submit = client.post(
+            "/orders/manual",
+            json={
+                "symbol": "510300",
+                "market": "CN",
+                "side": "buy",
+                "quantity": 100,
+            },
+        )
+        assert submit.status_code == 200
+        order_intent_id = submit.json()["report"]["order_intent_id"]
+
+        reconcile = client.post(
+            "/reconcile/manual-fill",
+            json={
+                "order_intent_id": order_intent_id,
+                "broker_order_id": "import-cn-fill",
+                "external_source": "broker_statement",
+                "filled_quantity": 100.0,
+                "average_price": 3.21,
+            },
+        )
+        assert reconcile.status_code == 200
+
+        response = client.get("/execution/authorization")
+
+        assert response.status_code == 200
+        payload = response.json()
+        row = next(item for item in payload["orders"] if item["order_intent_id"] == order_intent_id)
+        assert row["approval_request_id"] is not None
+        assert row["approval_status"] == "external_fill"
+        assert row["authorization_mode"] == "manual_pending"
+        assert row["final_authorization_mode"] == "manual_fill_external"
+        assert row["external_source"] == "broker_statement"
+    finally:
+        app_state.reset_state()
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

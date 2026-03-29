@@ -375,3 +375,18 @@
 - Decisions:
   - 这次只清理“本轮 harness 继续推软”的边界，没有趁机大范围重构 `TradingCatApplication` 全体积，避免把架构修复变成另一轮失控改造。
   - 后续继续 harness feature 时，默认先判断改动应落在现有 service/facade/builder 哪一层；如果只能继续把逻辑堆回 `app.py` 或 route，就先停下来重分层再实现。
+
+## Session update — 2026-03-29
+- Completed feature #31: authorization summary 现在会关联 approval request、manual fill external source 与最终授权模式。
+- Code changes:
+  - `ManualFill` 新增 `external_source` 字段；`ExecutionService` 现在会在手工成交回填时合并授权状态，保留初始 `authorization_mode`，同时新增 `final_authorization_mode` 和 `external_source`，从而区分“原本待审批”与“最终以外部回填完成”。
+  - `authorization_summary()` 现在会返回 `final_authorization_mode`、`external_source`，并在已有审批请求的外部回填场景下保留 `approval_request_id`，不再把授权链路截断成一段模糊状态。
+  - 这一步的逻辑继续落在 `ExecutionService` 内部，没有把授权状态拼装推回 route 或 `app.py`，符合刚做完的架构修复边界。
+- Validation:
+  - `.venv/bin/pytest tests/test_execution_reconciliation.py tests/test_api.py -q` -> `39 passed`
+  - 在临时预置授权状态的数据目录上运行 `curl -sS http://127.0.0.1:8026/execution/authorization` -> 返回 `authorization_mode="manual_pending"`、`final_authorization_mode="manual_fill_external"`、`approval_request_id=<id>`、`approval_status="external_fill"`、`external_source="broker_statement"`
+- Decisions:
+  - `authorization_mode` 保留“最初怎么过授权”的语义，`final_authorization_mode` 表示最终落地路径，避免一个字段同时承载“初始模式”和“终态”而再次变糊。
+  - 对已存在审批请求的外部回填场景，保留原 `approval_request_id`，这样后续审计/复盘还能把审批链和成交链重新串起来。
+- Remaining focus for next session:
+  - feature #32：reconciliation 输出关联订单、成交、组合快照影响，形成可追责闭环。
