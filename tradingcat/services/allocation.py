@@ -56,13 +56,20 @@ class StrategyAllocationService:
         for recommendation in recommendations:
             strategy_id = str(recommendation["strategy_id"])
             action = str(recommendation.get("action", "drop"))
-            score = self._score(recommendation) if action == "keep" else 0.0
-            target_weight = round(score / score_total, 6) if action == "keep" else 0.0
-            shadow_weight = 0.05 if action == "paper_only" else 0.0
+            data_ready = recommendation.get("data_ready")
+            promotion_blocked = bool(recommendation.get("promotion_blocked", False))
+            forced_paper_only = action != "drop" and (promotion_blocked or data_ready is False)
+            effective_action = "paper_only" if forced_paper_only else action
+            reasons = [str(item) for item in recommendation.get("reasons", [])]
+            if forced_paper_only and not any("allocation review keeps the strategy in shadow mode" in reason.lower() for reason in reasons):
+                reasons.append("Allocation review keeps the strategy in shadow mode until research data is ready.")
+            score = self._score(recommendation) if effective_action == "keep" else 0.0
+            target_weight = round(score / score_total, 6) if effective_action == "keep" else 0.0
+            shadow_weight = 0.05 if effective_action == "paper_only" else 0.0
             decision = {
                 "keep": "active",
                 "paper_only": "paper_only",
-            }.get(action, "rejected")
+            }.get(effective_action, "rejected")
             record = StrategyAllocationRecord(
                 as_of=as_of,
                 strategy_id=strategy_id,
@@ -75,7 +82,7 @@ class StrategyAllocationService:
                     str(key): float(value)
                     for key, value in dict(recommendation.get("market_distribution", {})).items()
                 },
-                reasons=[str(item) for item in recommendation.get("reasons", [])],
+                reasons=reasons,
             )
             self._records[strategy_id] = record
             updated.append(record)

@@ -151,7 +151,7 @@
       "调用 /research/allocations/summary 时，paper_only 策略只出现在 paper_only / shadow 相关字段中。",
       "allocation 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 15,
