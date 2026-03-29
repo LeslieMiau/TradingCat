@@ -26,7 +26,8 @@ class ResearchService:
             self._backtester,
             self._market_data,
         )
-        self.research_ideas = ResearchIdeasService(self.strategy_analysis)
+        self.strategy_reporting = self.strategy_analysis.reporting
+        self.research_ideas = ResearchIdeasService(self.strategy_reporting)
 
     def register_strategies(self, strategies: list[object]) -> None:
         self.experiment_service.register_strategies(strategies)
@@ -41,19 +42,19 @@ class ResearchService:
         return self.experiment_service.compare_experiments(left_id, right_id)
 
     def summarize_strategy_report(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        return self.strategy_analysis.summarize_strategy_report(as_of, strategy_signals)
+        return self.strategy_reporting.summarize_strategy_report(as_of, strategy_signals)
 
     def summarize_strategy_stability(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        return self.strategy_analysis.summarize_strategy_stability(as_of, strategy_signals)
+        return self.strategy_reporting.summarize_strategy_stability(as_of, strategy_signals)
 
     def recommend_strategy_actions(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        return self.strategy_analysis.recommend_strategy_actions(as_of, strategy_signals)
+        return self.strategy_reporting.recommend_strategy_actions(as_of, strategy_signals)
 
     def build_profit_scorecard(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        return self.strategy_analysis.build_profit_scorecard(as_of, strategy_signals)
+        return self.strategy_reporting.build_profit_scorecard(as_of, strategy_signals)
 
     def strategy_detail(self, strategy_id: str, as_of: date, signals: list[Signal]) -> dict[str, object]:
-        return self.strategy_analysis.strategy_detail(strategy_id, as_of, signals)
+        return self.strategy_reporting.strategy_detail(strategy_id, as_of, signals)
 
     def suggest_experiments(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
         return self.research_ideas.suggest_experiments(as_of, strategy_signals)

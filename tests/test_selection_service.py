@@ -169,6 +169,37 @@ def test_app_data_quality_targets_active_execution_symbols(tmp_path):
     assert summary["scope"] == "active_execution"
 
 
+def test_app_strategy_reviews_delegate_to_research_queries(tmp_path):
+    config = AppConfig(data_dir=tmp_path)
+    app = TradingCatApplication(config=config)
+    app.reset_state()
+    as_of = date(2026, 3, 8)
+    original_queries = app.research_queries
+    calls: list[date] = []
+    report = {
+        "as_of": as_of,
+        "accepted_strategy_ids": [],
+        "recommendations": [],
+        "next_actions": [],
+    }
+
+    class _StubResearchQueries:
+        def recommendations(self, evaluation_date: date) -> dict[str, object]:
+            calls.append(evaluation_date)
+            return report
+
+    try:
+        app.research_queries = _StubResearchQueries()
+        selection_review = app.review_strategy_selections(as_of)
+        allocation_review = app.review_strategy_allocations(as_of)
+    finally:
+        app.research_queries = original_queries
+
+    assert calls == [as_of, as_of]
+    assert "updated" in selection_review
+    assert "summary" in allocation_review
+
+
 def test_app_data_quality_falls_back_to_research_universe_without_active_strategies(tmp_path):
     config = AppConfig(data_dir=tmp_path)
     app = TradingCatApplication(config=config)

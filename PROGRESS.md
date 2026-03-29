@@ -753,3 +753,45 @@
   - `ResearchQueryService` 统一采用 getter 注入 runtime-sensitive 依赖，和已有 query service 模式保持一致，这样 runtime recovery 时不会出现 facade 偷绑旧 registry 的回潮。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先继续拆 `StrategyAnalysisService` 的 reporting/detail 聚合，评估是否把 report/detail/scorecard 进一步拆成更清晰的 reporting service。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 抽出 `StrategyReportingService`，把 `StrategyAnalysisService` 从“既做分析底座又做读模型组装”收口成兼容型 analysis core + reporting layer。
+- Code changes:
+  - 新增 `tradingcat/services/strategy_reporting.py`，把 `summarize_strategy_report`、`summarize_strategy_stability`、`recommend_strategy_actions`、`build_profit_scorecard`、`strategy_detail` 这组 reporting/detail 组装逻辑迁到独立 service。
+  - `tradingcat/services/strategy_analysis.py` 现在只保留 experiment/correlation/history/benchmark/helper 这组分析底座方法，上述 reporting API 变成薄代理并统一委托给 `self.reporting`。
+  - `tradingcat/services/research.py` 显式暴露 `strategy_reporting`，并让 research app service 与 `ResearchIdeasService` 优先消费 reporting layer，而不是继续直接绑定 analysis core。
+  - `tradingcat/runtime.py` 与 `tradingcat/app.py` 补出 `strategy_reporting` 挂点，为后续继续瘦身 facade / app 编排层留出稳定接口。
+  - `tests/test_research_reporting.py` 新增 `test_research_service_exposes_reporting_service_separately`，锁定 experiment service、analysis core、reporting layer 这三个角色已经显式分开。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/services/strategy_analysis.py tradingcat/services/strategy_reporting.py tradingcat/services/research.py tradingcat/runtime.py tradingcat/app.py tests/test_research_reporting.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_research_reporting.py::test_research_service_exposes_reporting_service_separately tests/test_research_reporting.py::test_research_report_applies_walk_forward_thresholds tests/test_research_reporting.py::test_research_strategy_detail_returns_curve tests/test_api.py::test_research_backtest_endpoints tests/test_runtime_recovery.py -q` -> `11 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=$(mktemp -d)`, `http://127.0.0.1:8040`）：
+    - `GET /broker/status` -> `200 OK`
+    - `POST /data/instruments` 写入 `IVV` / `VOO` / `AAPL`
+    - `POST /research/report/run?as_of=2026-03-08` -> `200 OK`，返回 `blocked_count=1`、`strategy_a_etf_rotation.signal_insights[0].symbol="IVV"`
+    - `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> `200 OK`，返回 `signals=["IVV", "VOO"]`、`signal_source="historical_momentum_rotation"`、detail 曲线结构完整
+- Decisions:
+  - 这一步采用“先拆职责、再逐步迁移调用点”的兼容路径：`StrategyAnalysisService` 仍保留原 public API，因此现有 patch/test/route 调用不需要一起改名，但重逻辑已经不再堆在同一个类里。
+  - `ResearchQueryService` 与 readiness 相关 query service 暂时继续通过 `strategy_analysis` 入口调用，这样现有测试里对 `app.strategy_analysis` 的 monkeypatch 仍然有效；后续若继续收口，可在兼容层稳定后再切到 `strategy_reporting`。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先看 `DashboardFacade` / `app.py` 里剩余 orchestrator 逻辑还能否继续下沉到 query/projection/reporting service，或者补更明确的 architecture boundary test 防止回潮。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 把 `app.py` / `DashboardFacade` 里剩余的 research reporting 编排继续下沉到 `ResearchQueryService`，并补上 facade/app 层的架构边界测试。
+- Code changes:
+  - `tradingcat/app.py` 里的 `review_strategy_selections()` 与 `review_strategy_allocations()` 现在通过 `self.research_queries.recommendations(as_of)` 获取推荐结果，不再自己直接调用 `strategy_analysis.recommend_strategy_actions(...)`。
+  - `tradingcat/facades.py` 的 `DashboardFacade.build_summary()` 现在通过 `self._app.research_queries.scorecard(..., include_candidates=True)` 取得 candidate scorecard，不再直接触碰 `strategy_analysis.build_profit_scorecard(...)`。
+  - `tests/test_architecture_boundaries.py` 新增 app/facade 边界检查，禁止 `app.py` 与 `facades.py` 再直接出现 `strategy_analysis.` 编排调用。
+  - `tests/test_selection_service.py` 新增 `test_app_strategy_reviews_delegate_to_research_queries`，锁定 app 层 selection/allocation review 已经统一走 research query service。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/app.py tradingcat/facades.py tests/test_architecture_boundaries.py tests/test_selection_service.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_architecture_boundaries.py tests/test_dashboard_facade.py tests/test_selection_service.py::test_app_strategy_reviews_delegate_to_research_queries -q` -> `6 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=$(mktemp -d)`, `http://127.0.0.1:8042`，对 research/operations 重链路做轻 stub）：
+    - `GET /broker/status` -> `200 OK`
+    - `GET /dashboard/summary` -> `200 OK`，返回 `strategies.blocked_by_data_count=1`、`strategies.paper_only_count=1`、`details.acceptance_progress.remaining_clean_days=25`，证明 dashboard summary 已通过 `research_queries` 路径消费 candidate scorecard
+  - 真实未 stub 的 `GET /dashboard/summary` 在 `http://127.0.0.1:8041` 上 60 秒超时，说明当前 dashboard 仍受历史 research/readiness 重链路拖慢；本次将其记录为既有性能阻塞，而不是本 feature 的功能回归。
+- Decisions:
+  - 这一步优先消除 app/facade 对 `strategy_analysis` 的直接编排依赖，并用边界测试防止回潮；没有同时去重写 dashboard 上游的重聚合路径。
+  - dashboard 的真实 HTTP 仍然偏慢，所以沿用“真实路由 + 轻 stub 上游重链路”的 E2E gating 策略，只验证这次 candidate scorecard / acceptance 透传改动本身。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先看 dashboard/readiness 重链路能否继续分层或缓存化，或者转去处理 `strategies/simple.py` 中生产策略与 research candidate / fallback template 混居的问题。

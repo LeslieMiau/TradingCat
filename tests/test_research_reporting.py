@@ -249,6 +249,21 @@ def test_research_service_delegates_experiment_storage_to_experiment_service(tmp
     assert service.experiment_service.list_experiments() == []
 
 
+def test_research_service_exposes_reporting_service_separately(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    assert service.strategy_reporting is service.strategy_analysis.reporting
+    assert service.strategy_reporting is not service.strategy_analysis
+    assert report["strategy_reports"][0]["strategy_id"] == strategy.strategy_id
+
+
 def test_research_recommendations_return_actions(tmp_path):
     service = ResearchService(BacktestExperimentRepository(tmp_path))
     as_of = date(2026, 3, 8)

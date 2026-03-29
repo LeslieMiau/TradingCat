@@ -52,6 +52,7 @@ class ApplicationRuntime:
     execution: ExecutionService
     research: ResearchService
     strategy_analysis: Any
+    strategy_reporting: Any
     research_ideas: Any
     alpha_radar: AlphaRadarService
     macro_calendar: MacroCalendarService
@@ -107,6 +108,7 @@ class ApplicationRuntime:
             execution=execution,
             research=research,
             strategy_analysis=research.strategy_analysis,
+            strategy_reporting=research.strategy_reporting,
             research_ideas=research.research_ideas,
             alpha_radar=alpha_radar,
             macro_calendar=macro_calendar,

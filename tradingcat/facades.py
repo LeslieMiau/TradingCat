@@ -45,10 +45,9 @@ class DashboardFacade:
         recent_orders = self._recent_orders()
         plan_items = [PlanItemView.model_validate(item) for item in plan_note.items]
         approvals = self._approval_rows()
-        strategy_signals = self._app.strategy_signal_map(evaluation_date, include_candidates=True)
-        candidate_scorecard = self._app.strategy_analysis.build_profit_scorecard(
+        candidate_scorecard = self._app.research_queries.scorecard(
             evaluation_date,
-            strategy_signals,
+            include_candidates=True,
         )
 
         payload = DashboardSummaryResponse(

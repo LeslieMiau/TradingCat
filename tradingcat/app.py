@@ -200,6 +200,10 @@ class TradingCatApplication:
         return self._require_runtime().strategy_analysis
 
     @property
+    def strategy_reporting(self):
+        return self._require_runtime().strategy_reporting
+
+    @property
     def research_ideas(self):
         return self._require_runtime().research_ideas
 
@@ -620,11 +624,11 @@ class TradingCatApplication:
         return self.trading_journal.save_summary(note)
 
     def review_strategy_selections(self, as_of: date) -> dict[str, object]:
-        report = self.strategy_analysis.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of, include_candidates=True))
+        report = self.research_queries.recommendations(as_of)
         return self.selection.review(report)
 
     def review_strategy_allocations(self, as_of: date) -> dict[str, object]:
-        report = self.strategy_analysis.recommend_strategy_actions(as_of, self._strategy_signal_map(as_of, include_candidates=True))
+        report = self.research_queries.recommendations(as_of)
         return self.allocations.review(report)
 
     def data_quality_summary(self, lookback_days: int = 30) -> dict[str, object]:
