@@ -80,10 +80,13 @@ def test_dashboard_facade_sub_builders_are_independently_exercisable():
 
     details = facade._details_summary(
         {"ready": True, "should_block": False},
-        {"ready_for_live": False, "blockers": ["waiting"]},
-        {"current_recommendation": "simulate", "blockers": ["waiting"]},
-        {"ready": False},
-        [{"broker_order_id": "order-1"}],
+        {
+            "live_acceptance": {"ready_for_live": False, "blockers": ["waiting"]},
+            "rollout": {"current_recommendation": "simulate", "blockers": ["waiting"]},
+            "operations": {"ready": False},
+            "data_quality": {"ready": False},
+            "recent_orders": [{"broker_order_id": "order-1"}],
+        },
     )
     assert details["live_acceptance"]["ready_for_live"] is False
     assert details["acceptance_progress"]["blockers"] == ["waiting"]
@@ -133,3 +136,80 @@ def test_dashboard_facade_accounts_delegate_to_portfolio_projection_service():
 
     assert accounts["total"].nav_curve == [{"t": "2026-03-29T00:00:00+00:00", "v": 123.0}]
     assert accounts["total"].allocation_mix == {"cash": 1.0, "equity": 0.0, "option": 0.0}
+
+
+def test_dashboard_facade_build_summary_delegates_dashboard_reads_to_query_service():
+    facade = app_state.dashboard_facade
+    original_dashboard_queries = app_state.dashboard_queries
+    original_execution_gate_summary = app_state.execution_gate_summary
+    original_operations_period_report = app_state.operations_period_report
+    original_live_acceptance_summary = app_state.live_acceptance_summary
+    original_operations_rollout = app_state.operations_rollout
+    original_operations_readiness = app_state.operations_readiness
+    original_data_quality_summary = app_state.data_quality_summary
+    original_active_execution_strategy_ids = app_state.active_execution_strategy_ids
+    original_selection_summary = app_state.selection.summary
+    original_allocation_summary = app_state.allocations.summary
+    try:
+        app_state.execution_gate_summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.operations_period_report = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.live_acceptance_summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.operations_rollout = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.operations_readiness = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.data_quality_summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.active_execution_strategy_ids = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))  # type: ignore[method-assign]
+        app_state.selection.summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))
+        app_state.allocations.summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dashboard should use dashboard_queries"))
+
+        class _StubDashboardQueries:
+            def summary_context(self, evaluation_date: date) -> dict[str, object]:
+                return {
+                    "gate": {"ready": False, "should_block": True, "reasons": [], "next_actions": [], "policy_stage": "simulate"},
+                    "daily_report": {"highlights": ["daily"]},
+                    "weekly_report": {"highlights": ["weekly"]},
+                    "live_acceptance": {
+                        "ready_for_live": False,
+                        "blockers": ["need more evidence"],
+                        "acceptance_evidence": {"current_clean_day_streak": 2, "current_clean_week_streak": 0},
+                        "next_requirement": {"remaining_clean_days": 26, "remaining_clean_weeks": 4},
+                    },
+                    "rollout": {"current_recommendation": "simulate", "blockers": ["need more evidence"]},
+                    "operations": {"ready": False},
+                    "data_quality": {"ready": False},
+                    "recent_orders": [{"broker_order_id": "order-1"}],
+                    "candidate_scorecard": {
+                        "rows": [
+                            {
+                                "strategy_id": "strategy_a_etf_rotation",
+                                "action": "paper_only",
+                                "promotion_blocked": True,
+                                "blocking_reasons": ["history incomplete"],
+                            }
+                        ],
+                        "next_actions": [],
+                        "accepted_strategy_ids": [],
+                        "portfolio_metrics": {},
+                        "portfolio_passed": False,
+                    },
+                    "active_strategy_ids": ["strategy_a_etf_rotation"],
+                    "selection_summary": {"active": [], "paper_only": []},
+                    "allocation_summary": {"active": [], "paper_only": []},
+                }
+
+        app_state.dashboard_queries = _StubDashboardQueries()
+        payload = facade.build_summary(date.today())
+
+        assert payload.details["recent_orders"][0]["broker_order_id"] == "order-1"
+        assert payload.summaries["daily"]["highlights"] == ["daily"]
+        assert payload.strategies["blocked_by_data_count"] == 1
+    finally:
+        app_state.dashboard_queries = original_dashboard_queries
+        app_state.execution_gate_summary = original_execution_gate_summary
+        app_state.operations_period_report = original_operations_period_report
+        app_state.live_acceptance_summary = original_live_acceptance_summary
+        app_state.operations_rollout = original_operations_rollout
+        app_state.operations_readiness = original_operations_readiness
+        app_state.data_quality_summary = original_data_quality_summary
+        app_state.active_execution_strategy_ids = original_active_execution_strategy_ids
+        app_state.selection.summary = original_selection_summary
+        app_state.allocations.summary = original_allocation_summary

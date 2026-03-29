@@ -405,3 +405,72 @@ class ResearchQueryService:
     def _strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, object]:
         strategy_ids = None if include_candidates else self._default_execution_strategy_ids_getter()
         return self._strategy_signal_provider_getter().strategy_signal_map(as_of, strategy_ids=strategy_ids)
+
+
+class DashboardQueryService:
+    def __init__(
+        self,
+        *,
+        execution_gate_summary: Callable[[date], dict[str, object]],
+        operations_period_report: Callable[[int, str], dict[str, object]],
+        live_acceptance_summary: Callable[[date], dict[str, object]],
+        operations_rollout: Callable[[], dict[str, object]],
+        operations_readiness: Callable[[], dict[str, object]],
+        data_quality_summary: Callable[[], dict[str, object]],
+        active_execution_strategy_ids_getter: Callable[[], list[str]],
+        selection_summary: Callable[[], dict[str, object]],
+        allocation_summary: Callable[[], dict[str, object]],
+        candidate_scorecard_getter: Callable[[date], dict[str, object]],
+        list_orders: Callable[[], list[object]],
+        resolve_intent_context: Callable[[str | None], dict[str, object] | None],
+        resolve_price_context: Callable[[str | None], dict[str, object]],
+    ) -> None:
+        self._execution_gate_summary = execution_gate_summary
+        self._operations_period_report = operations_period_report
+        self._live_acceptance_summary = live_acceptance_summary
+        self._operations_rollout = operations_rollout
+        self._operations_readiness = operations_readiness
+        self._data_quality_summary = data_quality_summary
+        self._active_execution_strategy_ids_getter = active_execution_strategy_ids_getter
+        self._selection_summary = selection_summary
+        self._allocation_summary = allocation_summary
+        self._candidate_scorecard_getter = candidate_scorecard_getter
+        self._list_orders = list_orders
+        self._resolve_intent_context = resolve_intent_context
+        self._resolve_price_context = resolve_price_context
+
+    def summary_context(self, evaluation_date: date) -> dict[str, object]:
+        return {
+            "gate": self._execution_gate_summary(evaluation_date),
+            "daily_report": self._operations_period_report(1, "daily"),
+            "weekly_report": self._operations_period_report(7, "weekly"),
+            "live_acceptance": self._live_acceptance_summary(evaluation_date),
+            "rollout": self._operations_rollout(),
+            "operations": self._operations_readiness(),
+            "data_quality": self._data_quality_summary(),
+            "recent_orders": self.recent_orders(),
+            "candidate_scorecard": self._candidate_scorecard_getter(evaluation_date),
+            "active_strategy_ids": self._active_execution_strategy_ids_getter(),
+            "selection_summary": self._selection_summary(),
+            "allocation_summary": self._allocation_summary(),
+        }
+
+    def recent_orders(self, limit: int = 20) -> list[dict[str, object]]:
+        orders = sorted(self._list_orders(), key=lambda item: item.timestamp, reverse=True)[:limit]
+        rows: list[dict[str, object]] = []
+        for order in orders:
+            context = self._resolve_intent_context(order.order_intent_id) or {}
+            price_context = self._resolve_price_context(order.order_intent_id)
+            rows.append(
+                {
+                    **order.model_dump(mode="json"),
+                    "symbol": context.get("symbol"),
+                    "market": context.get("market"),
+                    "asset_class": context.get("asset_class"),
+                    "strategy_id": context.get("strategy_id"),
+                    "expected_price": price_context.get("expected_price"),
+                    "realized_price": price_context.get("realized_price"),
+                    "reference_source": price_context.get("reference_source"),
+                }
+            )
+        return rows

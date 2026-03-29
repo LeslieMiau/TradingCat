@@ -22,6 +22,18 @@ _BANNED_APP_FACADE_TOKENS = (
     "strategy_analysis.",
     "sample_instruments(",
 )
+_DASHBOARD_FACADE_BANNED_TOKENS = (
+    "self._app.execution_gate_summary(",
+    "self._app.operations_period_report(",
+    "self._app.live_acceptance_summary(",
+    "self._app.operations_rollout(",
+    "self._app.operations_readiness(",
+    "self._app.data_quality_summary(",
+    "self._app.active_execution_strategy_ids(",
+    "self._app.selection.summary(",
+    "self._app.allocations.summary(",
+    "self._app.research_queries.scorecard(",
+)
 _RESEARCH_CANDIDATE_CLASS_MARKERS = (
     "class MeanReversionStrategy(",
     "class DefensiveTrendStrategy(",
@@ -56,6 +68,15 @@ def test_app_and_facades_do_not_reach_back_into_strategy_analysis_orchestration(
             for token in _BANNED_APP_FACADE_TOKENS:
                 if token in line:
                     violations.append(f"{path.name}:{line_number}: {line.strip()}")
+    assert violations == []
+
+
+def test_dashboard_facade_uses_dashboard_query_service_for_heavy_reads():
+    source = _FACADE_FILE.read_text(encoding="utf-8")
+    start = source.index("class DashboardFacade:")
+    end = source.index("class ResearchFacade:")
+    dashboard_source = source[start:end]
+    violations = [token for token in _DASHBOARD_FACADE_BANNED_TOKENS if token in dashboard_source]
     assert violations == []
 
 

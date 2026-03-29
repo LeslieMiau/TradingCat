@@ -36,19 +36,11 @@ class DashboardFacade:
         projections = self._app.portfolio_projections
         plan_note = self._ensure_plan_note(evaluation_date)
         summary_note = self._ensure_summary_note(evaluation_date)
-        gate = self._normalize_gate(self._app.execution_gate_summary(evaluation_date))
-        daily_report = self._app.operations_period_report(window_days=1, label="daily")
-        weekly_report = self._app.operations_period_report(window_days=7, label="weekly")
-        live_acceptance = self._app.live_acceptance_summary(evaluation_date)
-        rollout = self._app.operations_rollout()
-        operations = self._app.operations_readiness()
-        recent_orders = self._recent_orders()
+        dashboard_context = self._app.dashboard_queries.summary_context(evaluation_date)
+        gate = self._normalize_gate(dashboard_context["gate"])
         plan_items = [PlanItemView.model_validate(item) for item in plan_note.items]
         approvals = self._approval_rows()
-        candidate_scorecard = self._app.research_queries.scorecard(
-            evaluation_date,
-            include_candidates=True,
-        )
+        candidate_scorecard = dashboard_context["candidate_scorecard"]
 
         payload = DashboardSummaryResponse(
             as_of=evaluation_date,
@@ -59,12 +51,12 @@ class DashboardFacade:
                 "positions": [projections.serialize_position(position) for position in snapshot.positions],
             },
             accounts=self._accounts(snapshot, plan_items),
-            strategies=self._strategies(candidate_scorecard, candidate_scorecard),
+            strategies=self._strategies(candidate_scorecard, dashboard_context),
             candidates=self._candidate_summary(candidate_scorecard),
             trading_plan=self._trading_plan_summary(plan_note, plan_items, approvals, gate),
             journal=self._journal_summary(plan_note, summary_note),
-            summaries=self._summaries_summary(plan_note, summary_note, daily_report, weekly_report),
-            details=self._details_summary(gate, live_acceptance, rollout, operations, recent_orders),
+            summaries=self._summaries_summary(plan_note, summary_note, dashboard_context["daily_report"], dashboard_context["weekly_report"]),
+            details=self._details_summary(gate, dashboard_context),
         )
         return payload
 
@@ -155,14 +147,9 @@ class DashboardFacade:
             "weekly": weekly_report,
         }
 
-    def _details_summary(
-        self,
-        gate: dict[str, object],
-        live_acceptance: dict[str, object],
-        rollout: dict[str, object],
-        operations: dict[str, object],
-        recent_orders: list[dict[str, object]],
-    ) -> dict[str, object]:
+    def _details_summary(self, gate: dict[str, object], dashboard_context: dict[str, object]) -> dict[str, object]:
+        live_acceptance = dashboard_context["live_acceptance"]
+        rollout = dashboard_context["rollout"]
         acceptance_progress = {
             "current_clean_day_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_day_streak"),
             "current_clean_week_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_week_streak"),
@@ -175,9 +162,9 @@ class DashboardFacade:
             "execution_gate": gate,
             "live_acceptance": live_acceptance,
             "acceptance_progress": acceptance_progress,
-            "data_quality": self._app.data_quality_summary(),
-            "operations": operations,
-            "recent_orders": recent_orders,
+            "data_quality": dashboard_context["data_quality"],
+            "operations": dashboard_context["operations"],
+            "recent_orders": dashboard_context["recent_orders"],
             "broker_order_check": {},
         }
 
@@ -218,10 +205,10 @@ class DashboardFacade:
             )
         return accounts
 
-    def _strategies(self, strategy_report: dict[str, object], candidate_scorecard: dict[str, object]) -> dict[str, object]:
-        active_ids = set(self._app.active_execution_strategy_ids())
-        selection_summary = self._app.selection.summary()
-        allocation_summary = self._app.allocations.summary()
+    def _strategies(self, strategy_report: dict[str, object], dashboard_context: dict[str, object]) -> dict[str, object]:
+        active_ids = set(dashboard_context["active_strategy_ids"])
+        selection_summary = dashboard_context["selection_summary"]
+        allocation_summary = dashboard_context["allocation_summary"]
         selection_paper_only_ids = set(selection_summary.get("paper_only", []))
         allocation_paper_only_ids = {
             str(item.get("strategy_id"))
@@ -229,7 +216,7 @@ class DashboardFacade:
             if item.get("strategy_id") is not None
         }
         rows = []
-        for row in candidate_scorecard.get("rows", []):
+        for row in strategy_report.get("rows", []):
             if row.get("strategy_id") not in active_ids:
                 continue
             meta = strategy_metadata(str(row.get("strategy_id")))
@@ -265,7 +252,7 @@ class DashboardFacade:
             "selection": selection_summary,
             "allocations": allocation_summary,
             "rows": rows,
-            "next_actions": candidate_scorecard.get("next_actions", []),
+            "next_actions": strategy_report.get("next_actions", []),
             "active_count": len(rows),
             "blocked_by_data_count": sum(1 for row in rows if row.get("display_status") == "blocked_by_data"),
             "paper_only_count": sum(1 for row in rows if row.get("display_status") == "paper_only"),
@@ -273,26 +260,6 @@ class DashboardFacade:
             "portfolio_metrics": strategy_report.get("portfolio_metrics", {}),
             "portfolio_passed": strategy_report.get("portfolio_passed", False),
         }
-
-    def _recent_orders(self, limit: int = 20) -> list[dict[str, object]]:
-        orders = sorted(self._app.execution.list_orders(), key=lambda item: item.timestamp, reverse=True)[:limit]
-        rows: list[dict[str, object]] = []
-        for order in orders:
-            context = self._app.execution.resolve_intent_context(order.order_intent_id) or {}
-            price_context = self._app.execution.resolve_price_context(order.order_intent_id)
-            rows.append(
-                {
-                    **order.model_dump(mode="json"),
-                    "symbol": context.get("symbol"),
-                    "market": context.get("market"),
-                    "asset_class": context.get("asset_class"),
-                    "strategy_id": context.get("strategy_id"),
-                    "expected_price": price_context.get("expected_price"),
-                    "realized_price": price_context.get("realized_price"),
-                    "reference_source": price_context.get("reference_source"),
-                }
-            )
-        return rows
 
     def _approval_rows(self) -> dict[str, list[dict[str, object]]]:
         requests = self._app.approvals.list_requests()

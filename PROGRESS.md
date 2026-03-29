@@ -874,3 +874,24 @@
   - experiment/reporting 仍然保留全年 probe signal + 缺口补抓，因为那条链路本来就是研究重路径；本次只把 readiness 改成轻量快照，避免把 report 语义和 preflight 语义再次混在一起。
 - Remaining focus for next session:
   - 新 architecture harness 剩余重点现在更像尾部收口：`/dashboard/summary` 这类组合读模型的进一步瘦身，以及 `app.py` 最后几段 orchestration 的继续下沉。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 抽出 `DashboardQueryService`，把 dashboard 上游的 heavy reads 从 `DashboardFacade` 里继续下沉，收紧成“query service 聚合 + facade 纯 assembler”的结构。
+- Code changes:
+  - `tradingcat/services/query_services.py` 新增 `DashboardQueryService`，统一聚合 dashboard 所需的 `execution_gate`、daily/weekly report、live acceptance、rollout、operations readiness、data quality、candidate scorecard、active strategy context 和 recent order read-model。
+  - `tradingcat/app.py` 新增 `self.dashboard_queries`，把 dashboard 所需的 app/runtime getter 都集中到 query service 的装配阶段；runtime 相关依赖使用 lambda 延迟绑定，避免初始化时提前触发 `self.execution`。
+  - `tradingcat/facades.py` 的 `DashboardFacade.build_summary()` 现在优先消费 `dashboard_queries.summary_context()`，不再自己直接串 `execution_gate_summary()`、`operations_period_report()`、`live_acceptance_summary()`、`operations_rollout()`、`operations_readiness()`、`data_quality_summary()`、selection/allocation/active strategy lookup 这些重读链路。
+  - `tests/test_dashboard_facade.py` 新增 `test_dashboard_facade_build_summary_delegates_dashboard_reads_to_query_service`，锁定 facade 在构建 summary 时已经真正通过 `dashboard_queries` 取重读模型。
+  - `tests/test_architecture_boundaries.py` 新增 `test_dashboard_facade_uses_dashboard_query_service_for_heavy_reads`，禁止 `DashboardFacade` 回流到上述 app-level heavy reads。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/app.py tradingcat/facades.py tradingcat/services/query_services.py tests/test_dashboard_facade.py tests/test_architecture_boundaries.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_dashboard_facade.py tests/test_architecture_boundaries.py tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q` -> `10 passed`
+  - 基线确认：`TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py tests/test_architecture_boundaries.py tests/test_api.py::test_preflight_and_diagnostics_do_not_require_full_strategy_report_generation -q` -> `16 passed`
+  - 真实 HTTP：
+    - `GET /broker/status` -> `200`, `~0.343s`
+    - `GET /dashboard/summary` 在当前本地 `uvicorn` 进程上等待 35s+ 仍未返回；说明 facade/query 边界已经收紧，但 dashboard 真实慢点还在上游 candidate scorecard / analytics 聚合链路里，尚未通过这一步彻底解决。
+- Decisions:
+  - 这一步优先做“dashboard orchestration ownership”治理，而不是在同一轮里继续重写 scorecard / analytics / report 生成逻辑；这样能先锁住 facade 不再继续腐烂。
+  - 因为真实 `/dashboard/summary` 仍然慢，所以这一步的 E2E 以真实本地 server 探活 + API/TestClient 回归双轨记录：结构抽取已经生效，但性能尾项依然存在，不能假装已经解决。
+- Remaining focus for next session:
+  - `/dashboard/summary` 现在剩下的主要热点大概率在 candidate scorecard / report 生成与 operations analytics 组合链路，需要继续做 dashboard-specific caching 或 query service 级轻量快照。

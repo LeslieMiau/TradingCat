@@ -59,7 +59,7 @@ from tradingcat.services.operations_analytics import OperationsAnalyticsService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
 from tradingcat.services.portfolio_projections import PortfolioProjectionService
-from tradingcat.services.query_services import DataQualityQueryService, ReadinessQueryService, ResearchQueryService
+from tradingcat.services.query_services import DashboardQueryService, DataQualityQueryService, ReadinessQueryService, ResearchQueryService
 from tradingcat.services.reporting import (
     build_incident_replay,
     build_operations_period_report,
@@ -161,6 +161,21 @@ class TradingCatApplication:
             default_execution_strategy_ids_getter=lambda: list(self._default_execution_strategy_ids),
             review_strategy_selections=self.review_strategy_selections,
             review_strategy_allocations=self.review_strategy_allocations,
+        )
+        self.dashboard_queries = DashboardQueryService(
+            execution_gate_summary=self.execution_gate_summary,
+            operations_period_report=self.operations_period_report,
+            live_acceptance_summary=lambda as_of: self.live_acceptance_summary(as_of),
+            operations_rollout=self.operations_rollout,
+            operations_readiness=self.operations_readiness,
+            data_quality_summary=self.data_quality_summary,
+            active_execution_strategy_ids_getter=self.active_execution_strategy_ids,
+            selection_summary=self.selection.summary,
+            allocation_summary=self.allocations.summary,
+            candidate_scorecard_getter=lambda as_of: self.research_queries.scorecard(as_of, include_candidates=True),
+            list_orders=lambda: self.execution.list_orders(),
+            resolve_intent_context=lambda intent_id: self.execution.resolve_intent_context(intent_id),
+            resolve_price_context=lambda intent_id: self.execution.resolve_price_context(intent_id),
         )
 
         self.runtime_manager.initialize()
