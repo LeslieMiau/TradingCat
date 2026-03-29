@@ -309,6 +309,24 @@ def test_reporting_service_builds_period_report():
             RecoveryAttempt(attempted_at=now, trigger="automatic", status="failed", detail="still down")
         ],
         journal_entries=[OperationsJournalEntry(recorded_at=now, ready=False, diagnostics_category="trade_channel_failed", diagnostics_severity="error", alert_count=1, checklist_pending=0, checklist_blocked=0)],
+        period_insights={
+            "tca_sample_count": 1,
+            "top_execution_drags": [
+                {
+                    "symbol": "SPY",
+                    "direction": "buy",
+                    "asset_class": "etf",
+                    "deviation_metric": "slippage_bps",
+                    "deviation_value": 25.0,
+                    "threshold": 20.0,
+                    "expected_price": 200.0,
+                    "realized_price": 200.5,
+                    "reference_source": "market_quote",
+                    "within_threshold": False,
+                }
+            ],
+            "top_anomaly_sources": [{"source": "alert:trade_channel_failed", "type": "alert", "count": 1, "latest_at": now.isoformat()}],
+        },
     )
 
     assert payload["label"] == "daily"

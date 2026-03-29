@@ -355,3 +355,23 @@
   - `reports/latest/dashboard` 侧先补了消费位，不强行要求归档 summary 立刻拥有完整 period payload；当前用户可直接从 `/dashboard/summary` 读到 daily/weekly 的新摘要。
 - Remaining focus for next session:
   - feature #31：authorization summary 关联 approval request、manual fill external source 与最终授权模式。
+
+## Session update — 2026-03-29
+- Architecture remediation checkpoint: 单独收口本轮 harness 加重的架构腐化，再继续 `PLAN.json` 主线。
+- Scope:
+  - 只处理本轮 harness 明显推软的边界：`app.py` 中的运营汇总编排、`reporting.py` 中新增的 TCA/异常分析逻辑，以及新增 API 测试里重复扩散的内部状态操作。
+  - 不回滚已交付 feature，不改动 `PLAN.json` 通过状态，只做等价重构和边界保护。
+- Code changes:
+  - 新增 `tradingcat/services/operations_analytics.py`，把 execution metrics 组装、TCA summary 合并、period insights（`top_execution_drags` / `top_anomaly_sources`）从 `app.py` / `reporting.py` 抽离出去。
+  - `routes/ops.py` 的 `/ops/tca` 不再直接内联合并 audit 与 execution summary，改走 `OperationsFacade.tca()`；`reporting.py` 现在只消费 `period_insights`，不再自己持有最近这轮新增的分析实现。
+  - 新增 `tests/support.py`，把本轮新增 API 测试里反复出现的 execution seed / alert seed / reset 操作收进 helper；同时补了 `tests/test_architecture_boundaries.py`，防止 route 层再次直接内联 `audit.execution_metrics_summary()` 和 `execution.transaction_cost_summary()`。
+- Validation:
+  - `.venv/bin/pytest tests/test_api.py tests/test_reports_helper.py tests/test_architecture_boundaries.py tests/test_execution_reconciliation.py -q` -> `49 passed`
+  - `.venv/bin/pytest tests/test_dashboard_facade.py tests/test_audit.py -q` -> `3 passed`
+  - 临时只读实例验证：
+    - `GET /ops/tca` -> `200`, 返回 TCA summary
+    - `GET /ops/daily-report` -> `200`, 返回 daily report
+    - `GET /dashboard/summary` -> `200`, dashboard summary 正常返回
+- Decisions:
+  - 这次只清理“本轮 harness 继续推软”的边界，没有趁机大范围重构 `TradingCatApplication` 全体积，避免把架构修复变成另一轮失控改造。
+  - 后续继续 harness feature 时，默认先判断改动应落在现有 service/facade/builder 哪一层；如果只能继续把逻辑堆回 `app.py` 或 route，就先停下来重分层再实现。

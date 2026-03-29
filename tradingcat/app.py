@@ -56,6 +56,7 @@ from tradingcat.services.data_sync import HistorySyncService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.operations_analytics import OperationsAnalyticsService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
 from tradingcat.services.preflight import build_startup_preflight, summarize_validation_diagnostics
@@ -121,6 +122,7 @@ class TradingCatApplication:
             DailyTradingPlanRepository(self.config),
             DailyTradingSummaryRepository(self.config),
         )
+        self.operations_analytics = OperationsAnalyticsService()
 
         self.runtime: ApplicationRuntime | None = None
         self.runtime_manager = ApplicationRuntimeManager(self)
@@ -740,16 +742,12 @@ class TradingCatApplication:
         execution_quality = self.execution.execution_quality_summary()
         execution_tca = self.execution.transaction_cost_summary()
         authorization = self.execution.authorization_summary()
-        return {
-            **audit_metrics,
-            "filled_samples": execution_quality["filled_samples"],
-            "slippage_within_limits": execution_quality["within_limits"],
-            "authorization_ok": authorization["all_authorized"],
-            "unauthorized_count": authorization["unauthorized_count"],
-            "execution_quality": execution_quality,
-            "execution_tca": execution_tca,
-            "authorization": authorization,
-        }
+        return self.operations_analytics.execution_metrics(
+            audit_metrics=audit_metrics,
+            execution_quality=execution_quality,
+            execution_tca=execution_tca,
+            authorization=authorization,
+        )
 
     def operations_readiness(self) -> dict[str, object]:
         validation = self._base_validation_snapshot(date.today())
@@ -863,6 +861,13 @@ class TradingCatApplication:
         audit_events = filter_recent_items(self.audit.list_events(limit=500), timestamp_attr="created_at", window_days=window_days)
         recoveries = filter_recent_items(self.recovery.list_attempts(), timestamp_attr="attempted_at", window_days=window_days)
         journal_entries = filter_recent_items(self.operations.list_entries(), timestamp_attr="recorded_at", window_days=window_days)
+        period_insights = self.operations_analytics.period_insights(
+            window_days=window_days,
+            execution_tca=execution_metrics.get("execution_tca", {}),
+            alerts=alerts,
+            audit_events=audit_events,
+            recoveries=recoveries,
+        )
         return build_operations_period_report(
             label=label,
             window_days=window_days,
@@ -874,6 +879,7 @@ class TradingCatApplication:
             alerts=alerts,
             recoveries=recoveries,
             journal_entries=journal_entries,
+            period_insights=period_insights,
         )
 
     def operations_postmortem(self, window_days: int = 7) -> dict[str, object]:

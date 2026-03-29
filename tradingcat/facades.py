@@ -429,6 +429,12 @@ class OperationsFacade:
     def execution_metrics(self) -> dict[str, object]:
         return self._app.operations_execution_metrics()
 
+    def tca(self) -> dict[str, object]:
+        return self._app.operations_analytics.tca_summary(
+            audit_metrics=self._app.audit.execution_metrics_summary(),
+            execution_tca=self._app.execution.transaction_cost_summary(),
+        )
+
     def daily_report(self) -> dict[str, object]:
         return self._app.operations_period_report(window_days=1, label="daily")
 

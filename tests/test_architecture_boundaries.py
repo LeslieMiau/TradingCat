@@ -11,6 +11,8 @@ _BANNED_ROUTE_TOKENS = (
     "trading_journal.latest_summary",
     "rollout_policy.apply_recommendation",
     "alerts.evaluate(",
+    "audit.execution_metrics_summary()",
+    "execution.transaction_cost_summary()",
 )
 
 

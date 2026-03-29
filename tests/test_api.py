@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from tradingcat.domain.models import AssetClass, Instrument, ManualFill, Market, OrderIntent, OrderSide
 from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.main import app, app_state
+from tests.support import record_test_alert, reset_runtime_state, seed_execution_fill
 
 client = TestClient(app)
 
@@ -484,34 +485,29 @@ def test_orders_endpoint_exposes_expected_vs_realized_price_context():
 
 def test_execution_quality_endpoint_exposes_asset_class_summary():
     app_state.execution.clear()
-    stock_intent = OrderIntent(
+    seed_execution_fill(
+        app_state,
+        symbol="MSFT",
+        market=Market.US,
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=1.0,
+        expected_price=100.0,
+        realized_price=100.1,
         signal_id="api-stock-quality",
-        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
-        side=OrderSide.BUY,
-        quantity=1,
+        broker_order_id="api-stock-quality",
     )
-    etf_intent = OrderIntent(
+    seed_execution_fill(
+        app_state,
+        symbol="SPY",
+        market=Market.US,
+        asset_class=AssetClass.ETF,
+        side=OrderSide.BUY,
+        quantity=1.0,
+        expected_price=200.0,
+        realized_price=200.8,
         signal_id="api-etf-quality",
-        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
-        side=OrderSide.BUY,
-        quantity=1,
-    )
-    app_state.execution.register_expected_prices([stock_intent, etf_intent], {"MSFT": 100.0, "SPY": 200.0})
-    app_state.execution.reconcile_manual_fill(
-        ManualFill(
-            order_intent_id=stock_intent.id,
-            broker_order_id="api-stock-quality",
-            filled_quantity=1.0,
-            average_price=100.1,
-        )
-    )
-    app_state.execution.reconcile_manual_fill(
-        ManualFill(
-            order_intent_id=etf_intent.id,
-            broker_order_id="api-etf-quality",
-            filled_quantity=1.0,
-            average_price=200.8,
-        )
+        broker_order_id="api-etf-quality",
     )
 
     response = client.get("/execution/quality")
@@ -528,34 +524,29 @@ def test_execution_quality_endpoint_exposes_asset_class_summary():
 
 def test_ops_tca_endpoint_exposes_sample_breakdown():
     app_state.execution.clear()
-    buy_intent = OrderIntent(
-        signal_id="api-buy-tca",
-        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+    seed_execution_fill(
+        app_state,
+        symbol="SPY",
+        market=Market.US,
+        asset_class=AssetClass.ETF,
         side=OrderSide.BUY,
-        quantity=2,
+        quantity=2.0,
+        expected_price=200.0,
+        realized_price=200.4,
+        signal_id="api-buy-tca",
+        broker_order_id="api-buy-tca",
     )
-    sell_intent = OrderIntent(
-        signal_id="api-sell-tca",
-        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
+    seed_execution_fill(
+        app_state,
+        symbol="MSFT",
+        market=Market.US,
+        asset_class=AssetClass.STOCK,
         side=OrderSide.SELL,
-        quantity=3,
-    )
-    app_state.execution.register_expected_prices([buy_intent, sell_intent], {"SPY": 200.0, "MSFT": 100.0})
-    app_state.execution.reconcile_manual_fill(
-        ManualFill(
-            order_intent_id=buy_intent.id,
-            broker_order_id="api-buy-tca",
-            filled_quantity=2.0,
-            average_price=200.4,
-        )
-    )
-    app_state.execution.reconcile_manual_fill(
-        ManualFill(
-            order_intent_id=sell_intent.id,
-            broker_order_id="api-sell-tca",
-            filled_quantity=3.0,
-            average_price=99.8,
-        )
+        quantity=3.0,
+        expected_price=100.0,
+        realized_price=99.8,
+        signal_id="api-sell-tca",
+        broker_order_id="api-sell-tca",
     )
 
     response = client.get("/ops/tca")
@@ -842,28 +833,23 @@ def test_dashboard_summary_endpoint():
 
 
 def test_ops_period_reports_highlight_execution_drags_and_anomalies():
-    app_state.execution.clear()
-    app_state.audit.clear()
-    app_state.alerts.clear()
-    app_state.recovery.clear()
+    reset_runtime_state(app_state)
     try:
-        buy_intent = OrderIntent(
-            signal_id="api-daily-drag",
-            instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        seed_execution_fill(
+            app_state,
+            symbol="SPY",
+            market=Market.US,
+            asset_class=AssetClass.ETF,
             side=OrderSide.BUY,
-            quantity=2,
-        )
-        app_state.execution.register_expected_prices([buy_intent], {"SPY": 200.0})
-        app_state.execution.reconcile_manual_fill(
-            ManualFill(
-                order_intent_id=buy_intent.id,
-                broker_order_id="api-daily-drag",
-                filled_quantity=2.0,
-                average_price=200.5,
-            )
+            quantity=2.0,
+            expected_price=200.0,
+            realized_price=200.5,
+            signal_id="api-daily-drag",
+            broker_order_id="api-daily-drag",
         )
         app_state.audit.log(category="execution", action="run_error", status="error", details={"detail": "trade down"})
-        app_state.alerts._record(
+        record_test_alert(
+            app_state,
             severity="error",
             category="trade_channel_failed",
             message="trade down",
@@ -888,10 +874,7 @@ def test_ops_period_reports_highlight_execution_drags_and_anomalies():
         assert dashboard_payload["summaries"]["daily"]["top_execution_drags"][0]["symbol"] == "SPY"
         assert dashboard_payload["summaries"]["daily"]["top_anomaly_sources"][0]["source"] == "alert:trade_channel_failed"
     finally:
-        app_state.execution.clear()
-        app_state.audit.clear()
-        app_state.alerts.clear()
-        app_state.recovery.clear()
+        reset_runtime_state(app_state)
 
 
 def test_research_scorecard_and_strategy_detail_endpoints():
