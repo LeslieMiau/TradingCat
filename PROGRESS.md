@@ -154,3 +154,19 @@
   - 用临时空数据目录做真实 HTTP 验证，避免被当前本地已有历史缓存掩盖 repair-plan 的排序效果。
 - Remaining focus for next session:
   - feature #18：让 `/data/history/repair` 执行后自动返回 repair 前后 coverage 对比与复检结果，形成发现缺口 -> 修复 -> 复检闭环。
+
+## Session update — 2026-03-29
+- Completed feature #18: `/data/history/repair` 现在会返回 repair 前后 coverage 对比和复检结论，形成完整闭环。
+- Code changes:
+  - `MarketDataService.repair_history_gaps()` 现在返回 `coverage_before`、`coverage_after` 和 `recheck`，其中 `recheck` 会给出 `ready`、`improved_symbols`、`remaining_symbols` 与前后最小覆盖率。
+  - 当没有 repair target 时，接口也会返回一份 no-op 的 recheck 结果，调用方不需要自己二次查询才能知道当前是否已 ready。
+  - 新增 market-data service 与 API 测试，锁定 repair 闭环字段。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_api.py -q` -> `30 passed`
+  - 在临时空数据目录上运行 `POST /data/history/repair` for `SPY` -> 返回 `coverage_before.minimum_coverage_ratio=0.0`、`coverage_after.minimum_coverage_ratio=1.0`、`recheck.ready=true`
+  - 紧接着顺序执行 `GET /data/history/coverage` for `SPY` -> 返回 `minimum_coverage_ratio=1.0`、`blocked=false`
+- Decisions:
+  - 这一步把“repair 后是否真的改善”直接放进 repair 响应本身，避免调用方必须自己手动对比两次 coverage。
+  - 真实 HTTP 验证里我先并行打了 repair 和 coverage，读到的是修复前状态；随后按顺序重试确认了接口闭环本身没有问题。
+- Remaining focus for next session:
+  - feature #19：让 `data_quality_summary` / `/ops/readiness` 直接复用 coverage blockers，把研究主 universe 缺口抬升成显式 readiness blocker。

@@ -135,6 +135,25 @@ def test_data_history_repair_plan_endpoint_exposes_priority_order():
         app_state._repair_priority_symbols = original_priority
 
 
+def test_data_history_repair_endpoint_returns_recheck_summary():
+    repair = client.post(
+        "/data/history/repair",
+        json={
+            "symbols": ["SPY"],
+            "start": "2026-03-02",
+            "end": "2026-03-06",
+            "include_corporate_actions": True,
+        },
+    )
+    assert repair.status_code == 200
+    payload = repair.json()
+    assert "coverage_before" in payload
+    assert "coverage_after" in payload
+    assert "recheck" in payload
+    assert "improved_symbols" in payload["recheck"]
+    assert "remaining_symbols" in payload["recheck"]
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

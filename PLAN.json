@@ -195,7 +195,7 @@
       "repair 响应中包含修复数量、失败数量与复检结果。",
       "repair 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 19,

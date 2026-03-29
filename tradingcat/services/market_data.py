@@ -221,28 +221,36 @@ class MarketDataService:
         end: date | None = None,
         include_corporate_actions: bool = True,
     ) -> dict[str, object]:
-        coverage = self.summarize_history_coverage(symbols=symbols, start=start, end=end)
-        repair_targets = [report for report in coverage["reports"] if int(report["missing_count"]) > 0]
+        coverage_before = self.summarize_history_coverage(symbols=symbols, start=start, end=end)
+        repair_targets = [report for report in coverage_before["reports"] if int(report["missing_count"]) > 0]
         if not repair_targets:
+            recheck = self._repair_recheck(coverage_before, coverage_before)
             return {
-                "start": coverage["start"],
-                "end": coverage["end"],
+                "start": coverage_before["start"],
+                "end": coverage_before["end"],
                 "instrument_count": 0,
                 "reports": [],
                 "repaired_symbols": [],
                 "repair_count": 0,
+                "coverage_before": coverage_before,
+                "coverage_after": coverage_before,
+                "recheck": recheck,
             }
         repaired_symbols = [str(report["symbol"]) for report in repair_targets]
         sync = self.sync_history(
             symbols=repaired_symbols,
-            start=coverage["start"],
-            end=coverage["end"],
+            start=coverage_before["start"],
+            end=coverage_before["end"],
             include_corporate_actions=include_corporate_actions,
         )
+        coverage_after = self.summarize_history_coverage(symbols=repaired_symbols, start=sync["start"], end=sync["end"])
         return {
             **sync,
             "repaired_symbols": repaired_symbols,
             "repair_count": len(repaired_symbols),
+            "coverage_before": coverage_before,
+            "coverage_after": coverage_after,
+            "recheck": self._repair_recheck(coverage_before, coverage_after),
         }
 
     def _coverage_blockers(
@@ -260,6 +268,31 @@ class MarketDataService:
             f"Missing history detected for: {', '.join(missing_symbols[:5])}.",
             f"Run POST /data/history/sync for the affected symbols between {start_date.isoformat()} and {end_date.isoformat()}, then recheck GET /data/history/coverage.",
         ]
+
+    def _repair_recheck(self, before: dict[str, object], after: dict[str, object]) -> dict[str, object]:
+        before_reports = {
+            str(report["symbol"]): report
+            for report in before.get("reports", [])
+        }
+        after_reports = {
+            str(report["symbol"]): report
+            for report in after.get("reports", [])
+        }
+        improved_symbols = []
+        remaining_symbols = list(after.get("missing_symbols", []))
+        for symbol, after_report in after_reports.items():
+            before_report = before_reports.get(symbol, {})
+            if int(after_report.get("missing_count", 0)) < int(before_report.get("missing_count", 0)):
+                improved_symbols.append(symbol)
+        return {
+            "ready": not remaining_symbols,
+            "improved_symbols": sorted(improved_symbols),
+            "improved_count": len(improved_symbols),
+            "remaining_symbols": remaining_symbols,
+            "remaining_count": len(remaining_symbols),
+            "minimum_coverage_ratio_before": round(float(before.get("minimum_coverage_ratio", 0.0)), 4),
+            "minimum_coverage_ratio_after": round(float(after.get("minimum_coverage_ratio", 0.0)), 4),
+        }
 
     def get_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
         instrument = self._resolve_instrument(symbol)

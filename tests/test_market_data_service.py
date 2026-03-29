@@ -80,6 +80,10 @@ def test_market_data_service_repairs_missing_history(tmp_path):
 
     assert repaired["repair_count"] == 1
     assert repaired["repaired_symbols"] == ["SPY"]
+    assert repaired["coverage_before"]["minimum_coverage_ratio"] < 0.95
+    assert repaired["coverage_after"]["minimum_coverage_ratio"] == 1.0
+    assert repaired["recheck"]["ready"] is True
+    assert repaired["recheck"]["improved_symbols"] == ["SPY"]
 
 
 def test_market_data_service_sync_history_tolerates_symbol_failures(tmp_path):
