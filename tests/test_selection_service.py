@@ -30,6 +30,37 @@ def test_strategy_selection_service_reviews_recommendations(tmp_path):
     assert summary["paper_only"]
 
 
+def test_strategy_selection_service_forces_blocked_keep_to_paper_only(tmp_path):
+    service = StrategySelectionService(StrategySelectionRepository(tmp_path))
+    as_of = date(2026, 3, 8)
+
+    report = {
+        "as_of": as_of,
+        "accepted_strategy_ids": ["strategy_a_etf_rotation"],
+        "recommendations": [
+            {
+                "strategy_id": "strategy_a_etf_rotation",
+                "action": "keep",
+                "promotion_blocked": True,
+                "data_ready": False,
+                "reasons": ["history coverage is incomplete"],
+                "metrics": {},
+                "capacity_tier": "high",
+                "max_selected_correlation": 0.2,
+            }
+        ],
+        "next_actions": [],
+    }
+
+    result = service.review(report)
+
+    assert result["updated"][0].recommended_action == "paper_only"
+    assert result["updated"][0].decision == "paper_only"
+    assert result["updated"][0].selected_for_next_phase is False
+    assert service.summary()["active"] == []
+    assert service.summary()["paper_only"] == ["strategy_a_etf_rotation"]
+
+
 def test_app_execution_signals_follow_active_strategy_selection(tmp_path):
     config = AppConfig(data_dir=tmp_path)
     app = TradingCatApplication(config=config)

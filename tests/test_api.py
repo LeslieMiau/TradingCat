@@ -88,6 +88,44 @@ def test_scheduler_selection_review_job_refreshes_allocations():
     assert allocation_summary.json()["count"] == 7
 
 
+def test_selection_review_endpoint_does_not_activate_blocked_strategy():
+    original = app_state.strategy_analysis.recommend_strategy_actions
+    app_state.selection.clear()
+    try:
+        app_state.strategy_analysis.recommend_strategy_actions = lambda as_of, strategy_signals: {
+            "as_of": as_of,
+            "accepted_strategy_ids": ["strategy_a_etf_rotation"],
+            "recommendations": [
+                {
+                    "strategy_id": "strategy_a_etf_rotation",
+                    "action": "keep",
+                    "promotion_blocked": True,
+                    "data_ready": False,
+                    "reasons": ["history coverage is incomplete"],
+                    "metrics": {},
+                    "capacity_tier": "high",
+                    "max_selected_correlation": 0.2,
+                }
+            ],
+            "next_actions": [],
+        }
+        review = client.post("/research/selections/review", params={"as_of": "2026-03-08"})
+        assert review.status_code == 200
+        payload = review.json()
+        assert payload["summary"]["active"] == []
+        assert payload["summary"]["paper_only"] == ["strategy_a_etf_rotation"]
+        assert payload["updated"][0]["decision"] == "paper_only"
+        assert payload["updated"][0]["recommended_action"] == "paper_only"
+
+        summary = client.get("/research/selections/summary")
+        assert summary.status_code == 200
+        assert summary.json()["active"] == []
+        assert summary.json()["paper_only"] == ["strategy_a_etf_rotation"]
+    finally:
+        app_state.strategy_analysis.recommend_strategy_actions = original
+        app_state.selection.clear()
+
+
 def test_app_lifespan_starts_scheduler():
     with TestClient(app) as lifespan_client:
         response = lifespan_client.get("/scheduler/jobs")

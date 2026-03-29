@@ -32,10 +32,18 @@ class StrategySelectionService:
         for recommendation in recommendation_report.get("recommendations", []):
             strategy_id = str(recommendation["strategy_id"])
             recommended_action = str(recommendation["action"])
-            if recommended_action == "keep" and strategy_id in accepted:
+            data_ready = recommendation.get("data_ready")
+            promotion_blocked = bool(recommendation.get("promotion_blocked", False))
+            forced_paper_only = recommended_action != "drop" and (promotion_blocked or data_ready is False)
+            effective_action = "paper_only" if forced_paper_only else recommended_action
+            reasons = [str(item) for item in recommendation.get("reasons", [])]
+            if forced_paper_only and not any("selection review keeps the strategy in paper-only mode" in reason.lower() for reason in reasons):
+                reasons.append("Selection review keeps the strategy in paper-only mode until research data is ready.")
+
+            if effective_action == "keep" and strategy_id in accepted:
                 decision = "active"
                 selected = True
-            elif recommended_action == "paper_only":
+            elif effective_action == "paper_only":
                 decision = "paper_only"
                 selected = False
             else:
@@ -44,10 +52,10 @@ class StrategySelectionService:
             record = StrategySelectionRecord(
                 as_of=as_of,
                 strategy_id=strategy_id,
-                recommended_action=recommended_action,
+                recommended_action=effective_action,
                 selected_for_next_phase=selected,
                 decision=decision,
-                reasons=[str(item) for item in recommendation.get("reasons", [])],
+                reasons=reasons,
                 metrics=dict(recommendation.get("metrics", {})),
                 capacity_tier=str(recommendation.get("capacity_tier", "unknown")),
                 max_selected_correlation=float(recommendation.get("max_selected_correlation", 0.0)),

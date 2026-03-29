@@ -140,7 +140,7 @@
       "调用 /research/selections/summary 时，历史不足策略不会出现在 active 列表中。",
       "selection 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 14,
