@@ -60,8 +60,14 @@ def test_research_report_blocks_synthetic_promotion_without_local_history(tmp_pa
     etf_report = report["strategy_reports"][0]
     assert report["accepted_strategy_ids"] == []
     assert etf_report["passed_validation"] is False
+    assert etf_report["validation_status"] == "blocked"
     assert etf_report["promotion_blocked"] is True
     assert etf_report["data_source"] == "synthetic"
+    assert etf_report["minimum_coverage_ratio"] == 0.0
+    assert report["hard_blocked"] is True
+    assert report["report_status"] == "blocked"
+    assert report["minimum_history_coverage_ratio"] == 0.0
+    assert report["blocking_reasons"]
     assert any("synthetic fallback data" in reason.lower() for reason in etf_report["blocking_reasons"])
 
 
@@ -165,6 +171,42 @@ def test_research_recommendations_downgrade_partial_history_to_paper_only(tmp_pa
     assert recommendation["promotion_blocked"] is True
     assert recommendation["data_ready"] is False
     assert any("history coverage is incomplete" in reason.lower() for reason in recommendation["reasons"])
+
+
+def test_research_report_marks_partial_history_as_hard_blocked(tmp_path):
+    class PartialFailureAdapter(StaticMarketDataAdapter):
+        def fetch_bars(self, instrument, start, end):
+            if instrument.symbol in {"QQQ", "510300"}:
+                raise RuntimeError("history unavailable")
+            return super().fetch_bars(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=PartialFailureAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    strategy_report = report["strategy_reports"][0]
+    assert strategy_report["validation_status"] == "blocked"
+    assert strategy_report["passed_validation"] is False
+    assert strategy_report["promotion_blocked"] is True
+    assert strategy_report["minimum_coverage_ratio"] < 0.95
+    assert report["hard_blocked"] is True
+    assert report["report_status"] == "blocked"
+    assert report["portfolio_passed"] is False
+    assert report["minimum_history_coverage_ratio"] < 0.95
+    assert any("history coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
 
 
 def test_research_stability_report_returns_summary(tmp_path):

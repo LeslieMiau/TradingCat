@@ -118,7 +118,7 @@
       "报告响应中包含明确覆盖率与阻塞原因。",
       "research 相关 pytest 覆盖该路径并通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 12,

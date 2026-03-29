@@ -39,22 +39,30 @@ class StrategyAnalysisService:
             max_correlation = max((abs(value) for value in peer_correlations.values()), default=0.0)
             max_selected_correlation = max((abs(peer_correlations.get(peer_id, 0.0)) for peer_id in accepted_peer_ids), default=0.0)
             stability = self._stability_summary(experiment)
+            signals = strategy_signals.get(experiment.strategy_id, [])
+            history_coverage = self._strategy_history_coverage(signals, experiment.sample_start, as_of)
             data_ready = bool(experiment.assumptions.get("data_ready", False))
             threshold_validation_passed = bool(experiment.assumptions.get("threshold_validation_passed", experiment.passed_validation))
             blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
             research_passed = bool(experiment.passed_validation)
+            minimum_coverage_ratio = round(float(history_coverage.get("minimum_coverage_ratio", 0.0)), 4)
+            validation_status = self._validation_status(
+                passed_validation=research_passed,
+                promotion_blocked=not data_ready,
+            )
             report = {
                 "strategy_id": experiment.strategy_id,
                 "passed_validation": research_passed,
+                "validation_status": validation_status,
                 "strict_validation_passed": experiment.passed_validation,
                 "threshold_validation_passed": threshold_validation_passed,
                 "window_count": experiment.window_count,
                 "metrics": experiment.metrics.model_dump(mode="json"),
                 "sample_start": experiment.sample_start,
                 "sample_end": experiment.as_of,
-                "market_distribution": self._market_distribution(strategy_signals.get(experiment.strategy_id, [])),
-                "capacity_tier": self._capacity_tier(strategy_signals.get(experiment.strategy_id, [])),
-                "capacity_score": self._capacity_score(strategy_signals.get(experiment.strategy_id, [])),
+                "market_distribution": self._market_distribution(signals),
+                "capacity_tier": self._capacity_tier(signals),
+                "capacity_score": self._capacity_score(signals),
                 "correlation_to_peers": peer_correlations,
                 "max_correlation": round(max_correlation, 4),
                 "max_selected_correlation": round(max_selected_correlation, 4),
@@ -62,6 +70,8 @@ class StrategyAnalysisService:
                 "data_ready": data_ready,
                 "promotion_blocked": not data_ready,
                 "blocking_reasons": blocking_reasons,
+                "history_coverage": history_coverage,
+                "minimum_coverage_ratio": minimum_coverage_ratio,
                 "history_complete": bool(experiment.assumptions.get("history_complete", False)),
                 "history_symbols": int(experiment.assumptions.get("history_symbols", 0)),
                 "missing_history_symbols": int(experiment.assumptions.get("missing_history_symbols", 0)),
@@ -76,11 +86,19 @@ class StrategyAnalysisService:
         ready_strategy_ids = [report["strategy_id"] for report in strategy_reports if bool(report["data_ready"])]
         accepted_reports = [report for report in strategy_reports if report["strategy_id"] in accepted_strategy_ids]
         portfolio_metrics = self._portfolio_metrics(accepted_reports)
+        hard_blocked = bool(blocked_strategy_ids)
         portfolio_passed = (
-            portfolio_metrics["annualized_return"] > 0.15
+            not hard_blocked
+            and bool(accepted_reports)
+            and portfolio_metrics["annualized_return"] > 0.15
             and portfolio_metrics["max_drawdown"] < 0.15
             and portfolio_metrics["calmar"] > 1.0
         )
+        minimum_history_coverage_ratio = round(
+            min((float(report.get("minimum_coverage_ratio", 1.0)) for report in strategy_reports), default=1.0),
+            4,
+        )
+        report_blocking_reasons = self._report_blocking_reasons(strategy_reports)
 
         return {
             "as_of": as_of,
@@ -90,6 +108,10 @@ class StrategyAnalysisService:
             "ready_strategy_ids": ready_strategy_ids,
             "blocked_strategy_ids": blocked_strategy_ids,
             "blocked_count": len(blocked_strategy_ids),
+            "hard_blocked": hard_blocked,
+            "report_status": "blocked" if hard_blocked else ("passed" if portfolio_passed else "review"),
+            "blocking_reasons": report_blocking_reasons,
+            "minimum_history_coverage_ratio": minimum_history_coverage_ratio,
             "rejected_strategy_ids": [report["strategy_id"] for report in strategy_reports if report["strategy_id"] not in accepted_strategy_ids],
             "portfolio_metrics": portfolio_metrics,
             "portfolio_passed": portfolio_passed,
@@ -705,6 +727,28 @@ class StrategyAnalysisService:
 
     def _action_priority(self, action: str) -> int:
         return {"keep": 1, "paper_only": 2, "drop": 3}.get(action, 9)
+
+    def _validation_status(self, *, passed_validation: bool, promotion_blocked: bool) -> str:
+        if promotion_blocked:
+            return "blocked"
+        if passed_validation:
+            return "passed"
+        return "failed"
+
+    def _report_blocking_reasons(self, strategy_reports: list[dict[str, object]]) -> list[str]:
+        reasons: list[str] = []
+        seen: set[str] = set()
+        for report in strategy_reports:
+            if not bool(report.get("promotion_blocked")):
+                continue
+            strategy_id = str(report.get("strategy_id", "unknown_strategy"))
+            for reason in report.get("blocking_reasons", []):
+                entry = f"{strategy_id}: {reason}"
+                if entry in seen:
+                    continue
+                seen.add(entry)
+                reasons.append(entry)
+        return reasons
 
     def _profitability_score(
         self,

@@ -27,7 +27,12 @@ def test_research_interfaces_expose_data_blockers():
     report_payload = report.json()
     assert "blocked_count" in report_payload
     assert "blocked_strategy_ids" in report_payload
+    assert "hard_blocked" in report_payload
+    assert "report_status" in report_payload
+    assert "minimum_history_coverage_ratio" in report_payload
+    assert "blocking_reasons" in report_payload
     assert "strategy_reports" in report_payload
+    assert "validation_status" in report_payload["strategy_reports"][0]
     assert "promotion_blocked" in report_payload["strategy_reports"][0]
     assert "blocking_reasons" in report_payload["strategy_reports"][0]
 
