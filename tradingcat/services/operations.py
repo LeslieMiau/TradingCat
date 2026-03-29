@@ -14,6 +14,7 @@ class OperationsJournalService:
     def record(self, snapshot: dict) -> OperationsJournalEntry:
         checklists = snapshot.get("compliance", {}).get("checklists", [])
         first_checklist_counts = checklists[0].get("counts", {}) if checklists else {}
+        evidence_tags = self._evidence_tags(snapshot)
         entry = OperationsJournalEntry(
             ready=bool(snapshot.get("ready", False)),
             diagnostics_category=str(snapshot.get("diagnostics", {}).get("category", "unknown")),
@@ -22,6 +23,7 @@ class OperationsJournalService:
             checklist_pending=int(first_checklist_counts.get("pending", 0)),
             checklist_blocked=int(first_checklist_counts.get("blocked", 0)),
             latest_report_dir=snapshot.get("latest_report_dir"),
+            evidence_tags=evidence_tags,
         )
         self._entries[entry.id] = entry
         self._repository.save(self._entries)
@@ -52,6 +54,7 @@ class OperationsJournalService:
         entries = self.list_entries()
         ready_dates = self._qualified_dates(entries, lambda e: e.ready and e.alert_count == 0)
         cn_clean_dates = self._qualified_dates(entries, lambda e: e.checklist_blocked == 0)
+        evidence_counts = self._evidence_counts(entries)
         ready_weeks = len(ready_dates) // 7
         cn_manual_weeks = len(cn_clean_dates) // 7
         hk_us_passed = ready_weeks >= 4
@@ -71,6 +74,10 @@ class OperationsJournalService:
             },
             "ready_weeks": ready_weeks,
             "cn_manual_weeks": cn_manual_weeks,
+            "evidence": {
+                "counts": evidence_counts,
+                "latest_tags": entries[0].evidence_tags if entries else [],
+            },
             "rollout": {
                 "recommended_stage": recommended_stage,
             },
@@ -137,6 +144,7 @@ class OperationsJournalService:
             ready = any(e.ready for e in day_entries) if day_entries else False
             alert_count = sum(e.alert_count for e in day_entries)
             checklist_blocked = sum(e.checklist_blocked for e in day_entries)
+            evidence_tags = sorted({tag for entry in day_entries for tag in entry.evidence_tags})
             timeline.append(
                 {
                     "date": day.isoformat(),
@@ -144,6 +152,7 @@ class OperationsJournalService:
                     "alert_count": alert_count,
                     "checklist_blocked": checklist_blocked,
                     "entry_count": len(day_entries),
+                    "evidence_tags": evidence_tags,
                 }
             )
         ready_days = sum(1 for item in timeline if item["ready"] and item["alert_count"] == 0)
@@ -153,6 +162,7 @@ class OperationsJournalService:
             "points": timeline,
             "ready_days": ready_days,
             "clean_cn_days": clean_cn_days,
+            "evidence_counts": self._evidence_counts(entries),
         }
 
     def rollout_milestones(self) -> dict[str, object]:
@@ -211,6 +221,30 @@ class OperationsJournalService:
 
     def _qualified_dates(self, entries: list[OperationsJournalEntry], predicate) -> set[date]:
         return {entry.recorded_at.date() for entry in entries if predicate(entry)}
+
+    def _evidence_tags(self, snapshot: dict) -> list[str]:
+        tags: list[str] = []
+        ready = bool(snapshot.get("ready", False))
+        alert_count = int(snapshot.get("alerts", {}).get("count", 0))
+        diagnostics = snapshot.get("diagnostics", {}) if isinstance(snapshot.get("diagnostics", {}), dict) else {}
+        execution = snapshot.get("execution", {}) if isinstance(snapshot.get("execution", {}), dict) else {}
+
+        if ready and alert_count == 0:
+            tags.append("clean_day")
+        if int(execution.get("pending_approval_count", 0)) > 0:
+            tags.append("manual_day")
+        if alert_count > 0 or str(diagnostics.get("severity", "info")) == "error":
+            tags.append("incident_day")
+        if not ready:
+            tags.append("blocked_day")
+        return tags
+
+    def _evidence_counts(self, entries: list[OperationsJournalEntry]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for entry in entries:
+            for tag in entry.evidence_tags:
+                counts[tag] = counts.get(tag, 0) + 1
+        return counts
 
 
 class RecoveryService:

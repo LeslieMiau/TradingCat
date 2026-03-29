@@ -859,6 +859,39 @@ def test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers():
         app_state.reset_state()
 
 
+def test_acceptance_endpoints_expose_daily_evidence_tags():
+    original_operations_readiness = app_state.operations_readiness
+    try:
+        app_state.reset_state()
+        app_state.operations_readiness = lambda: {
+            "ready": False,
+            "diagnostics": {"category": "manual_pending", "severity": "error", "findings": [], "next_actions": []},
+            "alerts": {"count": 1, "latest": None, "active": []},
+            "execution": {"pending_approval_count": 1},
+            "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+            "latest_report_dir": "data/reports/manual-day",
+        }
+
+        record = client.post("/ops/journal/record")
+        acceptance = client.get("/ops/acceptance")
+        timeline = client.get("/ops/acceptance/timeline", params={"window_days": 1})
+
+        assert record.status_code == 200
+        assert acceptance.status_code == 200
+        assert timeline.status_code == 200
+        entry = record.json()["entry"]
+        assert "manual_day" in entry["evidence_tags"]
+        assert "incident_day" in entry["evidence_tags"]
+        assert "blocked_day" in entry["evidence_tags"]
+        acceptance_payload = acceptance.json()
+        assert "manual_day" in acceptance_payload["evidence"]["latest_tags"]
+        assert acceptance_payload["evidence"]["counts"]["manual_day"] >= 1
+        assert "manual_day" in timeline.json()["points"][0]["evidence_tags"]
+    finally:
+        app_state.operations_readiness = original_operations_readiness
+        app_state.reset_state()
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

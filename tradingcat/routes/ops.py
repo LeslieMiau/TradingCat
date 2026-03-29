@@ -90,7 +90,7 @@ def ops_acceptance(request: Request):
 @router.get("/acceptance/timeline")
 @router.get("/live-acceptance/timeline")
 def ops_acceptance_timeline(request: Request, window_days: int = 30):
-    return get_app_state(request).operations.acceptance_timeline(window_days)
+    return get_app_state(request).operations.acceptance_timeline(window_days=window_days)
 
 
 @router.get("/rollout")

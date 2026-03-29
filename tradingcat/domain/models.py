@@ -415,6 +415,7 @@ class OperationsJournalEntry(BaseModel):
     checklist_pending: int
     checklist_blocked: int
     latest_report_dir: str | None = None
+    evidence_tags: list[str] = Field(default_factory=list)
     notes: dict[str, object] = Field(default_factory=dict)
 
 

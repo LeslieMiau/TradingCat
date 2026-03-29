@@ -33,6 +33,7 @@ def test_operations_journal_records_and_summarizes(tmp_path):
     assert summary["ready_ratio"] == 0.5
     assert summary["average_alert_count"] == 1
     assert summary["latest"].latest_report_dir == "data/reports/two"
+    assert "incident_day" in summary["latest"].evidence_tags
 
 
 def test_operations_acceptance_summary_tracks_paper_trading_thresholds(tmp_path):
@@ -59,6 +60,7 @@ def test_operations_acceptance_summary_tracks_paper_trading_thresholds(tmp_path)
     assert acceptance["paper_trading"]["cn_passed"] is True
     assert acceptance["ready_weeks"] == 8
     assert acceptance["rollout"]["recommended_stage"] == "100%"
+    assert acceptance["evidence"]["counts"]["clean_day"] == 56
 
 
 def test_operations_rollout_summary_includes_blockers_and_remaining_gates(tmp_path):
@@ -118,5 +120,29 @@ def test_operations_acceptance_timeline_and_milestones(tmp_path):
 
     assert timeline["window_days"] == 14
     assert len(timeline["points"]) == 14
+    assert "evidence_tags" in timeline["points"][0]
+    assert "incident_day" in timeline["evidence_counts"]
     assert "current_recommendation" in milestones
     assert len(milestones["milestones"]) == 4
+
+
+def test_operations_journal_persists_manual_and_blocked_evidence_tags(tmp_path):
+    service = OperationsJournalService(OperationsJournalRepository(tmp_path))
+
+    entry = service.record(
+        {
+            "ready": False,
+            "diagnostics": {"category": "manual_pending", "severity": "error", "findings": [], "next_actions": []},
+            "alerts": {"count": 1},
+            "execution": {"pending_approval_count": 1},
+            "compliance": {"checklists": [{"counts": {"pending": 0, "blocked": 0}}]},
+            "latest_report_dir": "data/reports/manual",
+        }
+    )
+
+    acceptance = service.acceptance_summary()
+    timeline = service.acceptance_timeline(window_days=1)
+
+    assert set(entry.evidence_tags) == {"manual_day", "incident_day", "blocked_day"}
+    assert acceptance["evidence"]["counts"]["manual_day"] == 1
+    assert timeline["points"][0]["evidence_tags"] == ["blocked_day", "incident_day", "manual_day"]

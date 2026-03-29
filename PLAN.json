@@ -393,7 +393,7 @@
       "多天连续记录后，标签会被累计用于后续判断。",
       "operations journal 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 37,

@@ -464,4 +464,22 @@
   - 这一步没有新增独立“执行健康接口”，而是把 blocker 直接接进现有 readiness/gate，减少运维入口分叉。
   - 对 alert blocker 的处理先聚焦于真正会影响交易安全的 mismatch / unmatched / duplicate fills；如果只有别的普通告警，仍会给出泛化 review 文案，但不把所有告警都硬编码成专门类别。
 - Remaining focus for next session:
-  - feature #36：execution preview / run 结果要显式区分“待审批”“待对账”“已完成”，形成个人可执行的日内状态看板。
+  - feature #36：每日 acceptance 证据持久化 clean day、manual day、incident day 等关键标签。
+
+## Session update — 2026-03-29
+- Completed feature #36: 每日 acceptance 证据现在会以 `clean_day`、`manual_day`、`incident_day`、`blocked_day` 标签持久化到 operations journal，并能被 acceptance 接口直接消费。
+- Code changes:
+  - `OperationsJournalEntry` 新增 `evidence_tags` 字段；`OperationsJournalService.record()` 会根据 readiness 快照里的 `ready`、alert 数量和 execution pending 状态生成当日证据标签。
+  - `acceptance_summary()` 现在返回 `evidence.counts` 和 `latest_tags`；`acceptance_timeline()` 的每日点位也会带 `evidence_tags`，给后续周报、timeline、rollout 直接复用。
+  - 顺手修复了 `/ops/acceptance/timeline` 的真实接口 bug：route 之前把 keyword-only 的 `window_days` 错当成位置参数传递，导致真实 API 会报 `TypeError`。
+- Validation:
+  - `.venv/bin/pytest tests/test_operations_journal.py tests/test_api.py -q` -> `43 passed`
+  - 隔离 HTTP 验证：
+    - `POST /ops/journal/record` on `http://127.0.0.1:8032` -> 返回 `evidence_tags=["manual_day","incident_day","blocked_day"]`
+    - `GET /ops/acceptance` on the same instance -> 返回 `evidence.counts.manual_day=1` 与 `latest_tags`
+    - `GET /ops/acceptance/timeline?window_days=1` -> 返回当日 `evidence_tags=["blocked_day","incident_day","manual_day"]`
+- Decisions:
+  - 这一步把 acceptance 证据落成 journal entry 的显式字段，而不是藏在 `notes` 或每次接口现算，目的是让后续周报、rollout、live acceptance 都共享同一份可追溯证据。
+  - 标签规则先保持简单直接：`clean_day` 看 readiness + 无告警，`manual_day` 看 pending approval，`incident_day` 看告警/错误，`blocked_day` 看 readiness=false；后续 feature 再逐步把这些标签消费到周报和 rollout 门槛里。
+- Remaining focus for next session:
+  - feature #37：周报聚合过去 7 天 acceptance 证据，帮助个人交易者判断是否维持 paper-trading 纪律。
