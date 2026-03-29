@@ -120,6 +120,18 @@ def test_market_data_service_research_universe_prefers_custom_symbols_over_boots
     assert {instrument.symbol for instrument in research_universe} == {"IVV", "VOO"}
 
 
+def test_market_data_service_diagnostic_targets_reuse_catalog_before_sample_fallback(tmp_path):
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    targets = service.diagnostic_targets(["SPY"])
+
+    assert [instrument.symbol for instrument in targets] == ["SPY"]
+
+
 def test_market_data_service_ensure_history_refreshes_sparse_monthly_cache(tmp_path):
     service = MarketDataService(
         adapter=StaticMarketDataAdapter(),

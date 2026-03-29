@@ -828,3 +828,23 @@
   - 文档规则直接对应本轮已完成的代码边界：query/reporting/projection service、candidate strategy 独立模块、persistent universe 优先，而不是额外发明一套与代码不一致的新术语。
 - Remaining focus for next session:
   - 新 architecture harness 剩下更像“性能和尾部收尾”工作：dashboard/readiness 真正的重链路优化、`app.py` 剩余 orchestration 再收口，以及 fallback/sample 路径是否继续做显式诊断隔离。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 把生产策略 fallback 与 app 的 smoke-test sample 路径收口到显式 helper，避免 `sample_instruments()` 继续藏在主链路里。
+- Code changes:
+  - 新增 `tradingcat/strategies/fallbacks.py`，把 ETF rotation / equity momentum / option overlay 的 fallback signal 生成集中到显式 fallback helper。
+  - `tradingcat/strategies/simple.py` 现在通过 fallback helper 生成生产策略的 sample fallback，不再在主策略模块里直接调用 `sample_instruments()`。
+  - `tradingcat/services/market_data.py` 新增 `diagnostic_targets()`，把 smoke-test 的目标选择显式定义为“优先 catalog -> research universe -> sample fallback”。
+  - `tradingcat/app.py` 的 `run_market_data_smoke_test()` 现在统一通过 `market_history.diagnostic_targets()` 取目标，不再自己拼 `research_universe() or sample_instruments()`。
+  - `tests/test_architecture_boundaries.py` 新增边界约束，禁止 `app.py` / `simple.py` 再直接出现 `sample_instruments(`；`tests/test_market_data_service.py` 新增 diagnostic helper 回归测试。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/app.py tradingcat/services/market_data.py tradingcat/strategies/simple.py tradingcat/strategies/fallbacks.py tests/test_architecture_boundaries.py tests/test_market_data_service.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_architecture_boundaries.py tests/test_market_data_service.py::test_market_data_service_diagnostic_targets_reuse_catalog_before_sample_fallback tests/test_runtime_recovery.py -q` -> `13 passed`
+  - 真实 HTTP 验证（临时 `uvicorn` + 受限环境下提权执行本机 `curl`）：
+    - `POST /market-data/smoke-test` with `{}` -> `200 OK`
+    - 返回 `successful_symbols`、`quote_count=13`、`failed_symbols={}`，证明 app 端 smoke-test 仍可用，且走的是显式 diagnostic target 选择路径
+- Decisions:
+  - 这一步优先治理“隐式 sample fallback”而不是彻底移除所有 sample 数据；sample 仍保留在 bootstrapping、diagnostic helper 与 research-only candidate 模板中，但已经不再埋在生产策略与 app 主链路里。
+  - 当前执行环境对本机端口访问有限制，所以真实 HTTP 用了临时 server + 提权 `curl`；这次把限制明确记录下来，避免后续误判为接口自身不通。
+- Remaining focus for next session:
+  - 新 architecture harness 现在主要剩下 dashboard/readiness 的真实重链路性能与 `app.py` 最后的 orchestration 瘦身；结构性边界已经基本收紧完一轮。

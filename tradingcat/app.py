@@ -10,7 +10,6 @@ from time import monotonic
 from fastapi import FastAPI
 
 from tradingcat.adapters.factory import AdapterFactory
-from tradingcat.adapters.market import sample_instruments
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import (
     AlgoExecution,
@@ -647,9 +646,7 @@ class TradingCatApplication:
         include_bars: bool = True,
         include_option_chain: bool = False,
     ) -> dict[str, object]:
-        targets = [instrument for instrument in self.market_history.list_instruments() if not symbols or instrument.symbol in symbols]
-        if not targets:
-            targets = self.market_history.research_universe() or sample_instruments()
+        targets = self.market_history.diagnostic_targets(symbols)
         failed_symbols: dict[str, str] = {}
         successful_symbols: list[str] = []
         quotes = self.market_history.fetch_quotes(targets)

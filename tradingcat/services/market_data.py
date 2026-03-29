@@ -116,6 +116,15 @@ class MarketDataService:
         ]
         return custom_instruments or instruments
 
+    def diagnostic_targets(self, symbols: list[str] | None = None) -> list[Instrument]:
+        explicit_targets = [instrument for instrument in self.list_instruments() if not symbols or instrument.symbol in symbols]
+        if explicit_targets:
+            return explicit_targets
+        research_targets = self.research_universe()
+        if research_targets:
+            return research_targets
+        return sample_instruments()
+
     def get_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
         return self._resolve_instrument(symbol, strict=strict)
 

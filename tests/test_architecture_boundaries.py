@@ -20,6 +20,7 @@ _BANNED_ROUTE_TOKENS = (
 )
 _BANNED_APP_FACADE_TOKENS = (
     "strategy_analysis.",
+    "sample_instruments(",
 )
 _RESEARCH_CANDIDATE_CLASS_MARKERS = (
     "class MeanReversionStrategy(",
@@ -62,3 +63,8 @@ def test_simple_strategy_module_keeps_research_candidates_in_dedicated_module():
     source = _SIMPLE_STRATEGIES_FILE.read_text(encoding="utf-8")
     violations = [marker for marker in _RESEARCH_CANDIDATE_CLASS_MARKERS if marker in source]
     assert violations == []
+
+
+def test_simple_strategy_module_keeps_sample_fallbacks_in_dedicated_helpers():
+    source = _SIMPLE_STRATEGIES_FILE.read_text(encoding="utf-8")
+    assert "sample_instruments(" not in source

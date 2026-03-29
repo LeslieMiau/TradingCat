@@ -5,9 +5,13 @@ from datetime import date, datetime, timedelta
 from statistics import mean
 from typing import TYPE_CHECKING
 
-from tradingcat.adapters.market import sample_instruments
 from tradingcat.domain.models import AssetClass, OrderSide, Signal
 from tradingcat.strategies.base import Strategy
+from tradingcat.strategies.fallbacks import (
+    fallback_equity_momentum_signals,
+    fallback_etf_rotation_signals,
+    fallback_option_overlay_signals,
+)
 from tradingcat.strategies.research_candidates import (
     AllWeatherStrategy,
     DefensiveTrendStrategy,
@@ -183,36 +187,7 @@ class EtfRotationStrategy(Strategy):
         self._market_data = market_data
 
     def _fallback_signals(self, as_of: date) -> list[Signal]:
-        instruments = sample_instruments()
-        return [
-            Signal(
-                strategy_id=self.strategy_id,
-                generated_at=datetime.combine(as_of, datetime.min.time()),
-                instrument=instruments[0],
-                side=OrderSide.BUY,
-                target_weight=0.20,
-                reason="3/6/12 month momentum and 200-day trend filter are positive",
-                metadata={"signal_source": "fallback_rotation_template"},
-            ),
-            Signal(
-                strategy_id=self.strategy_id,
-                generated_at=datetime.combine(as_of, datetime.min.time()),
-                instrument=instruments[1],
-                side=OrderSide.BUY,
-                target_weight=0.15,
-                reason="Relative momentum ranks in the top bucket",
-                metadata={"signal_source": "fallback_rotation_template"},
-            ),
-            Signal(
-                strategy_id=self.strategy_id,
-                generated_at=datetime.combine(as_of, datetime.min.time()),
-                instrument=instruments[3],
-                side=OrderSide.BUY,
-                target_weight=0.10,
-                reason="A-share ETF selected for semi-automatic rotation sleeve",
-                metadata={"signal_source": "fallback_rotation_template"},
-            ),
-        ]
+        return fallback_etf_rotation_signals(self.strategy_id, as_of)
 
     def generate_signals(self, as_of: date) -> list[Signal]:
         if self._market_data is None:
@@ -277,18 +252,7 @@ class EquityMomentumStrategy(Strategy):
         self._market_data = market_data
 
     def _fallback_signals(self, as_of: date) -> list[Signal]:
-        instrument = sample_instruments()[2]
-        return [
-            Signal(
-                strategy_id=self.strategy_id,
-                generated_at=datetime.combine(as_of, datetime.min.time()),
-                instrument=instrument,
-                side=OrderSide.BUY,
-                target_weight=0.08,
-                reason="High liquidity stock selected after earnings blackout filter",
-                metadata={"signal_source": "fallback_equity_template"},
-            )
-        ]
+        return fallback_equity_momentum_signals(self.strategy_id, as_of)
 
     def generate_signals(self, as_of: date) -> list[Signal]:
         if self._market_data is None:
@@ -350,36 +314,7 @@ class OptionHedgeStrategy(Strategy):
         self._market_data = market_data
 
     def _fallback_signal(self, as_of: date) -> list[Signal]:
-        underlying = sample_instruments()[0]
-        expiry = as_of + timedelta(days=30)
-        if as_of.month % 2 == 0:
-            symbol = f"{underlying.symbol}-P-100"
-            reason = "Protective put overlay activated for the core ETF sleeve during a defensive window"
-            option_type = "put"
-            target_weight = 0.015
-        else:
-            symbol = f"{underlying.symbol}-C-105"
-            reason = "Covered-call overlay activated on the core ETF sleeve with capped coverage"
-            option_type = "call"
-            target_weight = 0.01
-        return [
-            Signal(
-                strategy_id=self.strategy_id,
-                generated_at=datetime.combine(as_of, datetime.min.time()),
-                instrument=underlying.model_copy(update={"symbol": symbol, "asset_class": AssetClass.OPTION}),
-                side=OrderSide.BUY,
-                target_weight=target_weight,
-                reason=reason,
-                metadata={
-                    "expiry": expiry.isoformat(),
-                    "option_type": option_type,
-                    "strike": 100 if option_type == "put" else 105,
-                    "underlying_symbol": underlying.symbol,
-                    "execution_mode": "research_only",
-                    "signal_source": "fallback_option_template",
-                },
-            )
-        ]
+        return fallback_option_overlay_signals(self.strategy_id, as_of)
 
     def generate_signals(self, as_of: date) -> list[Signal]:
         if self._market_data is None:
@@ -437,4 +372,3 @@ class OptionHedgeStrategy(Strategy):
                 },
             )
         ]
-
