@@ -88,7 +88,12 @@ def test_reporting_service_builds_dashboard_summary():
         "report_dir": "data/reports/20260308-100000",
         "summary": {"category": "ready_for_validation", "severity": "info", "ready": True, "findings": ["ok"]},
         "operations_readiness": {"ready": True},
-        "ops_execution_metrics": {"exception_rate": 0.0, "risk_hit_rate": 0.1},
+        "ops_execution_metrics": {
+            "exception_rate": 0.0,
+            "risk_hit_rate": 0.1,
+            "top_execution_drags": [{"symbol": "SPY", "direction": "buy", "deviation_metric": "slippage_bps", "deviation_value": 25.0}],
+            "top_anomaly_sources": [{"source": "alert:trade_channel_failed", "count": 2}],
+        },
         "ops_rollout": {"ready_for_rollout": True, "current_recommendation": "10%", "next_stage": "30%", "blockers": []},
         "ops_go_live": {"promotion_allowed": False},
         "ops_live_acceptance": {"ready_for_live": False, "incident_count": 2, "blockers": ["gate"]},
@@ -130,6 +135,8 @@ def test_reporting_service_builds_dashboard_summary():
     assert summary["cards"]["operations"]["allocated_strategy_count"] == 1
     assert summary["cards"]["operations"]["allocated_target_weight"] == 1.0
     assert summary["cards"]["operations"]["exception_rate"] == 0.0
+    assert summary["cards"]["operations"]["top_execution_drag"]["symbol"] == "SPY"
+    assert summary["cards"]["operations"]["top_anomaly_source"]["source"] == "alert:trade_channel_failed"
     assert summary["cards"]["operations"]["gate_ready"] is True
     assert summary["cards"]["operations"]["gate_blocked"] is False
     assert summary["cards"]["operations"]["live_ready"] is False
@@ -267,6 +274,23 @@ def test_reporting_service_builds_period_report():
             "slippage_within_limits": True,
             "authorization_ok": True,
             "unauthorized_count": 0,
+            "execution_tca": {
+                "samples": [
+                    {
+                        "timestamp": now.isoformat(),
+                        "symbol": "SPY",
+                        "direction": "buy",
+                        "asset_class": "etf",
+                        "deviation_metric": "slippage_bps",
+                        "deviation_value": 25.0,
+                        "threshold": 20.0,
+                        "expected_price": 200.0,
+                        "realized_price": 200.5,
+                        "reference_source": "market_quote",
+                        "within_threshold": False,
+                    }
+                ]
+            },
         },
         audit_events=[
             AuditLogEntry(created_at=now, category="execution", action="run_error", status="error", details={"detail": "trade failed"}),
@@ -291,6 +315,9 @@ def test_reporting_service_builds_period_report():
     assert payload["counts"]["alerts"] == 1
     assert payload["counts"]["execution_errors"] == 1
     assert payload["metrics"]["exception_rate"] == 0.2
+    assert payload["metrics"]["tca_sample_count"] == 1
+    assert payload["top_execution_drags"][0]["symbol"] == "SPY"
+    assert payload["top_anomaly_sources"][0]["source"] == "alert:trade_channel_failed"
     assert payload["next_actions"]
 
 

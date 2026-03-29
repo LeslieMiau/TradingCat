@@ -126,6 +126,16 @@ def summarize_report_for_dashboard(payload: dict[str, object]) -> dict[str, obje
                 "allocated_target_weight": allocation_summary.get("total_target_weight") if isinstance(allocation_summary, dict) else None,
                 "exception_rate": ops_execution_metrics.get("exception_rate") if isinstance(ops_execution_metrics, dict) else None,
                 "risk_hit_rate": ops_execution_metrics.get("risk_hit_rate") if isinstance(ops_execution_metrics, dict) else None,
+                "top_execution_drag": (
+                    ops_execution_metrics.get("top_execution_drags", [None])[0]
+                    if isinstance(ops_execution_metrics, dict) and ops_execution_metrics.get("top_execution_drags")
+                    else None
+                ),
+                "top_anomaly_source": (
+                    ops_execution_metrics.get("top_anomaly_sources", [None])[0]
+                    if isinstance(ops_execution_metrics, dict) and ops_execution_metrics.get("top_anomaly_sources")
+                    else None
+                ),
                 "gate_ready": execution_gate.get("ready") if isinstance(execution_gate, dict) else None,
                 "gate_blocked": execution_gate.get("should_block") if isinstance(execution_gate, dict) else None,
                 "live_ready": ops_live_acceptance.get("ready_for_live") if isinstance(ops_live_acceptance, dict) else None,
@@ -220,6 +230,9 @@ def build_operations_period_report(
     risk_violations = [event for event in audit_events if event.category == "risk" and event.action == "violation"]
     approval_expiries = [event for event in audit_events if event.category == "approval" and event.action in {"expire", "expire_stale"}]
     kill_switch_events = [event for event in audit_events if event.category == "risk" and event.action == "kill_switch_set"]
+    recent_tca_samples = _recent_tca_samples(execution_metrics.get("execution_tca", {}), window_days)
+    top_execution_drags = _top_execution_drags(recent_tca_samples)
+    top_anomaly_sources = _top_anomaly_sources(alerts, execution_errors, risk_violations, recoveries)
 
     highlights: list[str] = []
     if readiness.get("ready", False):
@@ -234,6 +247,15 @@ def build_operations_period_report(
         highlights.append(f"{len(risk_violations)} risk violations were triggered.")
     if recoveries:
         highlights.append(f"{len(recoveries)} recovery attempts were recorded.")
+    if top_execution_drags:
+        top_drag = top_execution_drags[0]
+        highlights.append(
+            f"Top execution drag: {top_drag['symbol']} {top_drag['direction']} "
+            f"{top_drag['deviation_value']} {top_drag['deviation_metric']}."
+        )
+    if top_anomaly_sources:
+        top_anomaly = top_anomaly_sources[0]
+        highlights.append(f"Top anomaly source: {top_anomaly['source']} ({top_anomaly['count']}).")
 
     blocker_actions = []
     for blocker in rollout.get("blockers", []):
@@ -269,13 +291,94 @@ def build_operations_period_report(
             "filled_samples": execution_metrics.get("filled_samples"),
             "slippage_within_limits": execution_metrics.get("slippage_within_limits"),
             "authorization_ok": execution_metrics.get("authorization_ok"),
+            "tca_sample_count": len(recent_tca_samples),
         },
         "highlights": highlights,
+        "top_execution_drags": top_execution_drags,
+        "top_anomaly_sources": top_anomaly_sources,
         "alerts": [_alert_summary(alert) for alert in alerts[:10]],
         "exceptions": [_audit_summary(event) for event in execution_errors[:10]],
         "recoveries": [_recovery_summary(attempt) for attempt in recoveries[:10]],
         "next_actions": next_actions,
     }
+
+
+def _recent_tca_samples(execution_tca: dict[str, object], window_days: int) -> list[dict[str, object]]:
+    samples = execution_tca.get("samples", []) if isinstance(execution_tca, dict) else []
+    if not isinstance(samples, list):
+        return []
+    cutoff = datetime.now(UTC) - timedelta(days=window_days)
+    recent: list[dict[str, object]] = []
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        timestamp = sample.get("timestamp")
+        if not timestamp:
+            recent.append(sample)
+            continue
+        try:
+            sample_dt = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        except ValueError:
+            recent.append(sample)
+            continue
+        if sample_dt >= cutoff:
+            recent.append(sample)
+    return recent
+
+
+def _top_execution_drags(samples: list[dict[str, object]], limit: int = 3) -> list[dict[str, object]]:
+    ranked = []
+    for sample in samples:
+        try:
+            threshold = float(sample.get("threshold") or 0.0)
+            deviation = float(sample.get("deviation_value") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        score = deviation / threshold if threshold > 0 else deviation
+        ranked.append((score, sample))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [
+        {
+            "symbol": sample.get("symbol"),
+            "direction": sample.get("direction"),
+            "asset_class": sample.get("asset_class"),
+            "deviation_metric": sample.get("deviation_metric"),
+            "deviation_value": sample.get("deviation_value"),
+            "threshold": sample.get("threshold"),
+            "expected_price": sample.get("expected_price"),
+            "realized_price": sample.get("realized_price"),
+            "reference_source": sample.get("reference_source"),
+            "within_threshold": sample.get("within_threshold"),
+        }
+        for _, sample in ranked[:limit]
+    ]
+
+
+def _top_anomaly_sources(
+    alerts: list[AlertEvent],
+    execution_errors: list[AuditLogEntry],
+    risk_violations: list[AuditLogEntry],
+    recoveries: list[RecoveryAttempt],
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    sources: dict[str, dict[str, object]] = {}
+
+    def bump(key: str, source_type: str, timestamp: datetime) -> None:
+        record = sources.setdefault(key, {"source": key, "type": source_type, "count": 0, "latest_at": timestamp.isoformat()})
+        record["count"] = int(record["count"]) + 1
+        record["latest_at"] = max(str(record["latest_at"]), timestamp.isoformat())
+
+    for alert in alerts:
+        bump(f"alert:{alert.category}", "alert", alert.created_at)
+    for event in execution_errors:
+        bump(f"execution:{event.action}", "execution", event.created_at)
+    for event in risk_violations:
+        bump(f"risk:{event.action}", "risk", event.created_at)
+    for attempt in recoveries:
+        bump(f"recovery:{attempt.status}", "recovery", attempt.attempted_at)
+
+    ranked = sorted(sources.values(), key=lambda item: (int(item["count"]), str(item["latest_at"])), reverse=True)
+    return ranked[:limit]
 
 
 def build_postmortem_report(

@@ -327,7 +327,7 @@
       "dashboard/summary 或 reports/latest/dashboard 中能看到对应关键信息。",
       "reporting 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 31,

@@ -841,6 +841,59 @@ def test_dashboard_summary_endpoint():
         assert "detail" in item
 
 
+def test_ops_period_reports_highlight_execution_drags_and_anomalies():
+    app_state.execution.clear()
+    app_state.audit.clear()
+    app_state.alerts.clear()
+    app_state.recovery.clear()
+    try:
+        buy_intent = OrderIntent(
+            signal_id="api-daily-drag",
+            instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+            side=OrderSide.BUY,
+            quantity=2,
+        )
+        app_state.execution.register_expected_prices([buy_intent], {"SPY": 200.0})
+        app_state.execution.reconcile_manual_fill(
+            ManualFill(
+                order_intent_id=buy_intent.id,
+                broker_order_id="api-daily-drag",
+                filled_quantity=2.0,
+                average_price=200.5,
+            )
+        )
+        app_state.audit.log(category="execution", action="run_error", status="error", details={"detail": "trade down"})
+        app_state.alerts._record(
+            severity="error",
+            category="trade_channel_failed",
+            message="trade down",
+            recovery_action="Reconnect trade channel.",
+            details={"channel": "trade"},
+        )
+
+        daily = client.get("/ops/daily-report")
+        weekly = client.get("/ops/weekly-report")
+        dashboard = client.get("/dashboard/summary")
+
+        assert daily.status_code == 200
+        assert weekly.status_code == 200
+        assert dashboard.status_code == 200
+        daily_payload = daily.json()
+        weekly_payload = weekly.json()
+        dashboard_payload = dashboard.json()
+        assert daily_payload["top_execution_drags"][0]["symbol"] == "SPY"
+        assert daily_payload["top_anomaly_sources"][0]["source"] == "alert:trade_channel_failed"
+        assert weekly_payload["top_execution_drags"][0]["symbol"] == "SPY"
+        assert "top_execution_drags" in dashboard_payload["summaries"]["daily"]
+        assert dashboard_payload["summaries"]["daily"]["top_execution_drags"][0]["symbol"] == "SPY"
+        assert dashboard_payload["summaries"]["daily"]["top_anomaly_sources"][0]["source"] == "alert:trade_channel_failed"
+    finally:
+        app_state.execution.clear()
+        app_state.audit.clear()
+        app_state.alerts.clear()
+        app_state.recovery.clear()
+
+
 def test_research_scorecard_and_strategy_detail_endpoints():
     scorecard = client.post("/research/scorecard/run", params={"as_of": "2026-03-08"})
     assert scorecard.status_code == 200

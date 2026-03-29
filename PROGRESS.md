@@ -340,3 +340,18 @@
   - 样本聚合先按方向输出 `average_slippage_bps` / `average_premium_deviation`，让股票/ETF 与期权的量纲不被强行揉成一个数字；更高层的“主要拖累摘要”留给 `#30`。
 - Remaining focus for next session:
   - feature #30：日报/周报/运营摘要高亮主要成交拖累与主要异常来源，支持快速复盘。
+
+## Session update — 2026-03-29
+- Completed feature #30: 日报/周报/运营摘要现在会高亮主要成交拖累与主要异常来源，支持快速复盘。
+- Code changes:
+  - `operations_execution_metrics()` 现在把 `execution_tca` 带进运营指标；`build_operations_period_report()` 会从窗口内 TCA 样本里提炼 `top_execution_drags`，并从 alerts / execution errors / risk violations / recoveries 聚合 `top_anomaly_sources`。
+  - daily/weekly report 的 `highlights` 现在会直接写出 “Top execution drag” 和 “Top anomaly source”；同时新增 `metrics.tca_sample_count`，便于一眼看出这些摘要基于多少成交样本。
+  - dashboard summary 继续内嵌 daily/weekly report，因此 `/dashboard/summary` 现在也能直接读到这些拖累/异常摘要；reporting helper 也新增了 dashboard card 对应字段，给归档 dashboard 预留了消费位。
+- Validation:
+  - `.venv/bin/pytest tests/test_reports_helper.py tests/test_api.py tests/test_execution_reconciliation.py -q` -> `47 passed`
+  - 在临时 seeded 数据目录上运行 `curl -sS http://127.0.0.1:8024/ops/daily-report` -> 返回 `highlights` 中的 `Top execution drag: SPY buy 25.0 slippage_bps.` 与 `Top anomaly source: alert:trade_channel_failed (1).`，同时包含 `top_execution_drags` 与 `top_anomaly_sources`
+- Decisions:
+  - 这一步把 period report 的拖累/异常摘要建立在现有 execution TCA 和 alerts/audit/recovery 之上，没有额外发明一套新的事件存储，先把“快速复盘”的主链路打通。
+  - `reports/latest/dashboard` 侧先补了消费位，不强行要求归档 summary 立刻拥有完整 period payload；当前用户可直接从 `/dashboard/summary` 读到 daily/weekly 的新摘要。
+- Remaining focus for next session:
+  - feature #31：authorization summary 关联 approval request、manual fill external source 与最终授权模式。

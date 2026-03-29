@@ -738,6 +738,7 @@ class TradingCatApplication:
     def operations_execution_metrics(self) -> dict[str, object]:
         audit_metrics = self.audit.execution_metrics_summary()
         execution_quality = self.execution.execution_quality_summary()
+        execution_tca = self.execution.transaction_cost_summary()
         authorization = self.execution.authorization_summary()
         return {
             **audit_metrics,
@@ -746,6 +747,7 @@ class TradingCatApplication:
             "authorization_ok": authorization["all_authorized"],
             "unauthorized_count": authorization["unauthorized_count"],
             "execution_quality": execution_quality,
+            "execution_tca": execution_tca,
             "authorization": authorization,
         }
 
