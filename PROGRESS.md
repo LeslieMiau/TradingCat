@@ -221,3 +221,20 @@
   - 真实 HTTP 当前验证到的是 `available` 正常路径；“FX 缺失时必须阻塞”的强语义由新增 service/research/API 测试锁定，避免依赖运行时临时制造空 FX。
 - Remaining focus for next session:
   - feature #22：为主 universe 提供最小可复现的历史回填基线，降低长期依赖样例数据的概率。
+
+## Session update — 2026-03-29
+- Completed feature #22: 主 universe 现在有了最小可复现的历史回填基线，降低了长期依赖样例数据的概率。
+- Code changes:
+  - `TradingCatApplication.sync_market_history()` 现在在未指定 `symbols` 时会自动回填研究主 baseline，而不是盲目走全 catalog；当前 baseline 会按研究优先级选出 `SPY/0700/QQQ/300308/510300` 这一组核心标的。
+  - 同一入口会把基线所需 FX 一并同步，并在响应里返回 `baseline_applied`、`baseline_symbols` 和 `fx_sync`，这样“初始化或同步后”就能直接得到最小研究基线。
+  - 新增 app/API 测试锁定：空历史目录下跑一次 `/data/history/sync` 后，ETF 轮动研究会走 `historical` 而不是 synthetic fallback。
+- Validation:
+  - `.venv/bin/pytest tests/test_selection_service.py tests/test_api.py -q` -> `30 passed`
+  - `curl -sS http://127.0.0.1:8021/preflight/startup` -> `healthy=true`
+  - 在临时空数据目录上运行 `POST /data/history/sync` with `{"end":"2026-03-08"}` -> 返回 `baseline_applied=true`、`baseline_symbols=["SPY","0700","QQQ","300308","510300"]`、`fx_sync.rate_count=198`
+  - 同一临时环境下 `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> 返回 `data_source="historical"`、`data_ready=true`
+- Decisions:
+  - 这一步复用了现有 `/data/history/sync` 作为 baseline 入口，没有再额外发明一个新 bootstrap endpoint，减少了运维入口分叉。
+  - baseline 目前按“研究优先级最高的 5 个 symbol”固定下来，先解决个人交易主链路的最小可复现性，而不是一次把全 universe 都做厚。
+- Remaining focus for next session:
+  - feature #23：把 smart order 的 RSI 条件改成真实指标计算，而不是 mock 常量。

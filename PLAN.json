@@ -239,7 +239,7 @@
       "无历史时系统给出明确缺口，不会回退成默认可推广状态。",
       "相关 data/research 测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 23,

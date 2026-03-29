@@ -179,3 +179,25 @@ def test_app_data_quality_falls_back_to_research_universe_without_active_strateg
     assert summary["scope"] == "research_universe"
     assert summary["target_symbols"]
     assert "blockers" in summary
+
+
+def test_app_sync_market_history_without_symbols_bootstraps_research_baseline(tmp_path):
+    config = AppConfig(data_dir=tmp_path)
+    app = TradingCatApplication(config=config)
+    app.reset_state()
+    as_of = date(2026, 3, 8)
+
+    sync = app.sync_market_history(end=as_of)
+
+    assert sync["baseline_applied"] is True
+    assert sync["baseline_symbols"]
+    assert "SPY" in sync["baseline_symbols"]
+    assert sync["fx_sync"]["base_currency"] == config.base_currency
+
+    strategy = EtfRotationStrategy()
+    report = app.research.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+    assert report["strategy_reports"][0]["data_source"] == "historical"
+    assert report["strategy_reports"][0]["promotion_blocked"] is False

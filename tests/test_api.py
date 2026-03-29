@@ -97,6 +97,17 @@ def test_data_history_sync_runs_expose_symbol_level_stats():
     assert "symbol_stats" in latest
 
 
+def test_data_history_sync_without_symbols_bootstraps_research_baseline():
+    sync = client.post("/data/history/sync", json={"end": "2026-03-08"})
+    assert sync.status_code == 200
+    payload = sync.json()
+    assert payload["baseline_applied"] is True
+    assert payload["baseline_symbols"]
+    assert "SPY" in payload["baseline_symbols"]
+    assert "fx_sync" in payload
+    assert payload["fx_sync"]["base_currency"] == "CNY"
+
+
 def test_data_history_repair_plan_endpoint_exposes_priority_order():
     original_coverage = app_state.market_history.summarize_history_coverage
     original_priority = app_state._repair_priority_symbols

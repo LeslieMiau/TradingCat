@@ -598,10 +598,36 @@ class TradingCatApplication:
         }
 
     def sync_market_history(self, *, symbols: list[str] | None = None, start: date | None = None, end: date | None = None, include_corporate_actions: bool = True) -> dict[str, object]:
-        sync = self.market_history.sync_history(symbols=symbols, start=start, end=end, include_corporate_actions=include_corporate_actions)
-        coverage = self.market_history.summarize_history_coverage(symbols=symbols, start=sync["start"], end=sync["end"])
-        run = self.history_sync.record_run(sync_result=sync, coverage_result=coverage, symbols=symbols, include_corporate_actions=include_corporate_actions)
-        return {**sync, "coverage": coverage, "run": run}
+        baseline_applied = not symbols
+        requested_symbols = list(symbols or self.history_baseline_symbols(as_of=end or date.today()))
+        sync_start = start or (date(2018, 1, 1) if baseline_applied else None)
+        sync = self.market_history.sync_history(
+            symbols=requested_symbols,
+            start=sync_start,
+            end=end,
+            include_corporate_actions=include_corporate_actions,
+        )
+        coverage = self.market_history.summarize_history_coverage(symbols=requested_symbols, start=sync["start"], end=sync["end"])
+        fx_sync = self.market_history.sync_fx_rates(
+            base_currency=self.config.base_currency,
+            quote_currencies=self._baseline_quote_currencies(requested_symbols),
+            start=sync["start"],
+            end=sync["end"],
+        )
+        run = self.history_sync.record_run(
+            sync_result=sync,
+            coverage_result=coverage,
+            symbols=requested_symbols,
+            include_corporate_actions=include_corporate_actions,
+        )
+        return {
+            **sync,
+            "coverage": coverage,
+            "run": run,
+            "baseline_applied": baseline_applied,
+            "baseline_symbols": requested_symbols,
+            "fx_sync": fx_sync,
+        }
 
     def _base_validation_snapshot(self, as_of: date) -> dict[str, object]:
         preflight = build_startup_preflight(self.config)
@@ -671,6 +697,20 @@ class TradingCatApplication:
                 symbol_weights[symbol] = symbol_weights.get(symbol, 0) + boost
         targets = requested or list(symbol_weights.keys())
         return sorted(targets, key=lambda symbol: (-symbol_weights.get(symbol, 0), symbol))
+
+    def history_baseline_symbols(self, *, as_of: date | None = None, limit: int = 5) -> list[str]:
+        candidates = self._repair_priority_symbols(as_of=as_of)
+        return candidates[:limit]
+
+    def _baseline_quote_currencies(self, symbols: list[str]) -> list[str]:
+        instruments = [instrument for instrument in self.market_history.list_instruments() if instrument.symbol in set(symbols)]
+        return sorted(
+            {
+                instrument.currency.upper()
+                for instrument in instruments
+                if instrument.currency.upper() != self.config.base_currency.upper()
+            }
+        )
 
     def execution_gate_summary(self, as_of: date | None = None) -> dict[str, object]:
         evaluation_date = as_of or date.today()
