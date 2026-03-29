@@ -74,15 +74,6 @@ from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerService
 from tradingcat.services.selection import StrategySelectionService
 from tradingcat.services.trading_journal import TradingJournalService
-from tradingcat.strategies.simple import (
-    AllWeatherStrategy,
-    DefensiveTrendStrategy,
-    EquityMomentumStrategy,
-    EtfRotationStrategy,
-    Jianfang3LStrategy,
-    MeanReversionStrategy,
-    OptionHedgeStrategy,
-)
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
 from tradingcat.scheduler_runtime import ApplicationSchedulerRuntime
 
@@ -189,17 +180,12 @@ class TradingCatApplication:
         return self._require_runtime().rule_engine
 
     @property
+    def strategy_registry(self) -> dict[str, object]:
+        return self._require_runtime().strategy_registry
+
+    @property
     def research_strategies(self) -> list[object]:
-        market_data = self.runtime.market_history if self.runtime is not None else None
-        return [
-            EtfRotationStrategy(market_data),
-            EquityMomentumStrategy(market_data),
-            OptionHedgeStrategy(market_data),
-            MeanReversionStrategy(),
-            DefensiveTrendStrategy(),
-            AllWeatherStrategy(),
-            Jianfang3LStrategy(),
-        ]
+        return list(self.strategy_registry.values())
 
     @property
     def _default_execution_strategy_ids(self) -> list[str]:
@@ -254,10 +240,10 @@ class TradingCatApplication:
         return self.runtime_manager.recover(trigger)
 
     def strategy_by_id(self, strategy_id: str):
-        for strategy in self.research_strategies:
-            if strategy.strategy_id == strategy_id:
-                return strategy
-        raise KeyError(strategy_id)
+        try:
+            return self.strategy_registry[strategy_id]
+        except KeyError as exc:
+            raise KeyError(strategy_id) from exc
 
     def active_execution_strategy_ids(self) -> list[str]:
         explicit = self.explicit_execution_strategy_ids()

@@ -18,6 +18,28 @@ from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
+from tradingcat.strategies.simple import (
+    AllWeatherStrategy,
+    DefensiveTrendStrategy,
+    EquityMomentumStrategy,
+    EtfRotationStrategy,
+    Jianfang3LStrategy,
+    MeanReversionStrategy,
+    OptionHedgeStrategy,
+)
+
+
+def build_strategy_registry(market_history: MarketDataService) -> dict[str, object]:
+    strategies = [
+        EtfRotationStrategy(market_history),
+        EquityMomentumStrategy(market_history),
+        OptionHedgeStrategy(market_history),
+        MeanReversionStrategy(),
+        DefensiveTrendStrategy(),
+        AllWeatherStrategy(),
+        Jianfang3LStrategy(),
+    ]
+    return {strategy.strategy_id: strategy for strategy in strategies}  # type: ignore[attr-defined]
 
 
 @dataclass(slots=True)
@@ -33,6 +55,7 @@ class ApplicationRuntime:
     alpha_radar: AlphaRadarService
     macro_calendar: MacroCalendarService
     rule_engine: RuleEngine
+    strategy_registry: dict[str, object]
 
     @classmethod
     def build(
@@ -63,6 +86,8 @@ class ApplicationRuntime:
             state_repository=execution_state_repository,
         )
         research = ResearchService(repository=backtest_repository, market_data=market_history)
+        strategy_registry = build_strategy_registry(market_history)
+        research.register_strategies(list(strategy_registry.values()))
         alpha_radar = AlphaRadarService(config, market_history)
         macro_calendar = MacroCalendarService(config)
         rule_engine = RuleEngine(
@@ -83,6 +108,7 @@ class ApplicationRuntime:
             alpha_radar=alpha_radar,
             macro_calendar=macro_calendar,
             rule_engine=rule_engine,
+            strategy_registry=strategy_registry,
         )
 
     def register_strategies(self, strategies: list[object]) -> None:
@@ -131,7 +157,7 @@ class ApplicationRuntimeManager:
         }
 
     def _build_runtime(self) -> ApplicationRuntime:
-        runtime = ApplicationRuntime.build(
+        return ApplicationRuntime.build(
             config=self._app.config,
             adapter_factory=self._app.adapter_factory,
             instrument_catalog_repository=self._app.instrument_catalog_repository,
@@ -141,5 +167,3 @@ class ApplicationRuntimeManager:
             execution_state_repository=self._app.execution_state_repository,
             approvals=self._app.approvals,
         )
-        runtime.register_strategies(self._app.research_strategies)
-        return runtime

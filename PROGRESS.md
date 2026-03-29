@@ -258,6 +258,20 @@
   - 同一临时环境下 `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> 返回 `data_source="historical"`、`data_ready=true`
 - Decisions:
   - 这一步复用了现有 `/data/history/sync` 作为 baseline 入口，没有再额外发明一个新 bootstrap endpoint，减少了运维入口分叉。
+
+## Session update — 2026-03-29
+- Completed feature: 架构治理 Feature 2，把 `TradingCatApplication` 的策略访问改成 runtime 内稳定 registry，不再每次查询都临时 new 一批策略实例。
+- Code changes:
+  - `ApplicationRuntime` 现在在初始化时一次性构建 `strategy_registry`，并把这批稳定策略实例注册到 `ResearchService`；runtime recover 时会整体重建这份 registry。
+  - `TradingCatApplication.research_strategies`、`strategy_by_id()`、`active_execution_strategies()`、`strategy_signal_map()` 现在都复用 runtime registry，不再通过 property 每次 new 新策略对象。
+  - 新增 runtime recovery 测试，锁定“同一 runtime 内同一个 strategy_id 返回同一对象；recover 后才会换成新实例”。
+- Validation:
+  - `.venv/bin/pytest tests/test_runtime_recovery.py -q` -> `4 passed`
+  - `.venv/bin/pytest tests/test_research_reporting.py::test_research_report_does_not_pollute_short_window_stock_signals -q` -> `1 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+- Decisions:
+  - 这一步只做“稳定 registry”，没有顺手把 `StrategyRegistry` / `StrategySignalProvider` 单独抽成新 service，避免在一个 session 里同时跨 Feature 2 和 Feature 3。
+  - 验证时对 API 定点用例显式用了隔离 `TRADINGCAT_DATA_DIR`，因为默认 data/runtime 路径在并发测试下会互相踩状态；先保证 feature 语义稳定，再把更系统化的测试隔离策略留给后续 session。
   - baseline 目前按“研究优先级最高的 5 个 symbol”固定下来，先解决个人交易主链路的最小可复现性，而不是一次把全 universe 都做厚。
 - Remaining focus for next session:
   - feature #23：把 smart order 的 RSI 条件改成真实指标计算，而不是 mock 常量。
