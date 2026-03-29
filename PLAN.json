@@ -371,7 +371,7 @@
       "订单、组合和审计三处的状态一致。",
       "manual fill 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 35,

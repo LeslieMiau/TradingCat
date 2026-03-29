@@ -740,6 +740,59 @@ def test_audit_endpoints_expose_order_context_and_transition_chain():
         app_state.reset_state()
 
 
+def test_manual_fill_keeps_order_portfolio_and_audit_consistent():
+    app_state.reset_state()
+    try:
+        submit = client.post(
+            "/orders/manual",
+            json={
+                "symbol": "SPY",
+                "market": "US",
+                "side": "buy",
+                "quantity": 2,
+            },
+        )
+        assert submit.status_code == 200
+        order_intent_id = submit.json()["report"]["order_intent_id"]
+
+        reconcile = client.post(
+            "/reconcile/manual-fill",
+            json={
+                "order_intent_id": order_intent_id,
+                "broker_order_id": "manual-consistency",
+                "external_source": "broker_statement",
+                "filled_quantity": 2.0,
+                "average_price": 101.5,
+            },
+        )
+        assert reconcile.status_code == 200
+        payload = reconcile.json()
+
+        portfolio = client.get("/portfolio")
+        orders = client.get("/orders")
+        logs = client.get(f"/audit/logs?order_intent_id={order_intent_id}")
+
+        assert portfolio.status_code == 200
+        assert orders.status_code == 200
+        assert logs.status_code == 200
+
+        portfolio_payload = portfolio.json()
+        order_row = next(row for row in orders.json() if row["order_intent_id"] == order_intent_id)
+        audit_row = logs.json()[0]
+
+        assert portfolio_payload["cash"] == payload["snapshot"]["cash"]
+        assert portfolio_payload["nav"] == payload["snapshot"]["nav"]
+        assert any(position["instrument"]["symbol"] == "SPY" and position["quantity"] == 2.0 for position in portfolio_payload["positions"])
+        assert order_row["status"] == "filled"
+        assert order_row["realized_price"] == 101.5
+        assert order_row["broker_order_id"] == "manual-consistency"
+        assert audit_row["details"]["order_status"] == "filled"
+        assert audit_row["details"]["reconciliation_source"] == "broker_statement"
+        assert audit_row["details"]["portfolio_effect"]["position_count_delta"] == 1
+    finally:
+        app_state.reset_state()
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

@@ -427,3 +427,21 @@
   - 手工审批路径在现有状态机下不会把订单显式推进到 `submitted`，因此测试断言按真实状态链路锁定“待审批 -> 成交”或“submitted -> filled”的现状，而没有强行伪造一个更理想化但不真实的状态。
 - Remaining focus for next session:
   - feature #34：手工成交回填后组合快照必须一致更新，并可通过接口直接验证影响结果。
+
+## Session update — 2026-03-29
+- Completed feature #34: 手工成交回填后，订单、组合和审计三处状态现在都有明确的一致性回归覆盖，并可通过现有接口直接验证结果。
+- Code changes:
+  - 没有新增新的生产接口层；这一步刻意复用已有 `/portfolio`、`/orders`、`/audit/logs` 和 `reconcile_manual_fill()` 返回值，把“manual fill 后三处状态一致”补成明确测试与持久化保证，避免为了验证再引入新的 payload builder。
+  - API 测试新增了 manual fill 一致性断言：回填后立即查询 `/portfolio`、`/orders`、`/audit/logs`，要求现金/持仓、订单成交状态、审计里的 `reconciliation_source` 和 `portfolio_effect` 同时对齐。
+  - 持久化测试不再手动拆开 `execution.reconcile_manual_fill() + _apply_fill_to_portfolio()`，改成走 `TradingCatApplication.reconcile_manual_fill()` 完整路径，锁定应用层真实行为。
+- Validation:
+  - `.venv/bin/pytest tests/test_api.py tests/test_persistence.py tests/test_execution_reconciliation.py -q` -> `46 passed`
+  - 隔离 HTTP 验证：
+    - 在 `http://127.0.0.1:8029` 的临时实例里预置一笔 manual fill 后，`GET /portfolio` -> `cash=999797.0` 且持有 `SPY x 2`
+    - `GET /orders` -> 同一 `order_intent_id` 返回 `status="filled"`、`realized_price=101.5`、`broker_order_id="http-manual-fill"`
+    - `GET /audit/logs` -> 同一订单的 `manual_fill` 审计事件包含 `reconciliation_source="broker_statement"` 与 `portfolio_effect.cash_delta=-203.0`
+- Decisions:
+  - 这一步选择“加强一致性验证”而不是再造一个 manual fill summary endpoint，因为现有接口已经足够表达结果，新增接口只会把验证逻辑扩散到更多边界。
+  - 真实 HTTP 验证依旧使用临时数据目录和预置状态，不直接调用需要显式批准的 `/reconcile/manual-fill` 路由，继续遵守仓库 side-effect 边界。
+- Remaining focus for next session:
+  - feature #35：订单状态、对账状态与 broker/portfolio mismatch 进入 readiness/blocker，避免带病运行。

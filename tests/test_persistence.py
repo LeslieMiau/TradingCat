@@ -41,17 +41,21 @@ def test_manual_fill_updates_portfolio_snapshot(tmp_path):
     fill = ManualFill(
         order_intent_id=intent.id,
         broker_order_id="manual-fill-1",
+        external_source="broker_statement",
         filled_quantity=10,
         average_price=100.0,
         notes="seed fill",
     )
-    app.execution.reconcile_manual_fill(fill)
-    app._apply_fill_to_portfolio(fill.order_intent_id, fill.filled_quantity, fill.average_price)
+    result = app.reconcile_manual_fill(fill)
 
     snapshot = app.portfolio.snapshot()
+    audit_events = app.audit.list_events(order_intent_id=intent.id)
 
     assert snapshot.cash < starting_cash
     assert any(position.instrument.symbol == intent.instrument.symbol for position in snapshot.positions)
+    assert result["snapshot"].cash == snapshot.cash
+    assert result["report"].status.value == "filled"
+    assert audit_events[0].details["reconciliation_source"] == "broker_statement"
 
 
 def test_manual_fill_import_parser(tmp_path):
