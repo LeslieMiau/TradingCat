@@ -394,6 +394,16 @@ def test_research_read_endpoints_publish_response_models_in_openapi():
     assert detail_schema["$ref"].endswith("/StrategyDetailResponse")
 
 
+def test_preflight_and_diagnostics_publish_response_models_in_openapi():
+    schema = app.openapi()
+
+    preflight_schema = schema["paths"]["/preflight/startup"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    diagnostics_schema = schema["paths"]["/diagnostics/summary"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert preflight_schema["$ref"].endswith("/StartupPreflightResponse")
+    assert diagnostics_schema["$ref"].endswith("/OperationsReadinessResponse")
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

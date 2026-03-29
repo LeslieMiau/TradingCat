@@ -669,3 +669,20 @@
   - `test_research_interfaces_expose_data_blockers` 和 `test_research_scorecard_and_strategy_detail_endpoints` 在当前研究链路下仍然很重，所以本次不把它们作为 response-model feature 的 gating；关键兼容性由 persistent-universe API 回归和 OpenAPI 断言覆盖。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先把 `OperationsReadinessResponse` 里的 `data_quality` 等嵌套字段收紧成 typed model，并评估是否继续把 `ResearchFacade` 向更薄的协调层收口。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 把 preflight / diagnostics 入口也补进 typed contract，避免 readiness 相关 surface 一边 typed、一边裸 dict。
+- Code changes:
+  - `tradingcat/api/view_models.py` 新增 `ResearchReadinessResponse`、`ResearchReadinessStrategyView`、`StartupPreflightResponse`，并把 `OperationsReadinessResponse.data_quality` 收紧为 `DataQualityResponse`，同时显式挂出 `research_readiness`。
+  - `tradingcat/routes/preflight.py` 现在为 `/preflight/startup` 声明 `StartupPreflightResponse`，为 `/diagnostics/summary` 声明 `OperationsReadinessResponse`。
+  - `tests/test_api.py` 新增 OpenAPI 断言，锁定这两个 readiness 相关入口也已经真正发布 schema。
+- Validation:
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_preflight_and_diagnostics_publish_response_models_in_openapi -q` -> `1 passed`
+  - 隔离 HTTP 验证（`http://127.0.0.1:8035`，临时实例对上游重链路做轻 stub）：
+    - `GET /preflight/startup` -> 返回 `healthy=true`、`research_ready=false`、`research_readiness.blocked_count=1`
+    - `GET /diagnostics/summary` -> 返回 `ready=false`、`data_quality.scope="research_universe"`、`research_readiness.report_status="blocked"`
+- Decisions:
+  - 这一步优先把 preflight/diagnostics 与现有 readiness model 对齐，而不是继续扩散新的轻量临时 payload，避免又出现一组“看着像 readiness 但 schema 不同”的端点。
+  - 真实未 stub 的 diagnostics/readiness 仍会被当前研究/验证链路拖慢，所以本次 HTTP gating 使用临时实例 + 轻 stub，重点确认 transport contract 和嵌套 typed payload 没有破坏。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先评估 `OperationsReadinessResponse` 里剩余裸 dict 嵌套（如 `diagnostics`、`alerts`、`compliance`）是否值得继续 typed 化，以及是否开始把 `ResearchFacade` 进一步收口成更薄的协调层。

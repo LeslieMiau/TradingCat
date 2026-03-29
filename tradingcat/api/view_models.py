@@ -212,6 +212,37 @@ class StrategyDetailResponse(FlexibleModel):
     recommendation: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResearchReadinessStrategyView(FlexibleModel):
+    strategy_id: str
+    validation_status: str
+    data_source: str | None = None
+    data_ready: bool | None = None
+    promotion_blocked: bool | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)
+
+
+class ResearchReadinessResponse(FlexibleModel):
+    as_of: date
+    ready: bool
+    report_status: str
+    blocked_count: int = 0
+    blocked_strategy_ids: list[str] = Field(default_factory=list)
+    ready_strategy_ids: list[str] = Field(default_factory=list)
+    blocking_reasons: list[str] = Field(default_factory=list)
+    minimum_history_coverage_ratio: float | None = None
+    strategies: list[ResearchReadinessStrategyView] = Field(default_factory=list)
+
+
+class StartupPreflightResponse(FlexibleModel):
+    healthy: bool
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    research_ready: bool
+    research_blockers: list[str] = Field(default_factory=list)
+    research_readiness: ResearchReadinessResponse
+    system_ready: bool
+
+
 class ResearchScorecardRowView(FlexibleModel):
     strategy_id: str
     action: str | None = None
@@ -249,7 +280,8 @@ class OperationsReadinessResponse(FlexibleModel):
     preflight: dict[str, Any]
     broker_status: dict[str, Any]
     broker_validation: dict[str, Any]
-    data_quality: dict[str, Any] = Field(default_factory=dict)
+    data_quality: DataQualityResponse = Field(default_factory=lambda: DataQualityResponse(ready=True, scope="unknown"))
+    research_readiness: ResearchReadinessResponse | dict[str, Any] = Field(default_factory=dict)
     alerts: dict[str, Any]
     compliance: dict[str, Any]
     latest_report_dir: str | None = None
