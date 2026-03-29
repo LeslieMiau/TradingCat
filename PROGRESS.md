@@ -258,6 +258,29 @@
 - Decisions:
   - 当前机器上的真实 `preflight/startup` / `ops/readiness` 聚合仍然可能因环境检查过慢而拖住长时间验证，所以这次 HTTP contract 继续沿用临时 stub server 方式，只替换重聚合入口，保留 FastAPI route/response-model/curl 链路不变。
   - `broker_status` / `broker_validation` / `execution` 这几块暂时保持宽结构；这次先收口最容易漂移、又被前后端直接消费的嵌套对象，避免一次 session 把整个 readiness payload 全部硬编码死。
+
+## Session update — 2026-03-29
+- Completed feature: 架构治理 checkpoint，把研究实验运行状态从 `ResearchService` 中拆出到独立的 `StrategyExperimentService`，为后续 reporting / facade 继续瘦身打底。
+- Code changes:
+  - 新增 `tradingcat/services/strategy_experiments.py`，承接实验运行、strategy registry、历史/公司行为/FX 覆盖检查、replay fingerprint、list/compare/clear 这整组 experiment 生命周期逻辑。
+  - `tradingcat/services/research.py` 现在收紧成更清晰的 application service：`run_experiment/list_experiments/compare_experiments/clear/register_strategies` 全部委托给 `experiment_service`，而 report/detail/scorecard 仍由既有 `strategy_analysis` 承接。
+  - `tests/test_research_reporting.py` 新增委托测试，锁定 `ResearchService.clear()` 和 `list_experiments()` 会与底层 `experiment_service` 保持同一份状态，不会再次回流出第二套 experiment store。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/services/research.py tradingcat/services/strategy_experiments.py tests/test_research_reporting.py` -> passed
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_research_reporting.py::test_research_experiment_records_replay_fingerprint_and_compare tests/test_research_reporting.py::test_research_service_delegates_experiment_storage_to_experiment_service tests/test_research_reporting.py::test_research_report_applies_walk_forward_thresholds -q` -> `3 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_backtest_endpoints -q` -> `1 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py -q` -> `6 passed`
+  - 真实 HTTP / E2E 验证：
+    - `curl -sS http://127.0.0.1:8038/broker/status` -> `backend="simulated"`、`healthy=true`
+    - `POST /data/instruments` upsert `IVV/VOO/AAPL`
+    - `POST /research/report/run?as_of=2026-03-08` 与 `POST /research/report/run?as_of=2026-03-09` -> 两次都返回完整研究报告，说明新 experiment service 能正常承接 report 侧实验落库
+    - `GET /research/backtests` -> 返回多条 `strategy_a_etf_rotation` / `strategy_b_equity_momentum` / `strategy_c_option_overlay` 实验记录
+    - `GET /research/backtests/compare?left_id=34d382ac-8056-4a9d-b53d-ab7480dadfc1&right_id=0f243b2a-eb26-4a98-b293-31be0319ce6a` -> 返回 `same_inputs=false`，并正确暴露 `as_of` 与 signal indicator snapshot 差异
+- Decisions:
+  - 这一步先拆 experiment 生命周期，而没有同时把 `StrategyAnalysisService` 再拆成新的 reporting 类，是为了把变更面控制在单一 feature 内，先消除 `ResearchService` 里“既管实验存储又管应用门面”的职责混杂。
+  - 某些 `TestClient` / real-app 研究详情回归在这台机器上仍会偶发卡在环境链路，因此这次 E2E 验证优先选择 `/research/report/run` + `/research/backtests` + `/research/backtests/compare` 这一条更直接覆盖 experiment service 的 HTTP 主链。
+- Remaining focus for next session:
+  - 继续新的 architecture harness：优先把 `StrategyAnalysisService` 的 reporting/detail 组装继续抽薄，或者进一步收紧 `ResearchFacade` 对 `app.py`/runtime 的直接依赖。
 - Remaining focus for next session:
   - 继续新的 architecture harness：优先考虑进一步瘦身 `ResearchFacade` / `DashboardFacade`，或者把 `StrategyAnalysisService` 再往 experiment/reporting 两层拆。
 - Decisions:

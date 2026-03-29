@@ -234,6 +234,21 @@ def test_research_experiment_records_replay_fingerprint_and_compare(tmp_path):
     assert "as_of" in comparison_changed["input_diff"]
 
 
+def test_research_service_delegates_experiment_storage_to_experiment_service(tmp_path):
+    service = ResearchService(BacktestExperimentRepository(tmp_path))
+    strategy = EtfRotationStrategy()
+    as_of = date(2026, 3, 8)
+
+    experiment = service.run_experiment(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+    listed = service.list_experiments()
+
+    assert service.experiment_service.list_experiments()[0].id == experiment.id
+    assert listed[0].id == experiment.id
+    service.clear()
+    assert service.list_experiments() == []
+    assert service.experiment_service.list_experiments() == []
+
+
 def test_research_recommendations_return_actions(tmp_path):
     service = ResearchService(BacktestExperimentRepository(tmp_path))
     as_of = date(2026, 3, 8)
