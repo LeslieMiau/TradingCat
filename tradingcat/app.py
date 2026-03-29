@@ -139,7 +139,8 @@ class TradingCatApplication:
         self.readiness_queries = ReadinessQueryService(
             config=self.config,
             strategy_signal_provider_getter=lambda: self._require_runtime().strategy_signal_provider,
-            strategy_analysis_getter=lambda: self.strategy_analysis,
+            strategy_registry_getter=lambda: self._require_runtime().strategy_registry,
+            strategy_experiment_getter=lambda: self.research.experiment_service,
             broker_validation=self.broker_validation,
             broker_status=self.broker_status,
             run_market_data_smoke_test=self.run_market_data_smoke_test,
@@ -718,7 +719,10 @@ class TradingCatApplication:
         )
 
     def _build_base_validation_snapshot(self, as_of: date) -> dict[str, object]:
-        return self.readiness_queries.base_validation_snapshot(as_of)
+        return self.readiness_queries.base_validation_snapshot(
+            as_of,
+            preflight=self.startup_preflight_summary(as_of),
+        )
 
     def research_readiness_summary(self, as_of: date | None = None) -> dict[str, object]:
         evaluation_date = as_of or date.today()
@@ -738,7 +742,10 @@ class TradingCatApplication:
         )
 
     def _build_startup_preflight_summary(self, evaluation_date: date) -> dict[str, object]:
-        return self.readiness_queries.startup_preflight_summary(evaluation_date)
+        return self.readiness_queries.startup_preflight_summary(
+            evaluation_date,
+            research_readiness=self.research_readiness_summary(evaluation_date),
+        )
 
     def history_sync_repair_plan(self, symbols: list[str] | None = None, start: date | None = None, end: date | None = None) -> dict[str, object]:
         coverage = self.market_history.summarize_history_coverage(symbols=symbols, start=start, end=end)
@@ -768,7 +775,10 @@ class TradingCatApplication:
 
     def _build_execution_gate_summary(self, evaluation_date: date) -> dict[str, object]:
         return {
-            **self.readiness_queries.execution_gate_summary(evaluation_date),
+            **self.readiness_queries.execution_gate_summary(
+                evaluation_date,
+                validation=self._base_validation_snapshot(evaluation_date),
+            ),
             "policy_stage": self.rollout_policy.current().stage,
         }
 
@@ -791,7 +801,12 @@ class TradingCatApplication:
         )
 
     def _build_operations_readiness(self) -> dict[str, object]:
-        return self.readiness_queries.operations_readiness()
+        evaluation_date = date.today()
+        return self.readiness_queries.operations_readiness(
+            evaluation_date=evaluation_date,
+            validation=self._base_validation_snapshot(evaluation_date),
+            data_quality=self.data_quality_summary(),
+        )
 
     def operations_rollout(self) -> dict[str, object]:
         return self._cached_summary(

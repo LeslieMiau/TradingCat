@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import date
 
 from tradingcat.domain.models import Signal
@@ -36,12 +37,23 @@ class StrategySignalProvider:
         as_of: date,
         *,
         strategy_ids: list[str] | None = None,
+        local_history_only: bool = False,
     ) -> dict[str, list[Signal]]:
         strategies = self._registry.all() if strategy_ids is None else self._registry.select(strategy_ids)
-        return {
-            strategy.strategy_id: strategy.generate_signals(as_of)  # type: ignore[attr-defined]
-            for strategy in strategies
-        }
+        with ExitStack() as stack:
+            if local_history_only:
+                market_data_services: dict[int, object] = {}
+                for strategy in strategies:
+                    market_data = getattr(strategy, "_market_data", None)
+                    if market_data is None or not hasattr(market_data, "local_history_only"):
+                        continue
+                    market_data_services.setdefault(id(market_data), market_data)
+                for market_data in market_data_services.values():
+                    stack.enter_context(market_data.local_history_only())  # type: ignore[call-arg]
+            return {
+                strategy.strategy_id: strategy.generate_signals(as_of)  # type: ignore[attr-defined]
+                for strategy in strategies
+            }
 
     def execution_signals(self, as_of: date, *, strategy_ids: list[str]) -> list[Signal]:
         signals: list[Signal] = []

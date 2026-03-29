@@ -140,3 +140,67 @@ def test_research_queries_follow_recovered_strategy_registry(tmp_path):
     detail = app.research_facade.strategy_detail("strategy_a_etf_rotation", date(2026, 3, 8))
 
     assert detail["signals"][0]["symbol"] == "ZZTOP"
+
+
+def test_research_readiness_uses_experiment_inspection_instead_of_full_reporting(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    original = app.strategy_analysis.summarize_strategy_report
+    try:
+        app.strategy_analysis.summarize_strategy_report = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full report should not run"))  # type: ignore[method-assign]
+
+        summary = app.research_readiness_summary(date(2026, 3, 8))
+
+        assert "strategies" in summary
+        assert summary["report_status"] in {"ready", "blocked"}
+    finally:
+        app.strategy_analysis.summarize_strategy_report = original
+
+
+def test_research_readiness_avoids_remote_market_data_fetches(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    original_fetch_bars = app.market_history.fetch_bars
+    original_sync_fx_rates = app.market_history.sync_fx_rates
+    original_fetch_corporate_actions = app.market_history._adapter.fetch_corporate_actions
+    try:
+        app.market_history.fetch_bars = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("readiness should not fetch bars"))  # type: ignore[method-assign]
+        app.market_history.sync_fx_rates = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("readiness should not sync fx"))  # type: ignore[method-assign]
+        app.market_history._adapter.fetch_corporate_actions = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("readiness should not fetch corporate actions"))  # type: ignore[method-assign]
+
+        summary = app.research_readiness_summary(date(2026, 3, 8))
+
+        assert "strategies" in summary
+        assert summary["report_status"] in {"ready", "blocked"}
+    finally:
+        app.market_history.fetch_bars = original_fetch_bars
+        app.market_history.sync_fx_rates = original_sync_fx_rates
+        app.market_history._adapter.fetch_corporate_actions = original_fetch_corporate_actions
+
+
+def test_base_validation_snapshot_reuses_cached_preflight_snapshot(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    app.startup_preflight_summary(date(2026, 3, 8))
+    original = app.readiness_queries.startup_preflight_summary
+    try:
+        app.readiness_queries.startup_preflight_summary = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse cached preflight"))  # type: ignore[method-assign]
+
+        snapshot = app._base_validation_snapshot(date(2026, 3, 8))
+
+        assert "preflight" in snapshot
+        assert snapshot["preflight"]["research_readiness"]["as_of"] == date(2026, 3, 8)
+    finally:
+        app.readiness_queries.startup_preflight_summary = original

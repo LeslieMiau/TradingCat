@@ -1332,6 +1332,21 @@ def test_preflight_and_broker_recovery_endpoints():
     assert "acceptance_progress" in dashboard_payload["details"]
 
 
+def test_preflight_and_diagnostics_do_not_require_full_strategy_report_generation():
+    original_report = app_state.strategy_analysis.summarize_strategy_report
+    try:
+        app_state.strategy_analysis.summarize_strategy_report = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full report should not run"))  # type: ignore[method-assign]
+
+        preflight = client.get("/preflight/startup")
+        diagnostics = client.get("/diagnostics/summary")
+
+        assert preflight.status_code == 200
+        assert diagnostics.status_code == 200
+        assert preflight.json()["research_readiness"]["report_status"] in {"ready", "blocked"}
+    finally:
+        app_state.strategy_analysis.summarize_strategy_report = original_report
+
+
 def test_preflight_and_readiness_align_research_blockers():
     original = app_state.research_readiness_summary
     try:

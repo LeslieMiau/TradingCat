@@ -31,27 +31,51 @@ class StrategyExperimentService:
         for strategy in strategies:
             self._strategy_registry[strategy.strategy_id] = strategy  # type: ignore[attr-defined]
 
+    def inspect_strategy_readiness(
+        self,
+        strategy_id: str,
+        as_of: date,
+        signals: list[Signal],
+        strategy: object | None = None,
+    ) -> dict[str, object]:
+        snapshot = self._build_data_snapshot(
+            strategy_id,
+            as_of,
+            signals,
+            strategy=strategy,
+            fetch_missing=False,
+            include_probes=False,
+        )
+        coverage = self._summarize_signal_history_coverage(signals, snapshot["sample_start"], as_of)
+        data_ready = bool(snapshot["data_ready"])
+        return {
+            "strategy_id": strategy_id,
+            "data_source": snapshot["data_source"],
+            "data_ready": data_ready,
+            "promotion_blocked": not data_ready,
+            "blocking_reasons": list(snapshot["data_blockers"]),
+            "minimum_coverage_ratio": coverage["minimum_coverage_ratio"],
+            "validation_status": "blocked" if not data_ready else "ready",
+        }
+
     def run_experiment(self, strategy_id: str, as_of: date, signals: list[Signal], strategy: object | None = None) -> BacktestExperiment:
-        if strategy is None:
-            strategy = self._strategy_registry.get(strategy_id)
-        sample_start = date(2018, 1, 1)
-        all_signals = list(signals)
-        if strategy is not None:
-            for probe_month in range(1, 13):
-                probe_date = date(as_of.year, probe_month, 1)
-                for day_offset in [0, 7, 14, 24]:
-                    try:
-                        probe = date(probe_date.year, probe_date.month, min(probe_date.day + day_offset, 28))
-                        all_signals.extend(strategy.generate_signals(probe))  # type: ignore[union-attr]
-                    except Exception:
-                        logger.exception("Strategy signal probe failed", extra={"strategy_id": strategy_id, "probe_date": probe_date.isoformat()})
+        snapshot = self._build_data_snapshot(
+            strategy_id,
+            as_of,
+            signals,
+            strategy=strategy,
+            fetch_missing=True,
+            include_probes=True,
+        )
+        sample_start = snapshot["sample_start"]
+        all_signals = snapshot["all_signals"]
         cost_assumptions = self._backtester.cost_assumptions(all_signals or signals)
-        history_by_symbol = self._load_signal_history(all_signals or signals, sample_start, as_of)
-        signal_symbols = {signal.instrument.symbol for signal in all_signals} if all_signals else {signal.instrument.symbol for signal in signals}
-        complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
-        corporate_action_coverage = self._load_signal_corporate_action_coverage(all_signals or signals, sample_start, as_of)
+        history_by_symbol = snapshot["history_by_symbol"]
+        signal_symbols = snapshot["signal_symbols"]
+        complete_history = bool(snapshot["complete_history"])
+        corporate_action_coverage = snapshot["corporate_action_coverage"]
         corporate_actions_by_symbol = dict(corporate_action_coverage.get("actions_by_symbol", {}))
-        fx_coverage = self._load_signal_fx_coverage(all_signals or signals, sample_start, as_of, base_currency="CNY")
+        fx_coverage = snapshot["fx_coverage"]
         fx_rates_by_pair = dict(fx_coverage.get("rates_by_pair", {}))
         if complete_history:
             metrics, windows, monthly_returns, ledger = self._backtester.run_walk_forward_from_history(
@@ -69,7 +93,7 @@ class StrategyExperimentService:
         else:
             metrics, windows, monthly_returns = self._backtester.run_walk_forward(strategy_id, signals, as_of, start_date=sample_start)
             ledger = self._backtester._build_portfolio_ledger(monthly_returns, self._backtester._estimate_turnover(signals), cost_assumptions["total_cost_bps"])
-            data_source = "synthetic"
+        data_source = str(snapshot["data_source"])
         threshold_validation_passed = (
             metrics.annualized_return > 0.12
             and metrics.max_drawdown < 0.12
@@ -77,24 +101,15 @@ class StrategyExperimentService:
             and bool(windows)
             and all(bool(window["passed"]) for window in windows)
         )
-        missing_history_symbols = len(signal_symbols - set(history_by_symbol))
+        missing_history_symbols = int(snapshot["missing_history_symbols"])
         corporate_actions_ready = bool(corporate_action_coverage.get("ready", True))
         missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
         corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
         fx_ready = bool(fx_coverage.get("ready", True))
         missing_fx_pairs = [str(item) for item in fx_coverage.get("missing_quote_currencies", [])]
         fx_blockers = [str(item) for item in fx_coverage.get("blockers", [])]
-        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol) and corporate_actions_ready and fx_ready
-        data_blockers = self._research_data_blockers(
-            data_source=data_source,
-            signal_symbol_count=len(signal_symbols),
-            history_symbol_count=len(history_by_symbol),
-            missing_history_symbols=missing_history_symbols,
-            missing_corporate_action_symbols=missing_corporate_action_symbols,
-            corporate_action_blockers=corporate_action_blockers,
-            missing_fx_pairs=missing_fx_pairs,
-            fx_blockers=fx_blockers,
-        )
+        data_ready = bool(snapshot["data_ready"])
+        data_blockers = list(snapshot["data_blockers"])
         correlation_key = "|".join(f"{value:.6f}" for value in monthly_returns)
         replay_inputs = self._build_replay_inputs(strategy_id, as_of, signals, sample_start, data_source)
         experiment = BacktestExperiment(
@@ -144,6 +159,100 @@ class StrategyExperimentService:
         self._repository.save(self._experiments)
         return experiment
 
+    def _build_data_snapshot(
+        self,
+        strategy_id: str,
+        as_of: date,
+        signals: list[Signal],
+        *,
+        strategy: object | None = None,
+        fetch_missing: bool,
+        include_probes: bool,
+    ) -> dict[str, object]:
+        if strategy is None:
+            strategy = self._strategy_registry.get(strategy_id)
+        sample_start = date(2018, 1, 1)
+        all_signals = self._probe_signals(strategy_id, as_of, signals, strategy=strategy) if include_probes else list(signals)
+        signal_symbols = {signal.instrument.symbol for signal in all_signals} if all_signals else {signal.instrument.symbol for signal in signals}
+        history_by_symbol = self._load_signal_history(all_signals or signals, sample_start, as_of, fetch_missing=fetch_missing)
+        complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
+        corporate_action_coverage = self._load_signal_corporate_action_coverage(all_signals or signals, sample_start, as_of, fetch_missing=fetch_missing)
+        fx_coverage = self._load_signal_fx_coverage(all_signals or signals, sample_start, as_of, base_currency="CNY", fetch_missing=fetch_missing)
+        data_source = "historical" if complete_history else "synthetic"
+        missing_history_symbols = len(signal_symbols - set(history_by_symbol))
+        missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
+        corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
+        missing_fx_pairs = [str(item) for item in fx_coverage.get("missing_quote_currencies", [])]
+        fx_blockers = [str(item) for item in fx_coverage.get("blockers", [])]
+        data_ready = (
+            data_source == "historical"
+            and complete_history
+            and bool(history_by_symbol)
+            and bool(corporate_action_coverage.get("ready", True))
+            and bool(fx_coverage.get("ready", True))
+        )
+        data_blockers = self._research_data_blockers(
+            data_source=data_source,
+            signal_symbol_count=len(signal_symbols),
+            history_symbol_count=len(history_by_symbol),
+            missing_history_symbols=missing_history_symbols,
+            missing_corporate_action_symbols=missing_corporate_action_symbols,
+            corporate_action_blockers=corporate_action_blockers,
+            missing_fx_pairs=missing_fx_pairs,
+            fx_blockers=fx_blockers,
+        )
+        return {
+            "sample_start": sample_start,
+            "all_signals": all_signals,
+            "signal_symbols": signal_symbols,
+            "history_by_symbol": history_by_symbol,
+            "complete_history": complete_history,
+            "corporate_action_coverage": corporate_action_coverage,
+            "fx_coverage": fx_coverage,
+            "data_source": data_source,
+            "missing_history_symbols": missing_history_symbols,
+            "data_ready": data_ready,
+            "data_blockers": data_blockers,
+        }
+
+    def _probe_signals(
+        self,
+        strategy_id: str,
+        as_of: date,
+        signals: list[Signal],
+        *,
+        strategy: object | None = None,
+    ) -> list[Signal]:
+        all_signals = list(signals)
+        if strategy is None:
+            return all_signals
+        for probe_month in range(1, 13):
+            probe_date = date(as_of.year, probe_month, 1)
+            for day_offset in [0, 7, 14, 24]:
+                try:
+                    probe = date(probe_date.year, probe_date.month, min(probe_date.day + day_offset, 28))
+                    all_signals.extend(strategy.generate_signals(probe))  # type: ignore[union-attr]
+                except Exception:
+                    logger.exception("Strategy signal probe failed", extra={"strategy_id": strategy_id, "probe_date": probe_date.isoformat()})
+        return all_signals
+
+    def _summarize_signal_history_coverage(self, signals: list[Signal], start: date, end: date) -> dict[str, object]:
+        threshold = 0.95
+        if self._market_data is None or not signals:
+            return {"ready": False, "reports": [], "minimum_coverage_ratio": 0.0, "minimum_required_ratio": threshold}
+        symbols = sorted({signal.instrument.symbol for signal in signals if signal.instrument.asset_class.value != "option"})
+        if not symbols:
+            return {"ready": True, "reports": [], "minimum_coverage_ratio": 1.0, "minimum_required_ratio": threshold}
+        coverage = self._market_data.summarize_history_coverage(symbols=symbols, start=start, end=end)
+        reports = coverage.get("reports", [])
+        minimum = min((float(item["coverage_ratio"]) for item in reports), default=1.0)
+        return {
+            "ready": minimum >= threshold,
+            "minimum_coverage_ratio": round(minimum, 4),
+            "minimum_required_ratio": threshold,
+            "reports": reports,
+        }
+
     def list_experiments(self) -> list[BacktestExperiment]:
         return sorted(self._experiments.values(), key=lambda item: item.started_at, reverse=True)
 
@@ -166,13 +275,23 @@ class StrategyExperimentService:
         self._experiments = {}
         self._repository.save(self._experiments)
 
-    def _load_signal_history(self, signals: list[Signal], start: date, end: date):
+    def _load_signal_history(self, signals: list[Signal], start: date, end: date, *, fetch_missing: bool):
         if self._market_data is None or not signals:
             return {}
-        # Long walk-forward reads should not overwrite the short-window cache used by live signal generation.
-        return self._market_data.history_snapshot(sorted({signal.instrument.symbol for signal in signals}), start, end)
+        symbols = sorted({signal.instrument.symbol for signal in signals})
+        if fetch_missing:
+            # Long walk-forward reads should not overwrite the short-window cache used by live signal generation.
+            return self._market_data.history_snapshot(symbols, start, end)
+        return self._market_data.local_history_snapshot(symbols, start, end)
 
-    def _load_signal_corporate_action_coverage(self, signals: list[Signal], start: date, end: date) -> dict[str, object]:
+    def _load_signal_corporate_action_coverage(
+        self,
+        signals: list[Signal],
+        start: date,
+        end: date,
+        *,
+        fetch_missing: bool,
+    ) -> dict[str, object]:
         if self._market_data is None or not signals:
             return {
                 "ready": True,
@@ -196,9 +315,17 @@ class StrategyExperimentService:
                 "reports": [],
                 "actions_by_symbol": {},
             }
-        return self._market_data.summarize_corporate_actions_coverage(symbols, start, end)
+        return self._market_data.summarize_corporate_actions_coverage(symbols, start, end, fetch_missing=fetch_missing)
 
-    def _load_signal_fx_coverage(self, signals: list[Signal], start: date, end: date, base_currency: str) -> dict[str, object]:
+    def _load_signal_fx_coverage(
+        self,
+        signals: list[Signal],
+        start: date,
+        end: date,
+        base_currency: str,
+        *,
+        fetch_missing: bool,
+    ) -> dict[str, object]:
         if self._market_data is None or not signals:
             return {
                 "ready": True,
@@ -214,7 +341,7 @@ class StrategyExperimentService:
                 if signal.instrument.currency.upper() != base_currency.upper()
             }
         )
-        return self._market_data.summarize_fx_coverage(base_currency, quote_currencies, start, end)
+        return self._market_data.summarize_fx_coverage(base_currency, quote_currencies, start, end, fetch_missing=fetch_missing)
 
     def _build_replay_inputs(self, strategy_id: str, as_of: date, signals: list[Signal], sample_start: date, data_source: str) -> dict[str, object]:
         return {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import logging
 from datetime import date, timedelta
 import math
@@ -32,6 +33,7 @@ class MarketDataService:
         self._instruments = instruments
         self._history = history
         self._catalog = instruments.load()
+        self._local_history_only_depth = 0
         if not self._catalog:
             self.seed_catalog(sample_instruments())
 
@@ -50,6 +52,14 @@ class MarketDataService:
         self._instruments.clear()
         self._catalog = {}
         self.seed_catalog(sample_instruments())
+
+    @contextmanager
+    def local_history_only(self):
+        self._local_history_only_depth += 1
+        try:
+            yield self
+        finally:
+            self._local_history_only_depth = max(0, self._local_history_only_depth - 1)
 
     def upsert_instruments(self, instruments: list[Instrument]) -> dict[str, object]:
         changed = False
@@ -393,6 +403,8 @@ class MarketDataService:
         symbols: list[str] | None = None,
         start: date | None = None,
         end: date | None = None,
+        *,
+        fetch_missing: bool = True,
     ) -> dict[str, object]:
         start_date = start or (date.today() - timedelta(days=30))
         end_date = end or date.today()
@@ -406,7 +418,7 @@ class MarketDataService:
         for instrument in targets:
             actions = self._history.load_corporate_actions(instrument, start_date, end_date)
             error: str | None = None
-            if not actions:
+            if not actions and fetch_missing:
                 try:
                     fetched_actions = self._adapter.fetch_corporate_actions(instrument, start_date, end_date)
                     self._history.save_corporate_actions(instrument, fetched_actions)
@@ -423,7 +435,7 @@ class MarketDataService:
             if actions:
                 status = "available"
                 available_symbols.append(instrument.symbol)
-            elif error:
+            elif error or not fetch_missing:
                 status = "missing"
                 missing_symbols.append(instrument.symbol)
             else:
@@ -506,6 +518,8 @@ class MarketDataService:
         quote_currencies: list[str] | None,
         start: date,
         end: date,
+        *,
+        fetch_missing: bool = True,
     ) -> dict[str, object]:
         normalized = sorted({currency.upper() for currency in (quote_currencies or []) if currency.upper() != base_currency.upper()})
         if not normalized:
@@ -530,7 +544,7 @@ class MarketDataService:
 
         for quote_currency in normalized:
             rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
-            if not rates:
+            if not rates and fetch_missing:
                 self.sync_fx_rates(base_currency=base_currency.upper(), quote_currencies=[quote_currency], start=start, end=end)
                 rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
 
@@ -572,10 +586,15 @@ class MarketDataService:
         }
 
     def ensure_history(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
-        return self._load_history(symbols, start, end, persist=True)
+        if self._local_history_only_depth > 0:
+            return self.local_history_snapshot(symbols, start, end)
+        return self._load_history(symbols, start, end, persist=True, fetch_missing=True)
 
     def history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
-        return self._load_history(symbols, start, end, persist=False)
+        return self._load_history(symbols, start, end, persist=False, fetch_missing=True)
+
+    def local_history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
+        return self._load_history(symbols, start, end, persist=False, fetch_missing=False)
 
     def _load_history(
         self,
@@ -584,6 +603,7 @@ class MarketDataService:
         end: date,
         *,
         persist: bool,
+        fetch_missing: bool,
     ) -> dict[str, list[Bar]]:
         targets = [self._resolve_instrument(symbol) for symbol in symbols if self._resolve_instrument(symbol, strict=False) is not None]
         loaded: dict[str, list[Bar]] = {}
@@ -604,7 +624,7 @@ class MarketDataService:
                     bars = self._history.load_bars(instrument, start, end)
                     if bars:
                         loaded[symbol] = bars
-            else:
+            elif fetch_missing:
                 for symbol in missing_symbols:
                     bars = self.fetch_bars(symbol, start, end)
                     if bars:

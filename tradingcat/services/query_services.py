@@ -101,7 +101,8 @@ class ReadinessQueryService:
         *,
         config: AppConfig,
         strategy_signal_provider_getter: Callable[[], Any],
-        strategy_analysis_getter: Callable[[], Any],
+        strategy_registry_getter: Callable[[], Any],
+        strategy_experiment_getter: Callable[[], Any],
         broker_validation: Callable[[], dict[str, object]],
         broker_status: Callable[[], dict[str, object]],
         run_market_data_smoke_test: Callable[..., dict[str, object]],
@@ -116,7 +117,8 @@ class ReadinessQueryService:
     ) -> None:
         self._config = config
         self._strategy_signal_provider_getter = strategy_signal_provider_getter
-        self._strategy_analysis_getter = strategy_analysis_getter
+        self._strategy_registry_getter = strategy_registry_getter
+        self._strategy_experiment_getter = strategy_experiment_getter
         self._broker_validation = broker_validation
         self._broker_status = broker_status
         self._run_market_data_smoke_test = run_market_data_smoke_test
@@ -129,8 +131,8 @@ class ReadinessQueryService:
         self._execution_authorization_summary = execution_authorization_summary
         self._operations_execution_readiness = operations_execution_readiness
 
-    def base_validation_snapshot(self, as_of: date) -> dict[str, object]:
-        preflight = self.startup_preflight_summary(as_of)
+    def base_validation_snapshot(self, as_of: date, *, preflight: dict[str, object] | None = None) -> dict[str, object]:
+        preflight_payload = preflight or self.startup_preflight_summary(as_of)
         broker_validation = self._broker_validation()
         market_data = None
         market_data_error = None
@@ -147,7 +149,7 @@ class ReadinessQueryService:
             logger.exception("Base validation execution preview failed")
             preview_error = str(exc)
         diagnostics = summarize_validation_diagnostics(
-            preflight=preflight,
+            preflight=preflight_payload,
             broker_validation=broker_validation,
             market_data=market_data,
             execution_preview=preview,
@@ -155,7 +157,7 @@ class ReadinessQueryService:
             execution_preview_error=preview_error,
         )
         return {
-            "preflight": preflight,
+            "preflight": preflight_payload,
             "broker_validation": broker_validation,
             "market_data": market_data,
             "preview": preview,
@@ -163,48 +165,67 @@ class ReadinessQueryService:
         }
 
     def research_readiness_summary(self, evaluation_date: date) -> dict[str, object]:
-        report = self._strategy_analysis_getter().summarize_strategy_report(
+        signal_map = self._strategy_signal_provider_getter().strategy_signal_map(
             evaluation_date,
-            self._strategy_signal_provider_getter().strategy_signal_map(evaluation_date),
+            local_history_only=True,
         )
+        registry = self._strategy_registry_getter()
+        experiment_service = self._strategy_experiment_getter()
         strategies = [
-            {
-                "strategy_id": item["strategy_id"],
-                "validation_status": item["validation_status"],
-                "data_source": item["data_source"],
-                "data_ready": item["data_ready"],
-                "promotion_blocked": item["promotion_blocked"],
-                "blocking_reasons": item["blocking_reasons"],
-            }
-            for item in report.get("strategy_reports", [])
+            experiment_service.inspect_strategy_readiness(
+                strategy_id,
+                evaluation_date,
+                signal_list,
+                strategy=registry.get(strategy_id),
+            )
+            for strategy_id, signal_list in signal_map.items()
         ]
+        blocked_strategy_ids = [item["strategy_id"] for item in strategies if bool(item.get("promotion_blocked"))]
+        ready_strategy_ids = [item["strategy_id"] for item in strategies if bool(item.get("data_ready"))]
+        blocking_reasons: list[str] = []
+        for item in strategies:
+            if not bool(item.get("promotion_blocked")):
+                continue
+            strategy_id = str(item.get("strategy_id", "unknown_strategy"))
+            for reason in item.get("blocking_reasons", []):
+                blocking_reasons.append(f"{strategy_id}: {reason}")
+        minimum_history_coverage_ratio = round(
+            min((float(item.get("minimum_coverage_ratio", 1.0)) for item in strategies), default=1.0),
+            4,
+        )
+        report_status = "blocked" if blocked_strategy_ids else "ready"
         return {
             "as_of": evaluation_date,
-            "ready": not bool(report.get("hard_blocked", False)),
-            "report_status": report.get("report_status", "review"),
-            "blocked_count": report.get("blocked_count", 0),
-            "blocked_strategy_ids": list(report.get("blocked_strategy_ids", [])),
-            "ready_strategy_ids": list(report.get("ready_strategy_ids", [])),
-            "blocking_reasons": list(report.get("blocking_reasons", [])),
-            "minimum_history_coverage_ratio": report.get("minimum_history_coverage_ratio", 1.0),
+            "ready": not bool(blocked_strategy_ids),
+            "report_status": report_status,
+            "blocked_count": len(blocked_strategy_ids),
+            "blocked_strategy_ids": blocked_strategy_ids,
+            "ready_strategy_ids": ready_strategy_ids,
+            "blocking_reasons": list(dict.fromkeys(blocking_reasons)),
+            "minimum_history_coverage_ratio": minimum_history_coverage_ratio,
             "strategies": strategies,
         }
 
-    def startup_preflight_summary(self, evaluation_date: date) -> dict[str, object]:
+    def startup_preflight_summary(
+        self,
+        evaluation_date: date,
+        *,
+        research_readiness: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         preflight = build_startup_preflight(self._config)
-        research_readiness = self.research_readiness_summary(evaluation_date)
+        readiness = research_readiness or self.research_readiness_summary(evaluation_date)
         return {
             **preflight,
-            "research_ready": research_readiness["ready"],
-            "research_blockers": list(research_readiness.get("blocking_reasons", [])),
-            "research_readiness": research_readiness,
-            "system_ready": bool(preflight.get("healthy", False)) and bool(research_readiness["ready"]),
+            "research_ready": readiness["ready"],
+            "research_blockers": list(readiness.get("blocking_reasons", [])),
+            "research_readiness": readiness,
+            "system_ready": bool(preflight.get("healthy", False)) and bool(readiness["ready"]),
         }
 
-    def execution_gate_summary(self, evaluation_date: date) -> dict[str, object]:
-        validation = self.base_validation_snapshot(evaluation_date)
-        diagnostics = validation["diagnostics"]
-        research_readiness = validation["preflight"].get("research_readiness", {})
+    def execution_gate_summary(self, evaluation_date: date, *, validation: dict[str, object] | None = None) -> dict[str, object]:
+        validation_payload = validation or self.base_validation_snapshot(evaluation_date)
+        diagnostics = validation_payload["diagnostics"]
+        research_readiness = validation_payload["preflight"].get("research_readiness", {})
         rollout = self._operations_rollout()
         execution_readiness = self._operations_execution_readiness(
             state_counts=self._order_state_summary(),
@@ -230,23 +251,29 @@ class ReadinessQueryService:
             "reasons": reasons,
             "next_actions": list(diagnostics["next_actions"]),
             "recommended_stage": rollout["current_recommendation"],
-            "preflight": validation["preflight"],
-            "broker_validation": validation["broker_validation"],
-            "market_data": validation["market_data"],
+            "preflight": validation_payload["preflight"],
+            "broker_validation": validation_payload["broker_validation"],
+            "market_data": validation_payload["market_data"],
             "diagnostics": diagnostics,
             "execution": execution_readiness,
         }
 
-    def operations_readiness(self) -> dict[str, object]:
-        evaluation_date = date.today()
-        validation = self.base_validation_snapshot(evaluation_date)
+    def operations_readiness(
+        self,
+        *,
+        evaluation_date: date | None = None,
+        validation: dict[str, object] | None = None,
+        data_quality: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        as_of = evaluation_date or date.today()
+        validation_payload = validation or self.base_validation_snapshot(as_of)
         broker_status = self._broker_status()
-        data_quality = self._data_quality_summary()
-        research_readiness = validation["preflight"].get("research_readiness", {})
+        data_quality_payload = data_quality or self._data_quality_summary()
+        research_readiness = validation_payload["preflight"].get("research_readiness", {})
         alerts_summary = self._alerts_summary()
         compliance_summary = self._compliance_summary()
         compliance_counts = self.compliance_counts(compliance_summary)
-        diagnostics = validation["diagnostics"]
+        diagnostics = validation_payload["diagnostics"]
         execution_readiness = self._operations_execution_readiness(
             state_counts=self._order_state_summary(),
             authorization=self._execution_authorization_summary(),
@@ -254,13 +281,13 @@ class ReadinessQueryService:
         )
         blockers = list(diagnostics.get("findings", []))
         blockers.extend(str(item) for item in research_readiness.get("blocking_reasons", []))
-        blockers.extend(data_quality.get("blockers", []))
+        blockers.extend(data_quality_payload.get("blockers", []))
         blockers.extend(execution_readiness["blockers"])
         blockers = list(dict.fromkeys(str(blocker) for blocker in blockers))
         ready = (
             bool(diagnostics["ready"])
             and bool(research_readiness.get("ready", True))
-            and bool(data_quality.get("ready", True))
+            and bool(data_quality_payload.get("ready", True))
             and compliance_counts["blocked_count"] == 0
             and execution_readiness["ready"]
         )
@@ -269,11 +296,11 @@ class ReadinessQueryService:
             "ready": ready,
             "blockers": blockers,
             "diagnostics": diagnostics,
-            "preflight": validation["preflight"],
+            "preflight": validation_payload["preflight"],
             "broker_status": broker_status,
-            "broker_validation": validation["broker_validation"],
+            "broker_validation": validation_payload["broker_validation"],
             "research_readiness": research_readiness,
-            "data_quality": data_quality,
+            "data_quality": data_quality_payload,
             "execution": execution_readiness,
             "alerts": alerts_summary,
             "compliance": {**compliance_summary, **compliance_counts},

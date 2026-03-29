@@ -848,3 +848,29 @@
   - 当前执行环境对本机端口访问有限制，所以真实 HTTP 用了临时 server + 提权 `curl`；这次把限制明确记录下来，避免后续误判为接口自身不通。
 - Remaining focus for next session:
   - 新 architecture harness 现在主要剩下 dashboard/readiness 的真实重链路性能与 `app.py` 最后的 orchestration 瘦身；结构性边界已经基本收紧完一轮。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 收紧 readiness/preflight 重链路，让研究 readiness 只依赖本地持久化数据快照，不再隐式触发完整 strategy report、全年 probe 扫描或远端 market-data 补抓。
+- Code changes:
+  - `tradingcat/services/query_services.py` 的 `research_readiness_summary()` 不再通过 `summarize_strategy_report()` 生成 readiness，而是走 `StrategyExperimentService.inspect_strategy_readiness()`；同时 `base_validation_snapshot()`、`startup_preflight_summary()`、`execution_gate_summary()`、`operations_readiness()` 都支持复用 app 侧已缓存的 preflight / validation snapshot。
+  - `tradingcat/services/strategy_experiments.py` 新增轻量 `inspect_strategy_readiness()` 路径，并把 experiment 的 data snapshot 拆成可配置模式：report/backtest 保留 `include_probes=True` + 可抓取缺失数据；readiness 改成 `include_probes=False` + `fetch_missing=False`，只看当前信号和本地覆盖。
+  - `tradingcat/services/market_data.py` 新增 `local_history_only()` / `local_history_snapshot()`，并给 corporate action / FX coverage 增加 `fetch_missing` 开关；readiness 链路不会再因为缺口去隐式抓 bars / actions / FX。
+  - `tradingcat/services/strategy_registry.py` 的 `strategy_signal_map()` 新增 `local_history_only=True` 模式，让策略在 readiness/preflight 场景下通过本地历史快照生成 signals，而不是走 `ensure_history()` 的远端补抓语义。
+  - `tradingcat/app.py` 把 readiness 相关 builder 改成显式复用 app cache，避免 query service 内部再绕回未缓存路径。
+  - `tests/test_runtime_recovery.py` 新增边界回归：research readiness 不再调用完整 strategy report，不再触发远端 bars / corporate actions / FX 获取；`tests/test_api.py` 新增 API 回归，锁定 `/preflight/startup` 与 `/diagnostics/summary` 不依赖 full strategy report 生成。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/services/market_data.py tradingcat/services/strategy_registry.py tradingcat/services/strategy_experiments.py tradingcat/services/query_services.py tradingcat/app.py tests/test_runtime_recovery.py tests/test_api.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py tests/test_architecture_boundaries.py -q` -> `15 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_preflight_and_diagnostics_do_not_require_full_strategy_report_generation tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_ops_readiness_typed_contract_accepts_minimal_nested_snapshots -q` -> `3 passed`
+  - app 直连 timing：
+    - `startup_preflight_summary(date(2026, 3, 8))` -> `blocked`, `blocked_count=7`, `~5.539s`
+    - `operations_readiness()` -> `ready=False`, `blockers=18`, `~10.188s`
+  - 真实 HTTP 验证（本地 `uvicorn`）：
+    - `GET /broker/status` -> `200`, `~0.336s`
+    - `GET /preflight/startup` -> `200`, `~10.958s`
+    - `GET /diagnostics/summary` -> `200`, `~15.578s`
+- Decisions:
+  - readiness/preflight 继续保留“保守阻断”语义，但不再在读链路里偷偷做远端补数据；如果本地 history / corporate actions / FX 不完整，就明确反映为 blocker，而不是通过隐式抓取把慢路径藏进健康检查里。
+  - experiment/reporting 仍然保留全年 probe signal + 缺口补抓，因为那条链路本来就是研究重路径；本次只把 readiness 改成轻量快照，避免把 report 语义和 preflight 语义再次混在一起。
+- Remaining focus for next session:
+  - 新 architecture harness 剩余重点现在更像尾部收口：`/dashboard/summary` 这类组合读模型的进一步瘦身，以及 `app.py` 最后几段 orchestration 的继续下沉。
