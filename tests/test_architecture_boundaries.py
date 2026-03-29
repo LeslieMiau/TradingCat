@@ -5,6 +5,7 @@ import re
 _ROUTE_DIR = Path(__file__).resolve().parents[1] / "tradingcat" / "routes"
 _APP_FILE = Path(__file__).resolve().parents[1] / "tradingcat" / "app.py"
 _FACADE_FILE = Path(__file__).resolve().parents[1] / "tradingcat" / "facades.py"
+_SIMPLE_STRATEGIES_FILE = Path(__file__).resolve().parents[1] / "tradingcat" / "strategies" / "simple.py"
 _PRIVATE_ATTR_PATTERN = re.compile(r"\.\_[A-Za-z]\w*")
 _BANNED_ROUTE_TOKENS = (
     "strategy_analysis.",
@@ -19,6 +20,12 @@ _BANNED_ROUTE_TOKENS = (
 )
 _BANNED_APP_FACADE_TOKENS = (
     "strategy_analysis.",
+)
+_RESEARCH_CANDIDATE_CLASS_MARKERS = (
+    "class MeanReversionStrategy(",
+    "class DefensiveTrendStrategy(",
+    "class AllWeatherStrategy(",
+    "class Jianfang3LStrategy(",
 )
 
 
@@ -48,4 +55,10 @@ def test_app_and_facades_do_not_reach_back_into_strategy_analysis_orchestration(
             for token in _BANNED_APP_FACADE_TOKENS:
                 if token in line:
                     violations.append(f"{path.name}:{line_number}: {line.strip()}")
+    assert violations == []
+
+
+def test_simple_strategy_module_keeps_research_candidates_in_dedicated_module():
+    source = _SIMPLE_STRATEGIES_FILE.read_text(encoding="utf-8")
+    violations = [marker for marker in _RESEARCH_CANDIDATE_CLASS_MARKERS if marker in source]
     assert violations == []

@@ -19,13 +19,15 @@ from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
 from tradingcat.services.strategy_registry import StrategyRegistry, StrategySignalProvider
-from tradingcat.strategies.simple import (
+from tradingcat.strategies.research_candidates import (
     AllWeatherStrategy,
     DefensiveTrendStrategy,
-    EquityMomentumStrategy,
-    EtfRotationStrategy,
     Jianfang3LStrategy,
     MeanReversionStrategy,
+)
+from tradingcat.strategies.simple import (
+    EquityMomentumStrategy,
+    EtfRotationStrategy,
     OptionHedgeStrategy,
 )
 

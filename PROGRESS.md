@@ -795,3 +795,23 @@
   - dashboard 的真实 HTTP 仍然偏慢，所以沿用“真实路由 + 轻 stub 上游重链路”的 E2E gating 策略，只验证这次 candidate scorecard / acceptance 透传改动本身。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先看 dashboard/readiness 重链路能否继续分层或缓存化，或者转去处理 `strategies/simple.py` 中生产策略与 research candidate / fallback template 混居的问题。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 把 `strategies/simple.py` 中的 research candidate 策略拆到独立模块，开始把生产策略和 research candidate 的代码边界拉开。
+- Code changes:
+  - 新增 `tradingcat/strategies/research_candidates.py`，承接 `MeanReversionStrategy`、`DefensiveTrendStrategy`、`AllWeatherStrategy`、`Jianfang3LStrategy` 四个 research candidate 策略实现。
+  - `tradingcat/strategies/simple.py` 现在只保留生产策略（ETF rotation / equity momentum / option overlay）、共享 indicator helper 和 metadata，并 re-export research candidate 策略，保持现有 import 兼容。
+  - `tradingcat/runtime.py` 现在显式从 `research_candidates.py` 装配 candidate registry，避免 runtime 继续把所有策略都当作 `simple.py` 里的同质实现。
+  - `tests/test_architecture_boundaries.py` 新增模块边界断言，禁止 `simple.py` 再重新定义 candidate strategy class。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/strategies/simple.py tradingcat/strategies/research_candidates.py tradingcat/runtime.py tests/test_architecture_boundaries.py tests/test_research_reporting.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_architecture_boundaries.py tests/test_research_reporting.py::test_research_profit_scorecard_supports_candidate_pool tests/test_runtime_recovery.py -q` -> `12 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=$(mktemp -d)`, `http://127.0.0.1:8043`）：
+    - `GET /broker/status` -> `200 OK`
+    - `GET /research/strategies/strategy_d_mean_reversion?as_of=2026-03-08` -> `200 OK`，返回 `strategy_id="strategy_d_mean_reversion"`、`metadata.name="ETF 均值回归"`、`signals[0].metadata.execution_mode="research_candidate"`，证明 candidate 策略拆模块后仍能被 runtime registry 与 research detail 路径识别
+  - `POST /research/backtests/run?as_of=2026-03-08` 在真实空数据目录下仍会触发全量实验重链路，本次没有把它作为模块拆分 feature 的 gating，而是用更贴边的单策略 detail HTTP 验证 candidate registry 可达性。
+- Decisions:
+  - 这一步先做“代码物理分层 + import 边界”而不强行修改所有下游 import，`simple.py` 继续 re-export candidate 策略，减少大面积改引用的风险。
+  - fallback/sample 路径本身还没完全抽成显式诊断策略；本次只先把“生产策略”和“research candidate”从文件层面拆开，给下一步继续治理 sample 回退留出结构空间。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先考虑补 README / AGENTS 级架构约束，或者继续治理 dashboard/readiness 的真实重链路性能与 `app.py` 最后几段 orchestration。
