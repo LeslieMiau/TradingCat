@@ -253,3 +253,17 @@
   - 没有做真实 HTTP 的 `/ops/evaluate-triggers` 触发演练，因为那会进入订单提交路径；当前按仓库 side-effect 边界，用 API/engine 测试完成完整验证。
 - Remaining focus for next session:
   - feature #24：把 smart order 的 SMA 条件改成真实指标计算，而不是 `price * 0.95`。
+
+## Session update — 2026-03-29
+- Completed feature #24: smart order 的 SMA 条件现在使用真实均线计算，而不是 `price * 0.95`。
+- Code changes:
+  - `RuleEngine._metric_value()` 里的 `SMA_*` 分支现在会按最近历史 bars 计算真实简单均线，并支持从指标名里解析周期参数，例如 `SMA_10`。
+  - 当 SMA 条件未满足时，rule engine 同样会记录带有 `metric / value / target / operator` 的日志，能直接看到真实均线值。
+  - `tests/test_rule_engine.py` 新增上涨/下跌序列下的 SMA 触发与日志断言，API 测试也锁定 `/ops/evaluate-triggers` 使用的 SMA 不是旧的 `95.0` 假值。
+- Validation:
+  - `.venv/bin/pytest tests/test_rule_engine.py tests/test_api.py -q` -> `29 passed`
+- Decisions:
+  - 这一步延续了 `#23` 的实现框架，只替换 SMA 指标，不提前把 trigger diagnostics / rejection reasons 的完整输出格式一起改掉。
+  - 没有做真实 HTTP 的 `/ops/evaluate-triggers` 触发演练，原因与 `#23` 相同：避免在没有显式指令的情况下进入订单提交 side-effect 路径。
+- Remaining focus for next session:
+  - feature #25：trigger 评估记录指标快照与执行上下文，便于复盘为什么触发或未触发。

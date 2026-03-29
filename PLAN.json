@@ -261,7 +261,7 @@
       "接口或日志能展示均线值与目标值比较结果。",
       "rule engine 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 25,

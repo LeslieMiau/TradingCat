@@ -140,9 +140,9 @@ class RuleEngine:
         if metric_upper.startswith("RSI"):
             period = self._metric_period(metric_upper, default=14)
             return self._rsi_value(symbol=symbol, market=market, period=period)
-        # TODO: Replace mock SMA calculations with real indicator inputs.
         if metric_upper.startswith("SMA"):
-            return price * 0.95
+            period = self._metric_period(metric_upper, default=20)
+            return self._sma_value(symbol=symbol, market=market, period=period)
         return price
 
     def _metric_period(self, metric: str, default: int) -> int:
@@ -167,6 +167,13 @@ class RuleEngine:
             return 100.0 if average_gain > 0 else 50.0
         relative_strength = average_gain / average_loss
         return round(100.0 - (100.0 / (1.0 + relative_strength)), 4)
+
+    def _sma_value(self, *, symbol: str, market: Market, period: int) -> float:
+        closes = self._recent_closes(symbol=symbol, market=market, lookback_days=max(period * 4, 30))
+        if len(closes) < period:
+            return closes[-1] if closes else 0.0
+        window = closes[-period:]
+        return round(sum(window) / len(window), 4)
 
     def _recent_closes(self, *, symbol: str, market: Market, lookback_days: int) -> list[float]:
         end = date.today()

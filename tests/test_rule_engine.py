@@ -125,3 +125,50 @@ def test_rule_engine_keeps_order_pending_when_rsi_is_oversold(tmp_path, caplog):
     assert result["triggered"] == 0
     assert engine.list_orders()[0].status == "PENDING"
     assert any(record.metric == "RSI_14" and record.value == rsi_value for record in caplog.records)
+
+
+def test_rule_engine_uses_real_sma_for_uptrend(tmp_path):
+    engine, market_data = _build_rule_engine(tmp_path, RisingBarsAdapter())
+    end = date.today()
+    market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    order = SmartOrder(
+        account="total",
+        symbol="SPY",
+        market="US",
+        side=OrderSide.BUY,
+        quantity=1,
+        trigger_conditions=[TriggerCondition(metric="SMA_10", operator=">", target_value=120)],
+    )
+    engine.register_order(order)
+
+    sma_value = engine._metric_value("SMA_10", "SPY", Market.US, 100.0)
+    result = engine.evaluate_all()
+
+    assert sma_value > 120
+    assert sma_value != 95.0
+    assert result["triggered"] == 1
+    assert engine.list_orders()[0].status == "TRIGGERED"
+
+
+def test_rule_engine_logs_real_sma_when_condition_is_not_met(tmp_path, caplog):
+    engine, market_data = _build_rule_engine(tmp_path, FallingBarsAdapter())
+    end = date.today()
+    market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    order = SmartOrder(
+        account="total",
+        symbol="SPY",
+        market="US",
+        side=OrderSide.BUY,
+        quantity=1,
+        trigger_conditions=[TriggerCondition(metric="SMA_10", operator=">", target_value=120)],
+    )
+    engine.register_order(order)
+
+    sma_value = engine._metric_value("SMA_10", "SPY", Market.US, 100.0)
+    with caplog.at_level("INFO"):
+        result = engine.evaluate_all()
+
+    assert sma_value < 120
+    assert result["triggered"] == 0
+    assert engine.list_orders()[0].status == "PENDING"
+    assert any(record.metric == "SMA_10" and record.value == sma_value for record in caplog.records)

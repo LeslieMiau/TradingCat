@@ -336,6 +336,30 @@ def test_ops_evaluate_triggers_uses_real_rsi_series():
     assert run.json()["triggered"] >= 1
 
 
+def test_ops_evaluate_triggers_uses_real_sma_series():
+    app_state.rule_engine._triggers = {}
+    app_state.rule_engine._repository.save({})
+    end = date.today()
+    app_state.market_history.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    metric_value = app_state.rule_engine._metric_value("SMA_10", "SPY", Market.US, 100.0)
+    app_state.rule_engine.register_order(
+        SmartOrder(
+            account="total",
+            symbol="SPY",
+            market="US",
+            side=OrderSide.BUY,
+            quantity=1,
+            trigger_conditions=[TriggerCondition(metric="SMA_10", operator=">", target_value=max(metric_value - 1, 0.0))],
+        )
+    )
+
+    run = client.post("/ops/evaluate-triggers")
+
+    assert run.status_code == 200
+    assert metric_value != 95.0
+    assert run.json()["triggered"] >= 1
+
+
 def test_selection_review_endpoint_does_not_activate_blocked_strategy():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.selection.clear()
