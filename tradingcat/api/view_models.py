@@ -68,6 +68,81 @@ class DashboardSummaryResponse(FlexibleModel):
     details: dict[str, Any]
 
 
+class HistoryCoverageReportView(FlexibleModel):
+    symbol: str
+    market: str | None = None
+    coverage_ratio: float = 0.0
+    missing_count: int = 0
+    missing_preview: list[str] = Field(default_factory=list)
+
+
+class HistoryCoverageResponse(FlexibleModel):
+    start: date | None = None
+    end: date | None = None
+    minimum_coverage_ratio: float | None = None
+    minimum_required_ratio: float | None = None
+    missing_symbols: list[str] = Field(default_factory=list)
+    missing_windows: list[dict[str, Any]] = Field(default_factory=list)
+    blocked: bool | None = None
+    blocker_count: int = 0
+    blockers: list[str] = Field(default_factory=list)
+    reports: list[HistoryCoverageReportView] = Field(default_factory=list)
+
+
+class DataQualityResponse(FlexibleModel):
+    ready: bool
+    scope: str
+    target_symbols: list[str] = Field(default_factory=list)
+    incomplete_count: int = 0
+    minimum_coverage_ratio: float | None = None
+    minimum_required_ratio: float | None = None
+    missing_symbols: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    reports: list[HistoryCoverageReportView] = Field(default_factory=list)
+
+
+class CorporateActionItemView(FlexibleModel):
+    effective_date: date
+    action_type: str = ""
+    ratio: float = 1.0
+    cash_amount: float = 0.0
+    notes: str | None = None
+    instrument: dict[str, Any] | None = None
+
+
+class CorporateActionsResponse(FlexibleModel):
+    symbol: str
+    start: date
+    end: date
+    ready: bool
+    status: str
+    market: str | None = None
+    action_count: int = 0
+    missing_symbols: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    actions: list[CorporateActionItemView] = Field(default_factory=list)
+
+
+class FxRateItemView(FlexibleModel):
+    base_currency: str
+    quote_currency: str
+    date: date
+    rate: float
+
+
+class FxRatesResponse(FlexibleModel):
+    base_currency: str
+    quote_currency: str
+    start: date
+    end: date
+    ready: bool
+    status: str
+    rate_count: int = 0
+    missing_quote_currencies: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    rates: list[FxRateItemView] = Field(default_factory=list)
+
+
 class ResearchScorecardRowView(FlexibleModel):
     strategy_id: str
     action: str | None = None

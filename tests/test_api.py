@@ -370,6 +370,20 @@ def test_data_fx_rates_endpoint_exposes_status():
         app_state.market_history.get_fx_rates = original_rates
 
 
+def test_data_read_endpoints_publish_response_models_in_openapi():
+    schema = app.openapi()
+
+    quality_schema = schema["paths"]["/data/quality"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    coverage_schema = schema["paths"]["/data/history/coverage"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    fx_schema = schema["paths"]["/data/fx/rates"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    corporate_actions_schema = schema["paths"]["/data/history/corporate-actions"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert quality_schema["$ref"].endswith("/DataQualityResponse")
+    assert coverage_schema["$ref"].endswith("/HistoryCoverageResponse")
+    assert fx_schema["$ref"].endswith("/FxRatesResponse")
+    assert corporate_actions_schema["$ref"].endswith("/CorporateActionsResponse")
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

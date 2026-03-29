@@ -635,3 +635,22 @@
   - 真实未 stub 的 dashboard API 在空数据目录下仍会被完整 research/report 聚合拖慢，所以本次 HTTP gating 使用临时实例 + 上游轻 stub，只验证 projection/facade 改动本身的链路正确性。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先做 typed response model 收口，先覆盖 `/data/quality`、`/data/history/coverage`、`/data/fx/rates`、`/data/history/corporate-actions` 这组 read endpoint。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 为关键 data read endpoint 补上显式 `response_model`，开始把 transport contract 从裸 dict 收口成 typed payload。
+- Code changes:
+  - `tradingcat/api/view_models.py` 新增 `HistoryCoverageResponse`、`DataQualityResponse`、`FxRatesResponse`、`CorporateActionsResponse` 及其 report/item view model，保持 `extra="allow"` 兼容现有字段，同时把关键结构显式化。
+  - `tradingcat/routes/market_data.py` 现在为 `/data/quality`、`/data/history/coverage`、`/data/fx/rates`、`/data/history/corporate-actions` 声明了 `response_model`，不再让这些 read endpoint 漂在裸 dict 契约上。
+  - `tests/test_api.py` 新增 OpenAPI 断言，锁定上述四个 endpoint 已经真正挂上 response model，而不只是代码里定义了 model。
+- Validation:
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_data_history_coverage_endpoint_exposes_summary_fields tests/test_api.py::test_data_history_corporate_actions_endpoint_exposes_status tests/test_api.py::test_data_fx_rates_endpoint_exposes_status tests/test_api.py::test_data_read_endpoints_publish_response_models_in_openapi -q` -> `4 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=$(mktemp -d)`, `http://127.0.0.1:8034`）：
+    - `GET /data/history/coverage?symbols=SPY&start=2026-03-02&end=2026-03-06` -> 返回 typed coverage 字段，含 `minimum_coverage_ratio`、`missing_windows`、`blockers`
+    - `GET /data/fx/rates?base_currency=CNY&quote_currency=USD&start=2026-03-02&end=2026-03-06` -> 返回 `status="available"`、`rate_count=1`、`rates=[...]`
+    - `GET /data/history/corporate-actions?symbol=SPY&start=2026-03-02&end=2026-03-06` -> 返回 `status="confirmed_none"`、`action_count=0`
+    - `GET /data/quality` -> 返回 typed `scope/target_symbols/reports` 结构
+- Decisions:
+  - 这一步先收口 data read endpoint，因为它们 payload 边界最稳定、回归面最小，适合作为 typed contract 的第一批落点。
+  - `test_data_quality_and_readiness_surface_coverage_blockers` 仍会被现有 readiness 重链路拖慢，所以本次不把它作为 typed contract feature 的 gating；语义兼容由更窄的 API 回归和真实 HTTP 覆盖。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先把 typed payload 继续推进到 research/report 与 strategy detail，再考虑把 `OperationsReadinessResponse` 里的 `data_quality` 等嵌套字段收紧成 typed model。

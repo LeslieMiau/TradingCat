@@ -5,6 +5,12 @@ from datetime import UTC, date, datetime
 from fastapi import APIRouter, Request
 
 from tradingcat.api.schemas import FxSyncPayload, HistoryRepairPayload, HistorySyncPayload, InstrumentCatalogPayload, MarketDataSmokePayload
+from tradingcat.api.view_models import (
+    CorporateActionsResponse,
+    DataQualityResponse,
+    FxRatesResponse,
+    HistoryCoverageResponse,
+)
 from tradingcat.domain.models import AssetClass, Instrument, Market
 from tradingcat.routes.common import get_app_state, split_csv_param
 
@@ -77,7 +83,7 @@ async def data_history_bars(request: Request, symbol: str, start: date, end: dat
     return await get_app_state(request).market_history.get_bars_async(symbol, start, end)
 
 
-@router.get("/data/history/coverage")
+@router.get("/data/history/coverage", response_model=HistoryCoverageResponse)
 def data_history_coverage(request: Request, symbols: str | None = None, start: date | None = None, end: date | None = None):
     return get_app_state(request).market_history.summarize_history_coverage(split_csv_param(symbols), start, end)
 
@@ -117,7 +123,7 @@ def data_fx_sync(request: Request, payload: FxSyncPayload):
     )
 
 
-@router.get("/data/fx/rates")
+@router.get("/data/fx/rates", response_model=FxRatesResponse)
 def data_fx_rates(request: Request, base_currency: str, quote_currency: str, start: date, end: date):
     app = get_app_state(request)
     summary = app.market_history.summarize_fx_coverage(base_currency, [quote_currency], start, end)
@@ -136,12 +142,12 @@ def data_fx_rates(request: Request, base_currency: str, quote_currency: str, sta
     }
 
 
-@router.get("/data/quality")
+@router.get("/data/quality", response_model=DataQualityResponse)
 def data_quality(request: Request, lookback_days: int = 30):
     return get_app_state(request).data_quality_summary(lookback_days)
 
 
-@router.get("/data/history/corporate-actions")
+@router.get("/data/history/corporate-actions", response_model=CorporateActionsResponse)
 def data_history_corporate_actions(request: Request, symbol: str, start: date, end: date):
     app = get_app_state(request)
     summary = app.market_history.summarize_corporate_actions_coverage([symbol], start, end)
