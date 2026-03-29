@@ -731,3 +731,25 @@
   - 真实未 stub 的 diagnostics/readiness 仍会被当前研究/验证链路拖慢，所以本次 HTTP gating 使用临时实例 + 轻 stub，重点确认 transport contract 和嵌套 typed payload 没有破坏。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先评估 `OperationsReadinessResponse` 里剩余裸 dict 嵌套（如 `diagnostics`、`alerts`、`compliance`）是否值得继续 typed 化，以及是否开始把 `ResearchFacade` 进一步收口成更薄的协调层。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 抽出 `ResearchQueryService`，把 `ResearchFacade` 收紧成更薄的读模型协调层，不再直接堆 report/detail/backtest 编排。
+- Code changes:
+  - `tradingcat/services/query_services.py` 新增 `ResearchQueryService`，集中承接 `scorecard`、`report`、`stability`、`recommendations`、`ideas`、`run_backtests`、`strategy_detail`、`asset_correlation`、`review_selections`、`review_allocations` 这组研究读链路。
+  - `tradingcat/app.py` 现在装配 `self.research_queries`，并通过 getter 注入 runtime-sensitive 依赖，确保 runtime recovery 后 research query 仍跟随最新 strategy registry / signal provider。
+  - `tradingcat/facades.py` 里的 `ResearchFacade` 现在把主研究查询统一委托给 `self._app.research_queries`，自身只保留 transport-level 协调与响应校验。
+  - `tests/test_runtime_recovery.py` 新增 `test_research_queries_follow_recovered_strategy_registry`，锁定 research query 路径不会在 runtime recovery 后继续绑住旧 strategy 实例。
+- Validation:
+  - `.venv/bin/python -m compileall tradingcat/services/query_services.py tradingcat/app.py tradingcat/facades.py tests/test_runtime_recovery.py`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py::test_research_queries_follow_recovered_strategy_registry tests/test_runtime_recovery.py::test_data_quality_queries_follow_recovered_strategy_registry tests/test_api.py::test_research_backtest_endpoints -q` -> `3 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_research_reporting.py::test_research_report_does_not_pollute_short_window_stock_signals -q` -> `1 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=$(mktemp -d)`, `http://127.0.0.1:8039`）：
+    - `GET /broker/status` -> `200 OK`，返回 simulated broker healthy payload
+    - `POST /data/instruments` 写入 `IVV` / `VOO` / `AAPL`
+    - `POST /research/backtests/run?as_of=2026-03-08` -> `200 OK`，返回 `count=7`
+    - `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> `200 OK`，返回 `signals=["IVV", "VOO"]`、`signal_source="historical_momentum_rotation"`
+- Decisions:
+  - 这一步只收口 research query 编排，不顺手把 `summarize_news` 或更深的 reporting/detail 组装也挪走，避免一次 session 同时改 facade 边界和 strategy-analysis 内部职责。
+  - `ResearchQueryService` 统一采用 getter 注入 runtime-sensitive 依赖，和已有 query service 模式保持一致，这样 runtime recovery 时不会出现 facade 偷绑旧 registry 的回潮。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先继续拆 `StrategyAnalysisService` 的 reporting/detail 聚合，评估是否把 report/detail/scorecard 进一步拆成更清晰的 reporting service。

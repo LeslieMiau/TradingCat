@@ -291,3 +291,90 @@ class ReadinessQueryService:
                 pending += int(counts.get("pending", 0))
                 blocked += int(counts.get("blocked", 0))
         return {"pending_count": pending, "blocked_count": blocked}
+
+
+class ResearchQueryService:
+    def __init__(
+        self,
+        *,
+        strategy_signal_provider_getter: Callable[[], Any],
+        strategy_analysis_getter: Callable[[], Any],
+        strategy_registry_getter: Callable[[], Any],
+        research_getter: Callable[[], Any],
+        default_execution_strategy_ids_getter: Callable[[], list[str]],
+        review_strategy_selections: Callable[[date], dict[str, object]],
+        review_strategy_allocations: Callable[[date], dict[str, object]],
+    ) -> None:
+        self._strategy_signal_provider_getter = strategy_signal_provider_getter
+        self._strategy_analysis_getter = strategy_analysis_getter
+        self._strategy_registry_getter = strategy_registry_getter
+        self._research_getter = research_getter
+        self._default_execution_strategy_ids_getter = default_execution_strategy_ids_getter
+        self._review_strategy_selections = review_strategy_selections
+        self._review_strategy_allocations = review_strategy_allocations
+
+    def scorecard(self, as_of: date, *, include_candidates: bool) -> dict[str, object]:
+        return self._strategy_analysis_getter().build_profit_scorecard(
+            as_of,
+            self._strategy_signal_map(as_of, include_candidates=include_candidates),
+        )
+
+    def report(self, as_of: date) -> dict[str, object]:
+        return self._strategy_analysis_getter().summarize_strategy_report(
+            as_of,
+            self._strategy_signal_map(as_of),
+        )
+
+    def stability(self, as_of: date) -> dict[str, object]:
+        return self._strategy_analysis_getter().summarize_strategy_stability(
+            as_of,
+            self._strategy_signal_map(as_of),
+        )
+
+    def recommendations(self, as_of: date) -> dict[str, object]:
+        return self._strategy_analysis_getter().recommend_strategy_actions(
+            as_of,
+            self._strategy_signal_map(as_of, include_candidates=True),
+        )
+
+    def ideas(self, as_of: date) -> dict[str, object]:
+        return self._research_getter().suggest_experiments(
+            as_of,
+            self._strategy_signal_map(as_of),
+        )
+
+    def run_backtests(self, as_of: date) -> dict[str, object]:
+        experiments = []
+        research = self._research_getter()
+        for strategy in self._strategy_registry_getter().all():
+            experiments.append(
+                research.run_experiment(
+                    strategy.strategy_id,
+                    as_of,
+                    strategy.generate_signals(as_of),
+                )
+            )
+        return {"count": len(experiments), "experiments": experiments}
+
+    def strategy_detail(self, strategy_id: str, as_of: date) -> dict[str, object]:
+        strategy = self._strategy_registry_getter().get(strategy_id)
+        return self._strategy_analysis_getter().strategy_detail(
+            strategy_id,
+            as_of,
+            strategy.generate_signals(as_of),
+        )
+
+    async def asset_correlation(self, symbols: list[str], days: int) -> dict[str, object]:
+        end = date.today()
+        start = end - timedelta(days=days)
+        return await self._strategy_analysis_getter().calculate_asset_correlation_async(symbols, start, end)
+
+    def review_selections(self, as_of: date) -> dict[str, object]:
+        return self._review_strategy_selections(as_of)
+
+    def review_allocations(self, as_of: date) -> dict[str, object]:
+        return self._review_strategy_allocations(as_of)
+
+    def _strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, object]:
+        strategy_ids = None if include_candidates else self._default_execution_strategy_ids_getter()
+        return self._strategy_signal_provider_getter().strategy_signal_map(as_of, strategy_ids=strategy_ids)

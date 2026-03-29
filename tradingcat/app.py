@@ -60,7 +60,7 @@ from tradingcat.services.operations_analytics import OperationsAnalyticsService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
 from tradingcat.services.portfolio_projections import PortfolioProjectionService
-from tradingcat.services.query_services import DataQualityQueryService, ReadinessQueryService
+from tradingcat.services.query_services import DataQualityQueryService, ReadinessQueryService, ResearchQueryService
 from tradingcat.services.reporting import (
     build_incident_replay,
     build_operations_period_report,
@@ -152,6 +152,15 @@ class TradingCatApplication:
             order_state_summary=lambda: self.execution.order_state_summary(),
             execution_authorization_summary=lambda: self.execution.authorization_summary(),
             operations_execution_readiness=self.operations_analytics.execution_readiness,
+        )
+        self.research_queries = ResearchQueryService(
+            strategy_signal_provider_getter=lambda: self._require_runtime().strategy_signal_provider,
+            strategy_analysis_getter=lambda: self.strategy_analysis,
+            strategy_registry_getter=lambda: self._require_runtime().strategy_registry,
+            research_getter=lambda: self.research,
+            default_execution_strategy_ids_getter=lambda: list(self._default_execution_strategy_ids),
+            review_strategy_selections=self.review_strategy_selections,
+            review_strategy_allocations=self.review_strategy_allocations,
         )
 
         self.runtime_manager.initialize()

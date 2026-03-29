@@ -113,3 +113,30 @@ def test_data_quality_queries_follow_recovered_strategy_registry(tmp_path):
     recovered_strategy.generate_signals = generate_unique_signals  # type: ignore[method-assign]
 
     assert "ZZTOP" in app._repair_priority_symbols(as_of=date(2026, 3, 8))
+
+
+def test_research_queries_follow_recovered_strategy_registry(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    app.recover_runtime()
+    recovered_strategy = app.strategy_by_id("strategy_a_etf_rotation")
+    template_signal = recovered_strategy.generate_signals(date(2026, 3, 8))[0]
+
+    def generate_unique_signals(as_of: date) -> list[Signal]:
+        return [
+            template_signal.model_copy(
+                update={
+                    "instrument": template_signal.instrument.model_copy(update={"symbol": "ZZTOP"}),
+                }
+            )
+        ]
+
+    recovered_strategy.generate_signals = generate_unique_signals  # type: ignore[method-assign]
+
+    detail = app.research_facade.strategy_detail("strategy_a_etf_rotation", date(2026, 3, 8))
+
+    assert detail["signals"][0]["symbol"] == "ZZTOP"

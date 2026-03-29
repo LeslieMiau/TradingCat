@@ -343,69 +343,38 @@ class ResearchFacade:
         self._app = app
 
     def scorecard(self, as_of: date, *, include_candidates: bool) -> ResearchScorecardResponse:
-        payload = self._app.strategy_analysis.build_profit_scorecard(
-            as_of,
-            self._app.strategy_signal_map(as_of, include_candidates=include_candidates),
-        )
+        payload = self._app.research_queries.scorecard(as_of, include_candidates=include_candidates)
         return ResearchScorecardResponse.model_validate(payload)
 
     def report(self, as_of: date) -> dict[str, object]:
-        return self._app.strategy_analysis.summarize_strategy_report(
-            as_of,
-            self._app.strategy_signal_map(as_of),
-        )
+        return self._app.research_queries.report(as_of)
 
     def stability(self, as_of: date) -> dict[str, object]:
-        return self._app.strategy_analysis.summarize_strategy_stability(
-            as_of,
-            self._app.strategy_signal_map(as_of),
-        )
+        return self._app.research_queries.stability(as_of)
 
     def recommendations(self, as_of: date) -> dict[str, object]:
-        return self._app.strategy_analysis.recommend_strategy_actions(
-            as_of,
-            self._app.strategy_signal_map(as_of, include_candidates=True),
-        )
+        return self._app.research_queries.recommendations(as_of)
 
     def ideas(self, as_of: date) -> dict[str, object]:
-        return self._app.research_ideas.suggest_experiments(
-            as_of,
-            self._app.strategy_signal_map(as_of),
-        )
+        return self._app.research_queries.ideas(as_of)
 
     def run_backtests(self, as_of: date) -> dict[str, object]:
-        experiments = []
-        for strategy in self._app.research_strategies:
-            experiments.append(
-                self._app.research.run_experiment(
-                    strategy.strategy_id,
-                    as_of,
-                    strategy.generate_signals(as_of),
-                )
-            )
-        return {"count": len(experiments), "experiments": experiments}
+        return self._app.research_queries.run_backtests(as_of)
 
     def strategy_detail(self, strategy_id: str, as_of: date) -> dict[str, object]:
-        strategy = self._app.strategy_by_id(strategy_id)
-        return self._app.strategy_analysis.strategy_detail(
-            strategy_id,
-            as_of,
-            strategy.generate_signals(as_of),
-        )
+        return self._app.research_queries.strategy_detail(strategy_id, as_of)
 
     async def asset_correlation(self, symbols: list[str], days: int) -> dict[str, object]:
-        end = date.today()
-        start = end - timedelta(days=days)
-        return await self._app.strategy_analysis.calculate_asset_correlation_async(symbols, start, end)
+        return await self._app.research_queries.asset_correlation(symbols, days)
 
     def summarize_news(self, items: list[dict[str, object]]) -> dict[str, object]:
         return self._app.research_ideas.summarize_news(items)
 
     def review_selections(self, as_of: date) -> dict[str, object]:
-        return self._app.review_strategy_selections(as_of)
+        return self._app.research_queries.review_selections(as_of)
 
     def review_allocations(self, as_of: date) -> dict[str, object]:
-        return self._app.review_strategy_allocations(as_of)
+        return self._app.research_queries.review_allocations(as_of)
 
 
 class OperationsFacade:
