@@ -36,6 +36,7 @@ TradingCat is a local-first trading system baseline for Hong Kong, U.S., and A-s
   - `POST /broker/recover`
   - `POST /market-data/smoke-test`
   - `GET /data/instruments`
+  - `POST /data/instruments`
   - `POST /data/history/sync`
   - `GET /data/history/bars`
   - `GET /data/history/coverage`
@@ -180,6 +181,38 @@ TradingCat is a local-first trading system baseline for Hong Kong, U.S., and A-s
 - Daily report, weekly report, and postmortem endpoints now summarize alerts, recoveries, execution exceptions, and operator next actions
 - Incident replay endpoint now emits a chronological alert/audit/recovery timeline for operator review and scenario walkthroughs
 - Pytest coverage for risk rules, approval flow, and backtest cost behavior
+
+## Universe Maintenance
+
+The persistent research universe now lives in `data/instruments.json` (or DuckDB when enabled) and is managed through the API instead of hard-coded strategy samples.
+
+Typical workflow:
+
+```bash
+curl -X POST http://127.0.0.1:8000/data/instruments \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "instruments": [
+      {
+        "symbol": "IVV",
+        "market": "US",
+        "asset_class": "etf",
+        "currency": "USD",
+        "name": "iShares Core S&P 500 ETF",
+        "enabled": true,
+        "tradable": true,
+        "liquidity_bucket": "high",
+        "avg_daily_dollar_volume_m": 6200
+      }
+    ]
+  }'
+curl "http://127.0.0.1:8000/data/instruments?enabled_only=true&tradable_only=true&liquid_only=true"
+```
+
+Operator notes:
+- Keep `enabled=true` and `tradable=true` only for symbols you really want in the research/execution candidate pool.
+- Use `liquidity_bucket=low` or `enabled=false` to keep a symbol persisted but out of the default personal-trading universe.
+- After a universe change, run `POST /data/history/sync` for the affected symbols and then verify `GET /data/history/coverage`.
 
 ## Quick Start
 

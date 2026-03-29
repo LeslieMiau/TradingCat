@@ -27,6 +27,24 @@ class MarketDataSmokePayload(BaseModel):
     include_option_chain: bool = False
 
 
+class InstrumentPayload(BaseModel):
+    symbol: str
+    market: Literal["US", "HK", "CN"]
+    asset_class: Literal["stock", "etf", "option", "crypto", "bond", "cash"] = "stock"
+    currency: str = "USD"
+    name: str = ""
+    lot_size: float = 1.0
+    enabled: bool = True
+    tradable: bool = True
+    liquidity_bucket: str = "medium"
+    avg_daily_dollar_volume_m: float | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class InstrumentCatalogPayload(BaseModel):
+    instruments: list[InstrumentPayload]
+
+
 class HistorySyncPayload(BaseModel):
     symbols: list[str] | None = None
     start: date | None = None
@@ -101,4 +119,3 @@ class RolloutPolicyPayload(BaseModel):
 class AssetCorrelationPayload(BaseModel):
     symbols: list[str]
     days: int = 90
-

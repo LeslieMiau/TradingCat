@@ -2,6 +2,7 @@ from datetime import date
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.config import AppConfig, DuckDbConfig
+from tradingcat.domain.models import AssetClass, Instrument, Market
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.state import HistorySyncRunRepository
 from tradingcat.services.data_sync import HistorySyncService
@@ -24,6 +25,91 @@ def test_market_data_service_syncs_and_reads_history_json(tmp_path):
     assert len(service.list_instruments()) >= 4
     assert len(bars) == 3
     assert actions == []
+
+
+def test_market_data_service_persists_filtered_research_universe(tmp_path):
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    updated = service.upsert_instruments(
+        [
+            Instrument(
+                symbol="IVV",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="iShares Core S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=6200,
+            ),
+            Instrument(
+                symbol="OTC1",
+                market=Market.US,
+                asset_class=AssetClass.STOCK,
+                currency="USD",
+                name="Illiquid OTC Example",
+                enabled=True,
+                tradable=True,
+                liquidity_bucket="low",
+                avg_daily_dollar_volume_m=3,
+            ),
+            Instrument(
+                symbol="SPY",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="SPDR S&P 500 ETF",
+                enabled=False,
+                tradable=False,
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=38000,
+            ),
+        ]
+    )
+
+    reloaded = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    assert updated["changed"] is True
+    assert "IVV" in updated["updated_symbols"]
+    assert any(instrument.symbol == "SPY" and instrument.enabled is False for instrument in reloaded.list_instruments(enabled_only=False, tradable_only=False))
+    research_universe = reloaded.research_universe()
+    assert any(instrument.symbol == "IVV" for instrument in research_universe)
+    assert all(instrument.symbol != "SPY" for instrument in research_universe)
+    assert all(instrument.symbol != "OTC1" for instrument in research_universe)
+
+
+def test_market_data_service_ensure_history_refreshes_sparse_monthly_cache(tmp_path):
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    service.upsert_instruments(
+        [
+            Instrument(
+                symbol="IVV",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="iShares Core S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=6200,
+            )
+        ]
+    )
+    service.sync_history(symbols=["IVV"], start=date(2018, 1, 1), end=date(2026, 3, 8))
+    refreshed = service.ensure_history(["IVV"], start=date(2025, 3, 13), end=date(2026, 3, 8))
+
+    assert "IVV" in refreshed
+    assert len(refreshed["IVV"]) >= 200
 
 
 def test_market_data_service_exports_duckdb_parquet(tmp_path):

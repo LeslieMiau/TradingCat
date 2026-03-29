@@ -186,10 +186,11 @@ class TradingCatApplication:
 
     @property
     def research_strategies(self) -> list[object]:
+        market_data = self.runtime.market_history if self.runtime is not None else None
         return [
-            EtfRotationStrategy(),
-            EquityMomentumStrategy(),
-            OptionHedgeStrategy(),
+            EtfRotationStrategy(market_data),
+            EquityMomentumStrategy(market_data),
+            OptionHedgeStrategy(market_data),
             MeanReversionStrategy(),
             DefensiveTrendStrategy(),
             AllWeatherStrategy(),
@@ -638,7 +639,7 @@ class TradingCatApplication:
     ) -> dict[str, object]:
         targets = [instrument for instrument in self.market_history.list_instruments() if not symbols or instrument.symbol in symbols]
         if not targets:
-            targets = sample_instruments()
+            targets = self.market_history.research_universe() or sample_instruments()
         failed_symbols: dict[str, str] = {}
         successful_symbols: list[str] = []
         quotes = self.market_history.fetch_quotes(targets)

@@ -260,6 +260,29 @@
   - `RuleEngine._metric_value()` 里的 `SMA_*` 分支现在会按最近历史 bars 计算真实简单均线，并支持从指标名里解析周期参数，例如 `SMA_10`。
 
 ## Session update — 2026-03-29
+- Completed features #3-#10: 持久化 universe、基础流动性过滤、市场驱动策略信号与指标快照现在已经接上同一条研究主链路，并顺手清掉了这轮 harness 造成的两处测试/数据边界腐化。
+- Code changes:
+  - `MarketDataService` 现在支持持久化 instrument catalog 的 upsert/list/filter/research-universe，并在 `ensure_history()` 里自动把明显过稀的月度残片升级成窗口所需的密历史，避免 baseline sync 之后策略又被旧缓存拖回 fallback。
+  - `EtfRotationStrategy`、`EquityMomentumStrategy`、`OptionHedgeStrategy` 现在都能消费持久化 universe 和真实历史窗口；股票动量的流动性排序改成同一量纲，避免把 `avg_daily_dollar_volume_m` 和 20 日美元成交额混着比较。
+  - `TradingCatApplication.research_strategies` 统一注入 runtime market-data；`/data/instruments`、研究 detail/report 和 README universe runbook 也已经接上新字段与维护入口。
+  - 测试侧把这轮 harness 引入的“全局 app_state 串味”单独收掉了：`tests/support.py` 的 `reset_runtime_state()` 现在直接走 `app_state.reset_state()`，不再只清 execution/audit 造成后续 API 测试误读旧 catalog/history。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_research_reporting.py tests/test_selection_service.py -q` -> `44 passed`
+  - `.venv/bin/pytest tests/test_api.py::test_data_instruments_endpoint_persists_and_filters_universe_entries tests/test_api.py::test_data_history_sync_without_symbols_bootstraps_research_baseline tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `3 passed`
+  - `.venv/bin/pytest tests/test_backtest.py -q` -> `7 passed`
+  - 隔离 HTTP `8036` 上验证：
+    - `POST /data/instruments` 后默认 universe 里保留 `IVV/VOO/AAPL`，不会把被禁用的 `SPY/QQQ/0700` 当成默认研究候选。
+    - `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` 返回 `data_source="historical"`，信号来自 `IVV/VOO/VTI`，且 `signal_source="historical_momentum_rotation"`。
+    - `GET /research/strategies/strategy_b_equity_momentum?as_of=2026-03-08` 返回 `data_source="historical"`，主信号为 `AAPL`，`signal_source="historical_equity_momentum"`。
+    - `POST /research/report/run?as_of=2026-03-08` 中 ETF / 股票策略的 `data_source` 与 `signal_insights.signal_source` 已经对齐到历史链路。
+    - `POST /data/history/sync` 返回 `baseline_applied=true`，并给出新的 `baseline_symbols` 与 `fx_sync.rate_count`。
+- Decisions:
+  - 没有给 `/data/instruments` 增加“隐式替换默认 universe”的魔法语义，仍然保持显式 upsert；这比在 route 层偷偷清 catalog 更稳，也更不容易继续腐化边界。
+  - 期权覆盖策略在真实 HTTP 下已经返回 `historical_option_overlay` 的底层信号和 `IVV` 底仓，但研究报告顶层 `data_source` 仍保留 `synthetic` blocker，因为当前没有真实期权历史回放数据；这一步先不伪装成 fully historical。
+- Remaining focus for next session:
+  - feature #43：把 diagnostics summary 和研究 blocker 对齐，让 synthetic / history incomplete 直接出现在 `/diagnostics/summary`。
+
+## Session update — 2026-03-29
 - Completed features #37-#42: acceptance / rollout / go-live / report archive 现在会把连续 clean day/week 证据与 blocker 链路串完整，周报和归档都能直接消费这些状态。
 - Code changes:
   - `OperationsJournalService` 现在会在 acceptance summary / timeline / rollout summary 中暴露 `current_clean_day_streak`、`current_clean_week_streak`、`blocked_days` 和 `next_requirement`，rollout blocker 也会直接消费 incident-day 与 clean-week gate。

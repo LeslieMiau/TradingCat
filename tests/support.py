@@ -4,10 +4,7 @@ from tradingcat.domain.models import AssetClass, Instrument, ManualFill, Market,
 
 
 def reset_runtime_state(app_state) -> None:
-    app_state.execution.clear()
-    app_state.audit.clear()
-    app_state.alerts.clear()
-    app_state.recovery.clear()
+    app_state.reset_state()
 
 
 def seed_execution_fill(

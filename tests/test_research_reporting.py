@@ -81,6 +81,73 @@ def test_option_strategy_generates_research_only_option_signal():
     assert signals[0].metadata["execution_mode"] == "research_only"
 
 
+def test_market_driven_strategies_emit_indicator_snapshots_from_persistent_universe(tmp_path):
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    market_data.upsert_instruments(
+        [
+            Instrument(
+                symbol="SPY",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="SPDR S&P 500 ETF",
+                enabled=False,
+                tradable=False,
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=38000,
+            ),
+            Instrument(
+                symbol="QQQ",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="Invesco QQQ Trust",
+                enabled=False,
+                tradable=False,
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=21000,
+            ),
+            Instrument(
+                symbol="IVV",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="iShares Core S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=6200,
+            ),
+            Instrument(
+                symbol="AAPL",
+                market=Market.US,
+                asset_class=AssetClass.STOCK,
+                currency="USD",
+                name="Apple",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=8400,
+            ),
+        ]
+    )
+    as_of = date(2026, 3, 8)
+
+    etf_signals = EtfRotationStrategy(market_data).generate_signals(as_of)
+    stock_signals = EquityMomentumStrategy(market_data).generate_signals(as_of)
+    option_signals = OptionHedgeStrategy(market_data).generate_signals(as_of)
+
+    assert etf_signals
+    assert all(signal.instrument.symbol not in {"SPY", "QQQ"} for signal in etf_signals)
+    assert etf_signals[0].metadata["signal_source"] == "historical_momentum_rotation"
+    assert "momentum_252d" in etf_signals[0].metadata["indicator_snapshot"]
+    assert stock_signals[0].instrument.symbol == "AAPL"
+    assert stock_signals[0].metadata["signal_source"] == "historical_equity_momentum"
+    assert "avg_dollar_volume_20d" in stock_signals[0].metadata["indicator_snapshot"]
+    assert option_signals[0].metadata["underlying_symbol"] == "IVV"
+    assert option_signals[0].metadata["signal_source"] == "historical_option_overlay"
+
+
 def test_research_experiment_prefers_historical_market_data(tmp_path):
     market_data = MarketDataService(
         adapter=StaticMarketDataAdapter(),
@@ -237,7 +304,7 @@ def test_research_report_blocks_missing_corporate_actions(tmp_path):
     assert strategy_report["data_source"] == "historical"
     assert strategy_report["data_ready"] is False
     assert strategy_report["corporate_actions_ready"] is False
-    assert strategy_report["missing_corporate_action_symbols"] == ["510300", "QQQ", "SPY"]
+    assert strategy_report["missing_corporate_action_symbols"] == ["QQQ", "SPY"]
     assert strategy_report["corporate_action_blockers"]
     assert report["hard_blocked"] is True
     assert any("corporate action coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
@@ -382,8 +449,8 @@ def test_research_strategy_detail_exposes_missing_history_symbols(tmp_path):
     assert detail["promotion_blocked"] is True
     assert detail["minimum_coverage_ratio"] < detail["history_coverage_threshold"]
     assert detail["history_coverage_threshold"] == 0.95
-    assert detail["missing_coverage_symbols"] == ["510300", "QQQ"]
-    assert any("510300, QQQ" in reason or "QQQ, 510300" in reason for reason in detail["history_coverage_blockers"])
+    assert detail["missing_coverage_symbols"] == ["QQQ"]
+    assert any("QQQ" in reason for reason in detail["history_coverage_blockers"])
 
 
 def test_research_strategy_detail_exposes_corporate_action_gaps(tmp_path):
@@ -408,7 +475,7 @@ def test_research_strategy_detail_exposes_corporate_action_gaps(tmp_path):
     detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
 
     assert detail["corporate_actions_ready"] is False
-    assert detail["missing_corporate_action_symbols"] == ["510300", "QQQ", "SPY"]
+    assert detail["missing_corporate_action_symbols"] == ["QQQ", "SPY"]
     assert detail["corporate_action_blockers"]
     assert detail["corporate_action_coverage"]["ready"] is False
 
@@ -445,7 +512,7 @@ def test_research_report_blocks_missing_fx_coverage(tmp_path):
     assert strategy_report["data_source"] == "historical"
     assert strategy_report["data_ready"] is False
     assert strategy_report["fx_ready"] is False
-    assert strategy_report["missing_fx_pairs"] == ["USD"]
+    assert strategy_report["missing_fx_pairs"] == ["HKD", "USD"]
     assert strategy_report["fx_blockers"]
     assert report["hard_blocked"] is True
     assert any("fx coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
@@ -477,7 +544,7 @@ def test_research_strategy_detail_exposes_fx_gaps(tmp_path):
     detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
 
     assert detail["fx_ready"] is False
-    assert detail["missing_fx_pairs"] == ["USD"]
+    assert detail["missing_fx_pairs"] == ["HKD", "USD"]
     assert detail["fx_blockers"]
     assert detail["fx_coverage"]["ready"] is False
 

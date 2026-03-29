@@ -84,6 +84,14 @@ class StrategyAnalysisService:
                 "missing_corporate_action_symbols": list(experiment.assumptions.get("missing_corporate_action_symbols", [])),
                 "corporate_action_blockers": list(experiment.assumptions.get("corporate_action_blockers", [])),
                 "corporate_action_coverage": corporate_action_coverage,
+                "signal_insights": [
+                    {
+                        "symbol": signal.instrument.symbol,
+                        "signal_source": signal.metadata.get("signal_source"),
+                        "indicator_snapshot": signal.metadata.get("indicator_snapshot", {}),
+                    }
+                    for signal in signals
+                ],
                 **stability,
             }
             if research_passed and max_selected_correlation < 0.7:
@@ -343,6 +351,16 @@ class StrategyAnalysisService:
                     "target_weight": signal.target_weight,
                     "reason": signal.reason,
                     "metadata": signal.metadata,
+                    "signal_source": signal.metadata.get("signal_source"),
+                    "indicator_snapshot": signal.metadata.get("indicator_snapshot", {}),
+                }
+                for signal in signals
+            ],
+            "signal_sources": sorted({str(signal.metadata.get("signal_source")) for signal in signals if signal.metadata.get("signal_source")}),
+            "indicator_snapshots": [
+                {
+                    "symbol": signal.instrument.symbol,
+                    "indicator_snapshot": signal.metadata.get("indicator_snapshot", {}),
                 }
                 for signal in signals
             ],

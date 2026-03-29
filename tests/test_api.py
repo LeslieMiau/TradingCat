@@ -127,6 +127,66 @@ def test_data_history_sync_runs_expose_symbol_level_stats():
     assert "symbol_stats" in latest
 
 
+def test_data_instruments_endpoint_persists_and_filters_universe_entries():
+    reset_runtime_state(app_state)
+    try:
+        update = client.post(
+            "/data/instruments",
+            json={
+                "instruments": [
+                    {
+                        "symbol": "SPY",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "SPDR S&P 500 ETF",
+                        "enabled": False,
+                        "tradable": False,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 38000,
+                    },
+                    {
+                        "symbol": "IVV",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "iShares Core S&P 500 ETF",
+                        "enabled": True,
+                        "tradable": True,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 6200,
+                    },
+                    {
+                        "symbol": "OTC1",
+                        "market": "US",
+                        "asset_class": "stock",
+                        "currency": "USD",
+                        "name": "Illiquid OTC Example",
+                        "enabled": True,
+                        "tradable": True,
+                        "liquidity_bucket": "low",
+                        "avg_daily_dollar_volume_m": 3,
+                    },
+                ]
+            },
+        )
+
+        assert update.status_code == 200
+        default_universe = client.get("/data/instruments")
+        full_universe = client.get("/data/instruments", params={"enabled_only": False, "tradable_only": False, "liquid_only": False})
+
+        assert default_universe.status_code == 200
+        assert full_universe.status_code == 200
+        default_symbols = {item["symbol"] for item in default_universe.json()}
+        full_symbols = {item["symbol"] for item in full_universe.json()}
+        assert "IVV" in default_symbols
+        assert "SPY" not in default_symbols
+        assert "OTC1" not in default_symbols
+        assert {"SPY", "IVV", "OTC1"}.issubset(full_symbols)
+    finally:
+        reset_runtime_state(app_state)
+
+
 def test_data_history_sync_without_symbols_bootstraps_research_baseline():
     sync = client.post("/data/history/sync", json={"end": "2026-03-08"})
     assert sync.status_code == 200
@@ -917,6 +977,113 @@ def test_acceptance_endpoints_expose_daily_evidence_tags():
     finally:
         app_state.operations_readiness = original_operations_readiness
         app_state.reset_state()
+
+
+def test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots():
+    reset_runtime_state(app_state)
+    try:
+        update = client.post(
+            "/data/instruments",
+            json={
+                "instruments": [
+                    {
+                        "symbol": "SPY",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "SPDR S&P 500 ETF",
+                        "enabled": False,
+                        "tradable": False,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 38000,
+                    },
+                    {
+                        "symbol": "QQQ",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "Invesco QQQ Trust",
+                        "enabled": False,
+                        "tradable": False,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 21000,
+                    },
+                    {
+                        "symbol": "0700",
+                        "market": "HK",
+                        "asset_class": "stock",
+                        "currency": "HKD",
+                        "name": "Tencent",
+                        "enabled": False,
+                        "tradable": False,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 5200,
+                    },
+                    {
+                        "symbol": "IVV",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "iShares Core S&P 500 ETF",
+                        "enabled": True,
+                        "tradable": True,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 6200,
+                    },
+                    {
+                        "symbol": "VOO",
+                        "market": "US",
+                        "asset_class": "etf",
+                        "currency": "USD",
+                        "name": "Vanguard S&P 500 ETF",
+                        "enabled": True,
+                        "tradable": True,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 5400,
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "market": "US",
+                        "asset_class": "stock",
+                        "currency": "USD",
+                        "name": "Apple",
+                        "enabled": True,
+                        "tradable": True,
+                        "liquidity_bucket": "high",
+                        "avg_daily_dollar_volume_m": 8400,
+                    },
+                ]
+            },
+        )
+        assert update.status_code == 200
+
+        etf_detail = client.get("/research/strategies/strategy_a_etf_rotation", params={"as_of": "2026-03-08"})
+        stock_detail = client.get("/research/strategies/strategy_b_equity_momentum", params={"as_of": "2026-03-08"})
+        option_detail = client.get("/research/strategies/strategy_c_option_overlay", params={"as_of": "2026-03-08"})
+        report = client.post("/research/report/run", params={"as_of": "2026-03-08"})
+
+        assert etf_detail.status_code == 200
+        assert stock_detail.status_code == 200
+        assert option_detail.status_code == 200
+        assert report.status_code == 200
+        etf_payload = etf_detail.json()
+        stock_payload = stock_detail.json()
+        option_payload = option_detail.json()
+        report_payload = report.json()
+        assert any(signal["symbol"] == "IVV" for signal in etf_payload["signals"])
+        assert any(signal["signal_source"] == "historical_momentum_rotation" for signal in etf_payload["signals"])
+        assert "momentum_252d" in etf_payload["signals"][0]["indicator_snapshot"]
+        assert stock_payload["signals"][0]["symbol"] == "AAPL"
+        assert stock_payload["signals"][0]["signal_source"] == "historical_equity_momentum"
+        assert stock_payload["signals"][0]["indicator_snapshot"]["blackout_active"] is False
+        assert option_payload["signals"][0]["metadata"]["underlying_symbol"] == "IVV"
+        assert option_payload["signals"][0]["signal_source"] == "historical_option_overlay"
+        assert "realized_vol_20d" in option_payload["signals"][0]["indicator_snapshot"]
+        etf_report = next(item for item in report_payload["strategy_reports"] if item["strategy_id"] == "strategy_a_etf_rotation")
+        assert etf_report["signal_insights"][0]["signal_source"] == "historical_momentum_rotation"
+        assert "indicator_snapshot" in etf_report["signal_insights"][0]
+    finally:
+        reset_runtime_state(app_state)
 
 
 def test_weekly_report_and_acceptance_timeline_surface_acceptance_progress():

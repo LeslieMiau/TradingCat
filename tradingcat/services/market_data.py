@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class MarketDataService:
     _COVERAGE_THRESHOLD = 0.95
+    _LIQUIDITY_ORDER = {"low": 0, "medium": 1, "high": 2}
 
     def __init__(
         self,
@@ -27,7 +28,8 @@ class MarketDataService:
         self._instruments = instruments
         self._history = history
         self._catalog = instruments.load()
-        self.seed_catalog(sample_instruments())
+        if not self._catalog:
+            self.seed_catalog(sample_instruments())
 
     def seed_catalog(self, seed_instruments: list[Instrument]) -> None:
         changed = False
@@ -45,8 +47,67 @@ class MarketDataService:
         self._catalog = {}
         self.seed_catalog(sample_instruments())
 
-    def list_instruments(self) -> list[Instrument]:
-        return sorted(self._catalog.values(), key=lambda item: (item.market.value, item.symbol))
+    def upsert_instruments(self, instruments: list[Instrument]) -> dict[str, object]:
+        changed = False
+        for instrument in instruments:
+            key = self._key(instrument)
+            if self._catalog.get(key) != instrument:
+                self._catalog[key] = instrument
+                changed = True
+        if changed:
+            self._instruments.save(self._catalog)
+        return {
+            "instrument_count": len(self._catalog),
+            "updated_symbols": sorted(instrument.symbol for instrument in instruments),
+            "changed": changed,
+        }
+
+    def list_instruments(
+        self,
+        *,
+        markets: list[str] | None = None,
+        asset_classes: list[str] | None = None,
+        enabled_only: bool = False,
+        tradable_only: bool = False,
+        liquid_only: bool = False,
+        minimum_liquidity_bucket: str = "medium",
+    ) -> list[Instrument]:
+        market_filter = {item.upper() for item in (markets or [])}
+        asset_class_filter = {item.lower() for item in (asset_classes or [])}
+        minimum_rank = self._liquidity_rank(minimum_liquidity_bucket)
+        instruments = []
+        for instrument in self._catalog.values():
+            if market_filter and instrument.market.value not in market_filter:
+                continue
+            if asset_class_filter and instrument.asset_class.value not in asset_class_filter:
+                continue
+            if enabled_only and not instrument.enabled:
+                continue
+            if tradable_only and not instrument.tradable:
+                continue
+            if liquid_only and self._liquidity_rank(instrument.liquidity_bucket) < minimum_rank:
+                continue
+            instruments.append(instrument)
+        return sorted(instruments, key=lambda item: (item.market.value, item.asset_class.value, item.symbol))
+
+    def research_universe(
+        self,
+        *,
+        markets: list[str] | None = None,
+        asset_classes: list[str] | None = None,
+        minimum_liquidity_bucket: str = "medium",
+    ) -> list[Instrument]:
+        return self.list_instruments(
+            markets=markets,
+            asset_classes=asset_classes,
+            enabled_only=True,
+            tradable_only=True,
+            liquid_only=True,
+            minimum_liquidity_bucket=minimum_liquidity_bucket,
+        )
+
+    def get_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
+        return self._resolve_instrument(symbol, strict=strict)
 
     def fetch_quotes(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
         instruments = self._resolve_instruments(instruments_or_symbols)
@@ -60,6 +121,12 @@ class MarketDataService:
 
     async def fetch_quotes_async(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
         return await asyncio.to_thread(self.fetch_quotes, instruments_or_symbols)
+
+    def fetch_option_chain(self, underlying: str, as_of: date, *, market: str | None = None):
+        normalized_market = None
+        if market:
+            normalized_market = next((item.market for item in self._catalog.values() if item.market.value == market.upper()), None)
+        return self._adapter.fetch_option_chain(underlying, as_of, market=normalized_market)
 
     def fetch_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
         instrument = self._resolve_instrument(symbol)
@@ -487,7 +554,7 @@ class MarketDataService:
 
         for instrument in targets:
             bars = self._history.load_bars(instrument, start, end)
-            if not bars:
+            if not bars or self._history_too_sparse_for_window(bars, start, end):
                 missing_symbols.append(instrument.symbol)
             else:
                 loaded[instrument.symbol] = bars
@@ -501,6 +568,13 @@ class MarketDataService:
                     loaded[symbol] = bars
 
         return loaded
+
+    def _history_too_sparse_for_window(self, bars: list[Bar], start: date, end: date) -> bool:
+        expected_trading_days = len(self._expected_trading_dates(start, end))
+        if expected_trading_days < 20:
+            return False
+        observed_dates = {bar.timestamp.date().isoformat() for bar in bars}
+        return len(observed_dates) < max(20, int(expected_trading_days * 0.5))
 
     def ensure_corporate_actions(self, symbols: list[str], start: date, end: date) -> dict[str, list[CorporateAction]]:
         coverage = self.summarize_corporate_actions_coverage(symbols=symbols, start=start, end=end)
@@ -531,6 +605,9 @@ class MarketDataService:
 
     def _key(self, instrument: Instrument) -> str:
         return f"{instrument.market.value}:{instrument.symbol}"
+
+    def _liquidity_rank(self, bucket: str) -> int:
+        return self._LIQUIDITY_ORDER.get(str(bucket).lower(), self._LIQUIDITY_ORDER["medium"])
 
     def _expected_trading_dates(self, start: date, end: date) -> list[date]:
         days: list[date] = []

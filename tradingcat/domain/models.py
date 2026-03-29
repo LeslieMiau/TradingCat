@@ -66,6 +66,11 @@ class Instrument(BaseModel):
     currency: str = "USD"
     name: str = ""
     lot_size: float = 1.0
+    enabled: bool = True
+    tradable: bool = True
+    liquidity_bucket: str = "medium"
+    avg_daily_dollar_volume_m: float | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class OptionContract(BaseModel):

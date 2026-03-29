@@ -30,7 +30,7 @@
       "重启服务后 universe 配置仍然保留并可再次查询。",
       "运行相关 pytest 后，instrument catalog 与 market-data 测试保持通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 4,
@@ -41,7 +41,7 @@
       "不满足基础流动性条件的标的不会进入研究推荐与执行候选。",
       "相关接口与测试可证明过滤逻辑稳定生效。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 5,
@@ -52,7 +52,7 @@
       "dashboard/research 页面摘要中的策略与候选标的来自同一 universe 来源。",
       "相关 pytest 与接口检查能证明 sample-only 路径不再是主链路。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 6,
@@ -63,7 +63,7 @@
       "按文档执行一次 universe 维护后，可通过 API 验证生效。",
       "脚本存在性或文档相关测试保持通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 7,
@@ -74,7 +74,7 @@
       "策略详情中能看到用于生成信号的关键指标快照。",
       "相关策略与研究测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 8,
@@ -85,7 +85,7 @@
       "策略详情能展示该策略的关键过滤条件与结果摘要。",
       "相关策略与研究测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 9,
@@ -96,7 +96,7 @@
       "策略详情中能看到期权策略的预算与触发上下文。",
       "相关期权研究测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 10,
@@ -107,7 +107,7 @@
       "信号中可区分历史驱动、预算驱动和风险降级等来源说明。",
       "相关 API / view-model 测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 11,

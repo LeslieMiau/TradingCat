@@ -4,8 +4,8 @@ from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Request
 
-from tradingcat.api.schemas import FxSyncPayload, HistoryRepairPayload, HistorySyncPayload, MarketDataSmokePayload
-from tradingcat.domain.models import Market
+from tradingcat.api.schemas import FxSyncPayload, HistoryRepairPayload, HistorySyncPayload, InstrumentCatalogPayload, MarketDataSmokePayload
+from tradingcat.domain.models import AssetClass, Instrument, Market
 from tradingcat.routes.common import get_app_state, split_csv_param
 
 
@@ -22,8 +22,44 @@ def market_data_smoke_test(request: Request, payload: MarketDataSmokePayload):
 
 
 @router.get("/data/instruments")
-def data_instruments(request: Request):
-    return get_app_state(request).market_history.list_instruments()
+def data_instruments(
+    request: Request,
+    markets: str | None = None,
+    asset_classes: str | None = None,
+    enabled_only: bool = True,
+    tradable_only: bool = True,
+    liquid_only: bool = True,
+    minimum_liquidity_bucket: str = "medium",
+):
+    return get_app_state(request).market_history.list_instruments(
+        markets=split_csv_param(markets),
+        asset_classes=split_csv_param(asset_classes),
+        enabled_only=enabled_only,
+        tradable_only=tradable_only,
+        liquid_only=liquid_only,
+        minimum_liquidity_bucket=minimum_liquidity_bucket,
+    )
+
+
+@router.post("/data/instruments")
+def data_instruments_upsert(request: Request, payload: InstrumentCatalogPayload):
+    instruments = [
+        Instrument(
+            symbol=item.symbol.upper(),
+            market=Market(item.market),
+            asset_class=AssetClass(item.asset_class),
+            currency=item.currency.upper(),
+            name=item.name,
+            lot_size=item.lot_size,
+            enabled=item.enabled,
+            tradable=item.tradable,
+            liquidity_bucket=item.liquidity_bucket,
+            avg_daily_dollar_volume_m=item.avg_daily_dollar_volume_m,
+            tags=item.tags,
+        )
+        for item in payload.instruments
+    ]
+    return get_app_state(request).market_history.upsert_instruments(instruments)
 
 
 @router.post("/data/history/sync")
