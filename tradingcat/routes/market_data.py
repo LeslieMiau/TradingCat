@@ -93,7 +93,21 @@ def data_quality(request: Request, lookback_days: int = 30):
 
 @router.get("/data/history/corporate-actions")
 def data_history_corporate_actions(request: Request, symbol: str, start: date, end: date):
-    return get_app_state(request).market_history.get_corporate_actions(symbol, start, end)
+    app = get_app_state(request)
+    summary = app.market_history.summarize_corporate_actions_coverage([symbol], start, end)
+    report = summary["reports"][0] if summary.get("reports") else {"symbol": symbol, "status": "unknown", "action_count": 0}
+    return {
+        "symbol": symbol,
+        "start": summary["start"],
+        "end": summary["end"],
+        "ready": summary["ready"],
+        "status": report.get("status", "unknown"),
+        "market": report.get("market"),
+        "action_count": report.get("action_count", 0),
+        "missing_symbols": summary.get("missing_symbols", []),
+        "blockers": summary.get("blockers", []),
+        "actions": app.market_history.get_corporate_actions(symbol, start, end),
+    }
 
 
 @router.get("/market-sessions")

@@ -302,6 +302,80 @@ class MarketDataService:
         instrument = self._resolve_instrument(symbol)
         return self._history.load_corporate_actions(instrument, start, end)
 
+    def summarize_corporate_actions_coverage(
+        self,
+        symbols: list[str] | None = None,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> dict[str, object]:
+        start_date = start or (date.today() - timedelta(days=30))
+        end_date = end or date.today()
+        targets = [item for item in self.list_instruments() if not symbols or item.symbol in symbols]
+        actions_by_symbol: dict[str, list[CorporateAction]] = {}
+        reports: list[dict[str, object]] = []
+        available_symbols: list[str] = []
+        confirmed_none_symbols: list[str] = []
+        missing_symbols: list[str] = []
+
+        for instrument in targets:
+            actions = self._history.load_corporate_actions(instrument, start_date, end_date)
+            error: str | None = None
+            if not actions:
+                sync = self.sync_history(symbols=[instrument.symbol], start=start_date, end=end_date, include_corporate_actions=True)
+                failure = next((item for item in sync.get("failures", []) if item.get("symbol") == instrument.symbol), None)
+                if failure is not None:
+                    error = str(failure.get("error") or "corporate action sync failed")
+                actions = self._history.load_corporate_actions(instrument, start_date, end_date)
+
+            actions_by_symbol[instrument.symbol] = self._deserialize_corporate_actions(instrument, actions, start_date)
+
+            if actions:
+                status = "available"
+                available_symbols.append(instrument.symbol)
+            elif error:
+                status = "missing"
+                missing_symbols.append(instrument.symbol)
+            else:
+                status = "confirmed_none"
+                confirmed_none_symbols.append(instrument.symbol)
+
+            effective_dates = [
+                str(
+                    action.get("ex_div_date")
+                    or action.get("record_date")
+                    or action.get("effective_date")
+                )
+                for action in actions
+                if action.get("ex_div_date") or action.get("record_date") or action.get("effective_date")
+            ]
+            reports.append(
+                {
+                    "symbol": instrument.symbol,
+                    "market": instrument.market,
+                    "status": status,
+                    "action_count": len(actions),
+                    "first_effective_date": min(effective_dates) if effective_dates else None,
+                    "last_effective_date": max(effective_dates) if effective_dates else None,
+                    "error": error,
+                }
+            )
+
+        blockers = self._corporate_action_blockers(missing_symbols)
+        return {
+            "start": start_date,
+            "end": end_date,
+            "instrument_count": len(targets),
+            "ready": not missing_symbols,
+            "status": "blocked" if missing_symbols else "ready",
+            "available_symbols": available_symbols,
+            "confirmed_none_symbols": confirmed_none_symbols,
+            "missing_symbols": missing_symbols,
+            "blocker_count": len(blockers),
+            "blockers": blockers,
+            "reports": reports,
+            "actions_by_symbol": actions_by_symbol,
+        }
+
     def sync_fx_rates(
         self,
         base_currency: str = "CNY",
@@ -358,34 +432,8 @@ class MarketDataService:
         return loaded
 
     def ensure_corporate_actions(self, symbols: list[str], start: date, end: date) -> dict[str, list[CorporateAction]]:
-        targets = [self._resolve_instrument(symbol) for symbol in symbols if self._resolve_instrument(symbol, strict=False) is not None]
-        loaded: dict[str, list[CorporateAction]] = {}
-
-        for instrument in targets:
-            actions = self._history.load_corporate_actions(instrument, start, end)
-            if not actions:
-                self.sync_history(symbols=[instrument.symbol], start=start, end=end, include_corporate_actions=True)
-                actions = self._history.load_corporate_actions(instrument, start, end)
-            loaded[instrument.symbol] = [
-                CorporateAction(
-                    instrument=instrument,
-                    effective_date=date.fromisoformat(
-                        str(
-                            action.get("ex_div_date")
-                            or action.get("record_date")
-                            or action.get("effective_date")
-                            or start.isoformat()
-                        )
-                    ),
-                    action_type=str(action.get("action") or action.get("action_type") or "unknown"),
-                    cash_amount=float(action.get("cash_amount") or action.get("dividend_amount") or 0.0),
-                    ratio=float(action.get("ratio") or action.get("split_ratio") or 1.0),
-                    currency=str(action.get("currency") or instrument.currency),
-                    metadata={key: value for key, value in action.items() if key not in {"action", "action_type"}},
-                )
-                for action in actions
-            ]
-        return loaded
+        coverage = self.summarize_corporate_actions_coverage(symbols=symbols, start=start, end=end)
+        return dict(coverage.get("actions_by_symbol", {}))
 
     def ensure_fx_rates(self, base_currency: str, quote_currencies: list[str], start: date, end: date) -> dict[str, list[FxRate]]:
         loaded: dict[str, list[FxRate]] = {}
@@ -483,3 +531,33 @@ class MarketDataService:
         while candidate.weekday() >= 5 and candidate > month_start:
             candidate -= timedelta(days=1)
         return candidate
+
+    def _deserialize_corporate_actions(self, instrument: Instrument, actions: list[dict], start: date) -> list[CorporateAction]:
+        return [
+            CorporateAction(
+                instrument=instrument,
+                effective_date=date.fromisoformat(
+                    str(
+                        action.get("ex_div_date")
+                        or action.get("record_date")
+                        or action.get("effective_date")
+                        or start.isoformat()
+                    )
+                ),
+                action_type=str(action.get("action") or action.get("action_type") or "unknown"),
+                cash_amount=float(action.get("cash_amount") or action.get("dividend_amount") or 0.0),
+                ratio=float(action.get("ratio") or action.get("split_ratio") or 1.0),
+                currency=str(action.get("currency") or instrument.currency),
+                metadata={key: value for key, value in action.items() if key not in {"action", "action_type"}},
+            )
+            for action in actions
+        ]
+
+    def _corporate_action_blockers(self, missing_symbols: list[str]) -> list[str]:
+        if not missing_symbols:
+            return []
+        joined = ", ".join(sorted(dict.fromkeys(missing_symbols)))
+        return [
+            f"Corporate action coverage is unavailable for: {joined}.",
+            "Run POST /data/history/sync with include_corporate_actions=true for the affected symbols, then recheck GET /data/history/corporate-actions.",
+        ]

@@ -53,7 +53,8 @@ class ResearchService:
         history_by_symbol = self._load_signal_history(all_signals or signals, sample_start, as_of)
         signal_symbols = {signal.instrument.symbol for signal in all_signals} if all_signals else {signal.instrument.symbol for signal in signals}
         complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
-        corporate_actions_by_symbol = self._load_signal_corporate_actions(all_signals or signals, sample_start, as_of)
+        corporate_action_coverage = self._load_signal_corporate_action_coverage(all_signals or signals, sample_start, as_of)
+        corporate_actions_by_symbol = dict(corporate_action_coverage.get("actions_by_symbol", {}))
         fx_rates_by_pair = self._load_signal_fx_rates(all_signals or signals, sample_start, as_of, base_currency="CNY")
         if complete_history:
             metrics, windows, monthly_returns, ledger = self._backtester.run_walk_forward_from_history(
@@ -80,12 +81,17 @@ class ResearchService:
             and all(bool(window["passed"]) for window in windows)
         )
         missing_history_symbols = len(signal_symbols - set(history_by_symbol))
-        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol)
+        corporate_actions_ready = bool(corporate_action_coverage.get("ready", True))
+        missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
+        corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
+        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol) and corporate_actions_ready
         data_blockers = self._research_data_blockers(
             data_source=data_source,
             signal_symbol_count=len(signal_symbols),
             history_symbol_count=len(history_by_symbol),
             missing_history_symbols=missing_history_symbols,
+            missing_corporate_action_symbols=missing_corporate_action_symbols,
+            corporate_action_blockers=corporate_action_blockers,
         )
         correlation_key = "|".join(f"{value:.6f}" for value in monthly_returns)
         replay_inputs = self._build_replay_inputs(strategy_id, as_of, signals, sample_start, data_source)
@@ -117,6 +123,10 @@ class ResearchService:
                 "history_complete": complete_history,
                 "fx_pairs": len(fx_rates_by_pair),
                 "corporate_action_symbols": len([symbol for symbol, actions in corporate_actions_by_symbol.items() if actions]),
+                "corporate_actions_ready": corporate_actions_ready,
+                "missing_corporate_action_symbols": missing_corporate_action_symbols,
+                "corporate_action_blockers": corporate_action_blockers,
+                "corporate_action_coverage": self._serialize_corporate_action_coverage(corporate_action_coverage),
                 "ledger_entries": len(ledger),
                 "replay_inputs": replay_inputs,
                 "replay_fingerprint": self._fingerprint(replay_inputs),
@@ -179,10 +189,31 @@ class ResearchService:
             return {}
         return self._market_data.ensure_history(sorted({signal.instrument.symbol for signal in signals}), start, end)
 
-    def _load_signal_corporate_actions(self, signals: list[Signal], start: date, end: date):
+    def _load_signal_corporate_action_coverage(self, signals: list[Signal], start: date, end: date) -> dict[str, object]:
         if self._market_data is None or not signals:
-            return {}
-        return self._market_data.ensure_corporate_actions(sorted({signal.instrument.symbol for signal in signals}), start, end)
+            return {
+                "ready": True,
+                "missing_symbols": [],
+                "blockers": [],
+                "reports": [],
+                "actions_by_symbol": {},
+            }
+        symbols = sorted(
+            {
+                str(signal.metadata.get("underlying_symbol") or signal.instrument.symbol)
+                for signal in signals
+                if signal.instrument.asset_class.value != "option"
+            }
+        )
+        if not symbols:
+            return {
+                "ready": True,
+                "missing_symbols": [],
+                "blockers": [],
+                "reports": [],
+                "actions_by_symbol": {},
+            }
+        return self._market_data.summarize_corporate_actions_coverage(symbols, start, end)
 
     def _load_signal_fx_rates(self, signals: list[Signal], start: date, end: date, base_currency: str):
         if self._market_data is None or not signals:
@@ -232,6 +263,8 @@ class ResearchService:
         signal_symbol_count: int,
         history_symbol_count: int,
         missing_history_symbols: int,
+        missing_corporate_action_symbols: list[str],
+        corporate_action_blockers: list[str],
     ) -> list[str]:
         blockers: list[str] = []
         if data_source != "historical":
@@ -240,7 +273,23 @@ class ResearchService:
             blockers.append("No local historical data was available for the required symbols.")
         elif missing_history_symbols > 0:
             blockers.append(f"Local history coverage is incomplete for {missing_history_symbols} required symbol(s).")
+        if missing_corporate_action_symbols:
+            blockers.append(
+                f"Corporate action coverage is incomplete for: {', '.join(sorted(dict.fromkeys(missing_corporate_action_symbols)))}."
+            )
+        blockers.extend(corporate_action_blockers)
         return blockers
+
+    def _serialize_corporate_action_coverage(self, payload: dict[str, object]) -> dict[str, object]:
+        return {
+            "ready": bool(payload.get("ready", True)),
+            "status": payload.get("status", "ready"),
+            "missing_symbols": [str(item) for item in payload.get("missing_symbols", [])],
+            "available_symbols": [str(item) for item in payload.get("available_symbols", [])],
+            "confirmed_none_symbols": [str(item) for item in payload.get("confirmed_none_symbols", [])],
+            "blockers": [str(item) for item in payload.get("blockers", [])],
+            "reports": list(payload.get("reports", [])),
+        }
 
     def _normalize_replay_inputs(self, payload: object) -> dict[str, object]:
         return payload if isinstance(payload, dict) else {}

@@ -200,6 +200,40 @@ def test_data_quality_and_readiness_surface_coverage_blockers():
         app_state.market_history.summarize_history_coverage = original_summary
 
 
+def test_data_history_corporate_actions_endpoint_exposes_status():
+    original_summary = app_state.market_history.summarize_corporate_actions_coverage
+    original_actions = app_state.market_history.get_corporate_actions
+    try:
+        app_state.market_history.summarize_corporate_actions_coverage = lambda symbols=None, start=None, end=None: {
+            "start": date(2026, 3, 2),
+            "end": date(2026, 3, 6),
+            "ready": False,
+            "missing_symbols": ["SPY"],
+            "blockers": ["Corporate action coverage is unavailable for: SPY."],
+            "reports": [
+                {
+                    "symbol": "SPY",
+                    "market": "US",
+                    "status": "missing",
+                    "action_count": 0,
+                }
+            ],
+        }
+        app_state.market_history.get_corporate_actions = lambda symbol, start, end: []
+
+        response = client.get("/data/history/corporate-actions", params={"symbol": "SPY", "start": "2026-03-02", "end": "2026-03-06"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ready"] is False
+        assert payload["status"] == "missing"
+        assert payload["missing_symbols"] == ["SPY"]
+        assert payload["blockers"]
+        assert payload["actions"] == []
+    finally:
+        app_state.market_history.summarize_corporate_actions_coverage = original_summary
+        app_state.market_history.get_corporate_actions = original_actions
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200
@@ -554,6 +588,9 @@ def test_research_scorecard_and_strategy_detail_endpoints():
     assert "benchmark" in payload
     assert "yearly_performance" in payload
     assert "recommendation" in payload
+    assert "corporate_actions_ready" in payload
+    assert "corporate_action_coverage" in payload
+    assert "corporate_action_blockers" in payload
 
     candidate_scorecard = client.post("/research/candidates/scorecard", params={"as_of": "2026-03-08"})
     assert candidate_scorecard.status_code == 200

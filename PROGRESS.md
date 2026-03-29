@@ -187,3 +187,20 @@
   - 顶层 readiness 当前只直接暴露数据 blocker 文案，不额外重复拼接 alerts/compliance 文案，避免一个响应里出现多套重复 blocker 文本。
 - Remaining focus for next session:
   - feature #20：让公司行为覆盖率和缺失状态进入研究输出，避免个股/ETF 回测在拆股/分红场景下静默失真。
+
+## Session update — 2026-03-29
+- Completed feature #20: 公司行为覆盖率和缺失状态现在会进入研究输出，避免个股/ETF 回测在拆股/分红场景下静默失真。
+- Code changes:
+  - `MarketDataService` 新增公司行为覆盖摘要：会区分 `available / confirmed_none / missing`，并返回 `missing_symbols`、`blockers` 和 `actions_by_symbol`；`/data/history/corporate-actions` 也改为直接返回状态、阻塞信息和动作列表。
+  - `ResearchService.run_experiment()` 现在把公司行为覆盖纳入 `data_ready` 判定，并把 `corporate_actions_ready`、`missing_corporate_action_symbols`、`corporate_action_blockers`、`corporate_action_coverage` 落进研究 assumptions。
+  - `StrategyAnalysisService` 的 report/detail 现在会暴露这些公司行为字段，因此研究详情页与研究报告都能直接看到公司行为是否缺失、缺了谁、是否因此阻塞推广。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_research_reporting.py tests/test_api.py -q` -> `52 passed`
+  - `curl -sS http://127.0.0.1:8019/preflight/startup` -> `healthy=true`
+  - 在临时空数据目录上运行 `curl -sS "http://127.0.0.1:8019/data/history/corporate-actions?symbol=SPY&start=2026-03-02&end=2026-03-06"` -> 返回 `status="confirmed_none"`、`ready=true`、`actions=[]`
+  - 同一临时环境下 `curl -sS "http://127.0.0.1:8019/research/strategies/strategy_a_etf_rotation?as_of=2026-03-08"` -> 返回 `corporate_actions_ready`、`corporate_action_blockers`、`corporate_action_coverage`
+- Decisions:
+  - 对“窗口内确实没有公司行为”的场景，这一步显式标成 `confirmed_none`，避免把“没有动作”和“抓不到数据”混为一谈。
+  - 缺失公司行为的强阻塞语义主要由新增单测锁定；真实 HTTP 则优先验证新字段已经稳定暴露，避免依赖外部行情源在当前时刻恰好返回缺失。
+- Remaining focus for next session:
+  - feature #21：让 FX 覆盖率与缺失状态进入研究输出，避免跨市场收益换算静默失真。

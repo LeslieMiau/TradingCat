@@ -46,6 +46,7 @@ class StrategyAnalysisService:
             blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
             research_passed = bool(experiment.passed_validation)
             minimum_coverage_ratio = round(float(history_coverage.get("minimum_coverage_ratio", 0.0)), 4)
+            corporate_action_coverage = experiment.assumptions.get("corporate_action_coverage", {})
             validation_status = self._validation_status(
                 passed_validation=research_passed,
                 promotion_blocked=not data_ready,
@@ -75,6 +76,10 @@ class StrategyAnalysisService:
                 "history_complete": bool(experiment.assumptions.get("history_complete", False)),
                 "history_symbols": int(experiment.assumptions.get("history_symbols", 0)),
                 "missing_history_symbols": int(experiment.assumptions.get("missing_history_symbols", 0)),
+                "corporate_actions_ready": bool(experiment.assumptions.get("corporate_actions_ready", True)),
+                "missing_corporate_action_symbols": list(experiment.assumptions.get("missing_corporate_action_symbols", [])),
+                "corporate_action_blockers": list(experiment.assumptions.get("corporate_action_blockers", [])),
+                "corporate_action_coverage": corporate_action_coverage,
                 **stability,
             }
             if research_passed and max_selected_correlation < 0.7:
@@ -317,6 +322,10 @@ class StrategyAnalysisService:
             "history_coverage_threshold": coverage_threshold,
             "missing_coverage_symbols": missing_coverage_symbols,
             "history_coverage_blockers": self._history_coverage_blockers(coverage, blocking_reasons),
+            "corporate_actions_ready": bool(experiment.assumptions.get("corporate_actions_ready", True)),
+            "missing_corporate_action_symbols": list(experiment.assumptions.get("missing_corporate_action_symbols", [])),
+            "corporate_action_blockers": list(experiment.assumptions.get("corporate_action_blockers", [])),
+            "corporate_action_coverage": experiment.assumptions.get("corporate_action_coverage", {}),
             "signals": [
                 {
                     "symbol": signal.instrument.symbol,
@@ -351,6 +360,9 @@ class StrategyAnalysisService:
                 "history_complete": experiment.assumptions.get("history_complete"),
                 "history_symbols": experiment.assumptions.get("history_symbols"),
                 "missing_history_symbols": experiment.assumptions.get("missing_history_symbols"),
+                "corporate_actions_ready": experiment.assumptions.get("corporate_actions_ready"),
+                "missing_corporate_action_symbols": experiment.assumptions.get("missing_corporate_action_symbols"),
+                "corporate_action_blockers": experiment.assumptions.get("corporate_action_blockers"),
                 "commission_bps": experiment.assumptions.get("commission_bps"),
                 "slippage_bps": experiment.assumptions.get("slippage_bps"),
                 "total_cost_bps": experiment.assumptions.get("total_cost_bps"),

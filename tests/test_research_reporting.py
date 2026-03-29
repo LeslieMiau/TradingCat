@@ -209,6 +209,40 @@ def test_research_report_marks_partial_history_as_hard_blocked(tmp_path):
     assert any("history coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
 
 
+def test_research_report_blocks_missing_corporate_actions(tmp_path):
+    class MissingCorporateActionsAdapter(StaticMarketDataAdapter):
+        def fetch_corporate_actions(self, instrument, start, end):
+            if instrument.symbol in {"SPY", "QQQ", "510300"}:
+                raise RuntimeError("corporate actions unavailable")
+            return super().fetch_corporate_actions(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=MissingCorporateActionsAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    strategy_report = report["strategy_reports"][0]
+    assert strategy_report["data_source"] == "historical"
+    assert strategy_report["data_ready"] is False
+    assert strategy_report["corporate_actions_ready"] is False
+    assert strategy_report["missing_corporate_action_symbols"] == ["510300", "QQQ", "SPY"]
+    assert strategy_report["corporate_action_blockers"]
+    assert report["hard_blocked"] is True
+    assert any("corporate action coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
+
+
 def test_research_stability_report_returns_summary(tmp_path):
     service = ResearchService(BacktestExperimentRepository(tmp_path))
     as_of = date(2026, 3, 8)
@@ -350,6 +384,33 @@ def test_research_strategy_detail_exposes_missing_history_symbols(tmp_path):
     assert detail["history_coverage_threshold"] == 0.95
     assert detail["missing_coverage_symbols"] == ["510300", "QQQ"]
     assert any("510300, QQQ" in reason or "QQQ, 510300" in reason for reason in detail["history_coverage_blockers"])
+
+
+def test_research_strategy_detail_exposes_corporate_action_gaps(tmp_path):
+    class MissingCorporateActionsAdapter(StaticMarketDataAdapter):
+        def fetch_corporate_actions(self, instrument, start, end):
+            if instrument.symbol in {"SPY", "QQQ", "510300"}:
+                raise RuntimeError("corporate actions unavailable")
+            return super().fetch_corporate_actions(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=MissingCorporateActionsAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+
+    assert detail["corporate_actions_ready"] is False
+    assert detail["missing_corporate_action_symbols"] == ["510300", "QQQ", "SPY"]
+    assert detail["corporate_action_blockers"]
+    assert detail["corporate_action_coverage"]["ready"] is False
 
 
 def test_research_monthly_returns_support_mixed_timezone_bars(tmp_path):

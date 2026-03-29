@@ -153,6 +153,28 @@ def test_market_data_service_coverage_returns_blockers_for_missing_symbols(tmp_p
     assert any("run post /data/history/sync" in blocker.lower() for blocker in coverage["blockers"])
 
 
+def test_market_data_service_summarizes_missing_corporate_actions(tmp_path):
+    class MissingCorporateActionsAdapter(StaticMarketDataAdapter):
+        def fetch_corporate_actions(self, instrument, start, end):
+            if instrument.symbol == "SPY":
+                raise RuntimeError("corporate actions unavailable")
+            return super().fetch_corporate_actions(instrument, start, end)
+
+    service = MarketDataService(
+        adapter=MissingCorporateActionsAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    coverage = service.summarize_corporate_actions_coverage(symbols=["SPY"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+
+    assert coverage["ready"] is False
+    assert coverage["missing_symbols"] == ["SPY"]
+    assert coverage["reports"][0]["status"] == "missing"
+    assert coverage["blocker_count"] == len(coverage["blockers"])
+    assert any("corporate action coverage is unavailable" in blocker.lower() for blocker in coverage["blockers"])
+
+
 def test_market_data_service_syncs_and_reads_fx_rates(tmp_path):
     service = MarketDataService(
         adapter=StaticMarketDataAdapter(),
