@@ -18,6 +18,7 @@ from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
+from tradingcat.services.strategy_registry import StrategyRegistry, StrategySignalProvider
 from tradingcat.strategies.simple import (
     AllWeatherStrategy,
     DefensiveTrendStrategy,
@@ -29,7 +30,7 @@ from tradingcat.strategies.simple import (
 )
 
 
-def build_strategy_registry(market_history: MarketDataService) -> dict[str, object]:
+def build_strategy_registry(market_history: MarketDataService) -> StrategyRegistry:
     strategies = [
         EtfRotationStrategy(market_history),
         EquityMomentumStrategy(market_history),
@@ -39,7 +40,7 @@ def build_strategy_registry(market_history: MarketDataService) -> dict[str, obje
         AllWeatherStrategy(),
         Jianfang3LStrategy(),
     ]
-    return {strategy.strategy_id: strategy for strategy in strategies}  # type: ignore[attr-defined]
+    return StrategyRegistry(strategies)
 
 
 @dataclass(slots=True)
@@ -55,7 +56,8 @@ class ApplicationRuntime:
     alpha_radar: AlphaRadarService
     macro_calendar: MacroCalendarService
     rule_engine: RuleEngine
-    strategy_registry: dict[str, object]
+    strategy_registry: StrategyRegistry
+    strategy_signal_provider: StrategySignalProvider
 
     @classmethod
     def build(
@@ -87,7 +89,8 @@ class ApplicationRuntime:
         )
         research = ResearchService(repository=backtest_repository, market_data=market_history)
         strategy_registry = build_strategy_registry(market_history)
-        research.register_strategies(list(strategy_registry.values()))
+        research.register_strategies(strategy_registry.all())
+        strategy_signal_provider = StrategySignalProvider(strategy_registry)
         alpha_radar = AlphaRadarService(config, market_history)
         macro_calendar = MacroCalendarService(config)
         rule_engine = RuleEngine(
@@ -109,6 +112,7 @@ class ApplicationRuntime:
             macro_calendar=macro_calendar,
             rule_engine=rule_engine,
             strategy_registry=strategy_registry,
+            strategy_signal_provider=strategy_signal_provider,
         )
 
     def register_strategies(self, strategies: list[object]) -> None:

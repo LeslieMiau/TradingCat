@@ -272,6 +272,21 @@
 - Decisions:
   - 这一步只做“稳定 registry”，没有顺手把 `StrategyRegistry` / `StrategySignalProvider` 单独抽成新 service，避免在一个 session 里同时跨 Feature 2 和 Feature 3。
   - 验证时对 API 定点用例显式用了隔离 `TRADINGCAT_DATA_DIR`，因为默认 data/runtime 路径在并发测试下会互相踩状态；先保证 feature 语义稳定，再把更系统化的测试隔离策略留给后续 session。
+
+## Session update — 2026-03-29
+- Completed feature: 架构治理 Feature 3，正式抽出 `StrategyRegistry / StrategySignalProvider`，把策略 lookup 和 signal-map 生成从 `app.py` 中移走。
+- Code changes:
+  - 新增 [tradingcat/services/strategy_registry.py](/Users/miau/Documents/TradingCat/tradingcat/services/strategy_registry.py)，提供 `StrategyRegistry` 和 `StrategySignalProvider` 两个 runtime 协作对象。
+  - `ApplicationRuntime` 现在持有 `strategy_registry` 和 `strategy_signal_provider`；构建 runtime 时会一次性装配这两个对象并注册到 `ResearchService`。
+  - `TradingCatApplication` 的 `strategy_by_id()`、`active_execution_strategies()`、`get_signals()`、`_strategy_signal_map()` 现在都只做 delegation，不再自己维护 lookup/filter/generate 逻辑。
+  - 新增 runtime 测试，锁定 signal provider 会复用 registry 中的稳定策略实例。
+- Validation:
+  - `.venv/bin/pytest tests/test_runtime_recovery.py -q` -> `5 passed`
+  - `.venv/bin/pytest tests/test_research_reporting.py::test_research_report_does_not_pollute_short_window_stock_signals -q` -> `1 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+- Decisions:
+  - 这一步只抽 runtime registry/provider，不继续把 facade 和 route 一起改薄，避免把 Feature 3 和后续 facade/query-service feature 混在同一个 session。
+  - `scheduler_runtime.py` 和 facade 侧暂时继续通过 `app.research_strategies` / `app.strategy_signal_map()` 访问策略，但这些入口现在已经是对 registry/provider 的薄代理，后续再进一步削掉 `app.py` 的编排重量。
   - baseline 目前按“研究优先级最高的 5 个 symbol”固定下来，先解决个人交易主链路的最小可复现性，而不是一次把全 universe 都做厚。
 - Remaining focus for next session:
   - feature #23：把 smart order 的 RSI 条件改成真实指标计算，而不是 mock 常量。

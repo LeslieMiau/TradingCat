@@ -180,12 +180,16 @@ class TradingCatApplication:
         return self._require_runtime().rule_engine
 
     @property
-    def strategy_registry(self) -> dict[str, object]:
+    def strategy_registry(self):
         return self._require_runtime().strategy_registry
 
     @property
+    def strategy_signal_provider(self):
+        return self._require_runtime().strategy_signal_provider
+
+    @property
     def research_strategies(self) -> list[object]:
-        return list(self.strategy_registry.values())
+        return self.strategy_registry.all()
 
     @property
     def _default_execution_strategy_ids(self) -> list[str]:
@@ -241,7 +245,7 @@ class TradingCatApplication:
 
     def strategy_by_id(self, strategy_id: str):
         try:
-            return self.strategy_registry[strategy_id]
+            return self.strategy_registry.get(strategy_id)
         except KeyError as exc:
             raise KeyError(strategy_id) from exc
 
@@ -261,38 +265,27 @@ class TradingCatApplication:
         return []
 
     def active_execution_strategies(self) -> list[object]:
-        active = set(self.active_execution_strategy_ids())
-        return [strategy for strategy in self.research_strategies if strategy.strategy_id in active]
+        return self.strategy_registry.select(self.active_execution_strategy_ids())
 
     def _execution_signals_for_strategy(self, strategy, as_of: date) -> list[Signal]:
-        return [
-            signal
-            for signal in strategy.generate_signals(as_of)
-            if str(signal.metadata.get("execution_mode", "live")) != "research_only"
-        ]
+        return self.strategy_signal_provider.execution_signals_for_strategy(strategy, as_of)
 
     def _execution_signals_with_fallback(self, as_of: date) -> list[Signal]:
-        signals = self.get_signals(as_of)
-        if len(signals) >= 3:
-            return signals
-        fallback_ids = set(self._default_execution_strategy_ids)
-        fallback: list[Signal] = []
-        for strategy in self.research_strategies:
-            if strategy.strategy_id in fallback_ids:
-                fallback.extend(self._execution_signals_for_strategy(strategy, as_of))
-        return fallback or signals
+        return self.strategy_signal_provider.execution_signals_with_fallback(
+            as_of,
+            strategy_ids=self.active_execution_strategy_ids(),
+            fallback_strategy_ids=self._default_execution_strategy_ids,
+        )
 
     def get_signals(self, as_of: date) -> list[Signal]:
-        signals: list[Signal] = []
-        for strategy in self.active_execution_strategies():
-            signals.extend(self._execution_signals_for_strategy(strategy, as_of))
-        return signals
+        return self.strategy_signal_provider.execution_signals(
+            as_of,
+            strategy_ids=self.active_execution_strategy_ids(),
+        )
 
     def _strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, list[Signal]]:
-        strategies = self.research_strategies if include_candidates else [
-            strategy for strategy in self.research_strategies if strategy.strategy_id in self._default_execution_strategy_ids
-        ]
-        return {strategy.strategy_id: strategy.generate_signals(as_of) for strategy in strategies}
+        strategy_ids = None if include_candidates else self._default_execution_strategy_ids
+        return self.strategy_signal_provider.strategy_signal_map(as_of, strategy_ids=strategy_ids)
 
     def strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, list[Signal]]:
         return self._strategy_signal_map(as_of, include_candidates=include_candidates)

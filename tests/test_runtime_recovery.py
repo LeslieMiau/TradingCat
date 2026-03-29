@@ -1,3 +1,5 @@
+from datetime import date
+
 from tradingcat.config import AppConfig, FutuConfig
 from tradingcat.main import TradingCatApplication
 
@@ -51,8 +53,24 @@ def test_application_strategy_registry_is_stable_within_runtime(tmp_path):
 
     assert first is second
     assert app.runtime is not None
-    assert app.runtime.strategy_registry["strategy_a_etf_rotation"] is first
+    assert app.runtime.strategy_registry.get("strategy_a_etf_rotation") is first
     assert any(strategy is first for strategy in app.research_strategies)
+
+
+def test_application_strategy_signal_provider_uses_registry_instances(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+
+    etf_strategy = app.strategy_by_id("strategy_a_etf_rotation")
+    signal_map = app.strategy_signal_map(date(2026, 3, 8))
+
+    assert app.runtime is not None
+    assert app.runtime.strategy_signal_provider.execution_signals_for_strategy(etf_strategy, date(2026, 3, 8))
+    assert "strategy_a_etf_rotation" in signal_map
 
 
 def test_runtime_recovery_rebuilds_strategy_registry(tmp_path):
