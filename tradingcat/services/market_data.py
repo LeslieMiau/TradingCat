@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class MarketDataService:
+    _COVERAGE_THRESHOLD = 0.95
+
     def __init__(
         self,
         adapter: MarketDataAdapter,
@@ -171,13 +173,44 @@ class MarketDataService:
                 }
             )
 
-        complete = sum(1 for report in reports if float(report["coverage_ratio"]) >= 0.95)
+        minimum_coverage_ratio = round(min((float(report["coverage_ratio"]) for report in reports), default=1.0), 4)
+        complete = sum(1 for report in reports if float(report["coverage_ratio"]) >= self._COVERAGE_THRESHOLD)
+        missing_symbols = [
+            str(report["symbol"])
+            for report in reports
+            if float(report["coverage_ratio"]) < self._COVERAGE_THRESHOLD or int(report["missing_count"]) > 0
+        ]
+        missing_windows = [
+            {
+                "symbol": report["symbol"],
+                "market": report["market"],
+                "missing_count": report["missing_count"],
+                "missing_preview": report["missing_preview"],
+                "first_missing_date": report["missing_preview"][0] if report["missing_preview"] else None,
+                "last_missing_date": report["missing_preview"][-1] if report["missing_preview"] else None,
+            }
+            for report in reports
+            if int(report["missing_count"]) > 0
+        ]
+        blockers = self._coverage_blockers(
+            minimum_coverage_ratio=minimum_coverage_ratio,
+            missing_symbols=missing_symbols,
+            start_date=start_date,
+            end_date=end_date,
+        )
         return {
             "start": start_date,
             "end": end_date,
             "instrument_count": len(targets),
             "expected_trading_days": len(expected_dates),
             "complete_instruments": complete,
+            "minimum_coverage_ratio": minimum_coverage_ratio,
+            "minimum_required_ratio": self._COVERAGE_THRESHOLD,
+            "missing_symbols": missing_symbols,
+            "missing_windows": missing_windows,
+            "blocked": bool(blockers),
+            "blocker_count": len(blockers),
+            "blockers": blockers,
             "reports": reports,
         }
 
@@ -211,6 +244,22 @@ class MarketDataService:
             "repaired_symbols": repaired_symbols,
             "repair_count": len(repaired_symbols),
         }
+
+    def _coverage_blockers(
+        self,
+        *,
+        minimum_coverage_ratio: float,
+        missing_symbols: list[str],
+        start_date: date,
+        end_date: date,
+    ) -> list[str]:
+        if not missing_symbols:
+            return []
+        return [
+            f"Minimum history coverage is {minimum_coverage_ratio:.2%}, below the {self._COVERAGE_THRESHOLD:.0%} requirement.",
+            f"Missing history detected for: {', '.join(missing_symbols[:5])}.",
+            f"Run POST /data/history/sync for the affected symbols between {start_date.isoformat()} and {end_date.isoformat()}, then recheck GET /data/history/coverage.",
+        ]
 
     def get_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
         instrument = self._resolve_instrument(symbol)

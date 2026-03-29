@@ -162,7 +162,7 @@
       "覆盖不足时，返回结果包含可执行的 blocker 描述。",
       "market-data 覆盖测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 16,

@@ -106,3 +106,19 @@
   - 继续保留 `drop -> rejected` 的原语义，只把“理论上可推进但数据未就绪”的策略强制压到 `paper_only/shadow`，避免过度宽松或过度保守。
 - Remaining focus for next session:
   - feature #15：让 `/data/history/coverage` 返回更明确的最小覆盖率摘要与可执行 blocker，给后续 repair-plan / data-quality 链路打底。
+
+## Session update — 2026-03-29
+- Completed feature #15: `/data/history/coverage` 现在返回最小覆盖率、覆盖阈值、缺失 symbol / 窗口摘要与可直接执行的 blocker。
+- Code changes:
+  - `MarketDataService.summarize_history_coverage()` 现在在顶层返回 `minimum_coverage_ratio`、`minimum_required_ratio`、`missing_symbols`、`missing_windows`、`blocked`、`blocker_count`、`blockers`。
+  - 新增 coverage blocker helper，把“最低覆盖率低于阈值”“哪些 symbol 缺失”“下一步该跑什么 sync 命令”直接拼成可执行提示。
+  - 新增 market-data service 与 API 测试，锁定正常与缺失两条路径的 coverage 摘要字段。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_api.py -q` -> `25 passed`
+  - `curl -sS "http://127.0.0.1:8014/data/history/coverage?symbols=SPY&start=2026-03-02&end=2026-03-06"` -> 返回 `minimum_coverage_ratio=1.0`、`blockers=[]`
+  - `curl -sS "http://127.0.0.1:8014/data/history/coverage?symbols=QQQ&start=2026-03-02&end=2026-03-06"` -> 返回新增的 coverage 摘要字段结构
+- Decisions:
+  - 先把 coverage 摘要接口做完整，再让 `repair-plan`、`sync-status`、`data-quality` 逐步复用这些顶层字段，避免后续 feature 各自再重复拼摘要。
+  - 真实 HTTP 里 `QQQ` 在该窗口上仍然返回 `blocked=false`，说明当前本机数据状态比单测更完整；blocked 路径由新增的 partial-history service 测试覆盖。
+- Remaining focus for next session:
+  - feature #16：history sync run 需要把 symbol 级成功/失败/缺失统计落到 run 记录和列表里，为长期数据质量追踪做准备。

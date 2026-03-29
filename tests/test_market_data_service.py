@@ -64,6 +64,9 @@ def test_market_data_service_summarizes_history_coverage(tmp_path):
     assert coverage["expected_trading_days"] == 5
     assert coverage["complete_instruments"] == 1
     assert coverage["reports"][0]["coverage_ratio"] == 1.0
+    assert coverage["minimum_coverage_ratio"] == 1.0
+    assert coverage["missing_symbols"] == []
+    assert coverage["blockers"] == []
 
 
 def test_market_data_service_repairs_missing_history(tmp_path):
@@ -119,6 +122,31 @@ def test_market_data_service_coverage_uses_observed_market_days(tmp_path):
     assert coverage["complete_instruments"] == 1
     assert coverage["reports"][0]["coverage_ratio"] == 1.0
     assert coverage["reports"][0]["missing_count"] == 0
+
+
+def test_market_data_service_coverage_returns_blockers_for_missing_symbols(tmp_path):
+    class PartialFailureAdapter(StaticMarketDataAdapter):
+        def fetch_bars(self, instrument, start, end):
+            if instrument.symbol == "QQQ":
+                raise RuntimeError("quote permission missing")
+            return super().fetch_bars(instrument, start, end)
+
+    service = MarketDataService(
+        adapter=PartialFailureAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    service.sync_history(symbols=["SPY", "QQQ"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+    coverage = service.summarize_history_coverage(symbols=["SPY", "QQQ"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+
+    assert coverage["minimum_required_ratio"] == 0.95
+    assert coverage["minimum_coverage_ratio"] < 0.95
+    assert coverage["missing_symbols"] == ["QQQ"]
+    assert coverage["missing_windows"][0]["symbol"] == "QQQ"
+    assert coverage["blocked"] is True
+    assert coverage["blocker_count"] == len(coverage["blockers"])
+    assert any("run post /data/history/sync" in blocker.lower() for blocker in coverage["blockers"])
 
 
 def test_market_data_service_syncs_and_reads_fx_rates(tmp_path):

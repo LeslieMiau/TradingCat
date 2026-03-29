@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi.testclient import TestClient
 
 from tradingcat.main import app, app_state
@@ -56,6 +58,21 @@ def test_research_interfaces_expose_data_blockers():
     assert "history_coverage_threshold" in detail_payload
     assert "missing_coverage_symbols" in detail_payload
     assert "history_coverage_blockers" in detail_payload
+
+
+def test_data_history_coverage_endpoint_exposes_summary_fields():
+    app_state.market_history.sync_history(symbols=["SPY"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+
+    coverage = client.get("/data/history/coverage", params={"symbols": "SPY", "start": "2026-03-02", "end": "2026-03-06"})
+    assert coverage.status_code == 200
+    payload = coverage.json()
+    assert "minimum_coverage_ratio" in payload
+    assert "minimum_required_ratio" in payload
+    assert "missing_symbols" in payload
+    assert "missing_windows" in payload
+    assert "blocked" in payload
+    assert "blocker_count" in payload
+    assert "blockers" in payload
 
 
 def test_scheduler_and_market_session_endpoints():
