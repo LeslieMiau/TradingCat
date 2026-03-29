@@ -59,6 +59,7 @@ from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.operations_analytics import OperationsAnalyticsService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
+from tradingcat.services.portfolio_projections import PortfolioProjectionService
 from tradingcat.services.query_services import DataQualityQueryService, ReadinessQueryService
 from tradingcat.services.reporting import (
     build_incident_replay,
@@ -125,6 +126,10 @@ class TradingCatApplication:
         self.operations_facade = OperationsFacade(self)
         self.journal_facade = JournalFacade(self)
         self.alerts_facade = AlertsFacade(self)
+        self.portfolio_projections = PortfolioProjectionService(
+            available_cash_by_market=self.available_cash_by_market,
+            nav_history=self.portfolio.nav_history,
+        )
         self.data_quality_queries = DataQualityQueryService(
             config=self.config,
             market_history_getter=lambda: self.market_history,
@@ -978,40 +983,6 @@ class TradingCatApplication:
                 }
             )
         return {"as_of": as_of, "nav": snapshot.nav, "items": items, "allocation_summary": allocation_summary}
-
-    def _account_keys(self) -> list[str]:
-        return ["total", Market.CN.value, Market.HK.value, Market.US.value]
-
-    def _account_positions(self, snapshot, account: str):
-        if account == "total":
-            return [position.model_dump(mode="json") for position in snapshot.positions]
-        return [position.model_dump(mode="json") for position in snapshot.positions if position.instrument.market.value == account]
-
-    def _account_cash_map(self, snapshot) -> dict[str, float]:
-        cash_by_market = self._available_cash_by_market()
-        return {
-            "total": snapshot.cash,
-            Market.CN.value: round(cash_by_market.get(Market.CN, 0.0), 4),
-            Market.HK.value: round(cash_by_market.get(Market.HK, 0.0), 4),
-            Market.US.value: round(cash_by_market.get(Market.US, 0.0), 4),
-        }
-
-    def _account_curves(self, limit: int = 90) -> dict[str, list[dict[str, object]]]:
-        curves = {key: [] for key in self._account_keys()}
-        history = self.portfolio.nav_history(limit=limit)
-        if not history:
-            return curves
-        current_cash_map = self._account_cash_map(history[-1])
-        for item in history:
-            market_values = {
-                Market.CN.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.CN), 4),
-                Market.HK.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.HK), 4),
-                Market.US.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.US), 4),
-            }
-            curves["total"].append({"t": item.timestamp.isoformat(), "v": round(item.nav, 4)})
-            for market_key in (Market.CN.value, Market.HK.value, Market.US.value):
-                curves[market_key].append({"t": item.timestamp.isoformat(), "v": round(market_values[market_key] + current_cash_map.get(market_key, 0.0), 4)})
-        return curves
 
     def dashboard_summary(self, as_of: date | None = None) -> dict[str, object]:
         return self.dashboard_facade.build_summary(as_of).model_dump(mode="json")

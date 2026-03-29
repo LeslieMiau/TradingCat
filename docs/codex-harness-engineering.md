@@ -215,9 +215,12 @@ codex resume --last
 |---|---|---|
 | Feature list (JSON, 不可篡改) | PLAN.json（只能改 passes 字段） | AGENTS.md 约束 |
 | Progress file (叙述性日志) | PROGRESS.md（追加不覆盖） | AGENTS.md 约束 |
-| Init script (环境验证) | init.sh（依赖→测试→服务→健康检查） | TradingCat/init.sh |
-| 强制启动序列 | 6 步流程 | AGENTS.md |
+| Init script (环境验证) | global-init.sh（自动检测项目类型）+ 项目级 init.sh 可覆盖 | ~/.codex/scripts/ |
+| 强制启动序列 | 7 步流程（含验证已有功能） | AGENTS.md |
+| Initializer vs Coding agent | 首次无 PLAN.json 时自动进入初始化模式，拆解需求为 50+ 粒度 feature list | AGENTS.md |
+| E2E 测试 | 明确要求验证完整链路（浏览器/curl），不能只跑 unit test | AGENTS.md |
 | 每 session 只做一个 feature | 明确约束 | AGENTS.md |
 | 不可删测试 | 明确禁止 | AGENTS.md |
-| Git checkpoint | 每个 feature 完成后 commit | AGENTS.md |
+| Git checkpoint | 每个 feature 完成后 commit；session 结束即使未完成也提交 | AGENTS.md |
+| Git revert 恢复 | 改坏已有功能时 stash/revert 回退到好的 checkpoint | AGENTS.md |
 | 多代理分工 | 未实现（文章也标注为未探索） | — |

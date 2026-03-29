@@ -617,3 +617,21 @@
   - 真实 `preflight/startup`、`ops/readiness`、`execution/gate` 在空数据目录下仍会被当前研究/验证链路拖慢；本次把它们的结构性回归交给 focused pytest 和 runtime-safe 边界测试兜住，下一轮若继续优化会优先处理这条重链路的启动成本。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先做 `PortfolioProjectionService` 与 facade 瘦身，把账户投影、cash map、curve / allocation mix 从 `app.py` 和 `facades.py` 的重复逻辑里收口出来。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 抽出 `PortfolioProjectionService`，把账户投影、cash map、nav curve 和 allocation mix 从 `app.py` / `DashboardFacade` 的重复 helper 里收口出来。
+- Code changes:
+  - 新增 `tradingcat/services/portfolio_projections.py`，集中承接 `serialize_position`、`account_positions`、`account_cash_map`、`account_curves`、`allocation_mix` 这组账户投影逻辑。
+  - `TradingCatApplication` 现在只持有 `portfolio_projections` 服务，不再保留自己那套 `_account_keys / _account_positions / _account_cash_map / _account_curves` 重复 helper。
+  - `DashboardFacade` 现在显式消费 `self._app.portfolio_projections` 来构建 `assets` 和 `accounts`，不再自己重复实现账户切片、曲线和 allocation mix 规则；新增 focused 测试锁定 facade 通过 projection service 取数。
+- Validation:
+  - `.venv/bin/pytest tests/test_portfolio_projections.py tests/test_dashboard_facade.py -q` -> `3 passed`
+  - `.venv/bin/pytest tests/test_runtime_recovery.py tests/test_selection_service.py -q` -> `13 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+  - 隔离 HTTP 验证：
+    - 在 `http://127.0.0.1:8033` 的临时实例上 stub 掉不相关的重型 dashboard 上游聚合后，`GET /dashboard/summary` -> `200 OK`，返回 `accounts.total.nav_curve`、`allocation_mix`、`details.acceptance_progress.remaining_clean_days=25`，证明 dashboard summary 经过新 projection service 后账户结构仍正常。
+- Decisions:
+  - 这一步只收口“账户投影”这层共享读模型，不顺手把 `ResearchFacade` 或 dashboard 其它聚合一并重写，避免 facade 瘦身和研究编排拆分互相缠住。
+  - 真实未 stub 的 dashboard API 在空数据目录下仍会被完整 research/report 聚合拖慢，所以本次 HTTP gating 使用临时实例 + 上游轻 stub，只验证 projection/facade 改动本身的链路正确性。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先做 typed response model 收口，先覆盖 `/data/quality`、`/data/history/coverage`、`/data/fx/rates`、`/data/history/corporate-actions` 这组 read endpoint。

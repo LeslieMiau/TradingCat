@@ -33,6 +33,7 @@ class DashboardFacade:
     def build_summary(self, as_of: date | None = None) -> DashboardSummaryResponse:
         evaluation_date = as_of or date.today()
         snapshot = self._app.portfolio.current_snapshot()
+        projections = self._app.portfolio_projections
         plan_note = self._ensure_plan_note(evaluation_date)
         summary_note = self._ensure_summary_note(evaluation_date)
         gate = self._normalize_gate(self._app.execution_gate_summary(evaluation_date))
@@ -56,7 +57,7 @@ class DashboardFacade:
             assets={
                 "position_value": round(sum(position.market_value for position in snapshot.positions), 4),
                 "cash": snapshot.cash,
-                "positions": [self._serialize_position(position) for position in snapshot.positions],
+                "positions": [projections.serialize_position(position) for position in snapshot.positions],
             },
             accounts=self._accounts(snapshot, plan_items),
             strategies=self._strategies(candidate_scorecard, candidate_scorecard),
@@ -182,11 +183,12 @@ class DashboardFacade:
         }
 
     def _accounts(self, snapshot: PortfolioSnapshot, plan_items: list[PlanItemView]) -> dict[str, AccountSummaryView]:
-        curves = self._account_curves()
-        cash_map = self._account_cash_map(snapshot)
+        projections = self._app.portfolio_projections
+        curves = projections.account_curves()
+        cash_map = projections.account_cash_map(snapshot)
         accounts: dict[str, AccountSummaryView] = {}
-        for account in self._account_keys():
-            positions = self._account_positions(snapshot, account)
+        for account in projections.account_keys():
+            positions = projections.account_positions(snapshot, account)
             nav = snapshot.nav if account == "total" else round(
                 sum(position.market_value for position in snapshot.positions if position.instrument.market.value == account) + cash_map.get(account, 0.0),
                 4,
@@ -196,7 +198,7 @@ class DashboardFacade:
             start_value = float(curve[0]["v"]) if curve else nav
             total_return = self._safe_ratio(nav - start_value, start_value)
             account_plan_items = [item for item in plan_items if account == "total" or item.market == account]
-            allocation_mix = self._allocation_mix(position_value, cash_map.get(account, 0.0), positions, nav)
+            allocation_mix = projections.allocation_mix(position_value, cash_map.get(account, 0.0), positions, nav)
             accounts[account] = AccountSummaryView(
                 account=account,
                 label=_ACCOUNT_LABELS[account],
@@ -319,65 +321,6 @@ class DashboardFacade:
             "decided_at": request.decided_at,
             "expires_at": request.expires_at,
             "requires_approval": intent.requires_approval,
-        }
-
-    def _serialize_position(self, position) -> dict[str, object]:
-        return {
-            "symbol": position.instrument.symbol,
-            "name": position.instrument.name,
-            "market": position.instrument.market.value,
-            "asset_class": position.instrument.asset_class.value,
-            "quantity": position.quantity,
-            "average_cost": position.average_cost,
-            "market_value": position.market_value,
-            "weight": position.weight,
-            "unrealized_pnl": position.unrealized_pnl,
-            "unrealized_return": position.unrealized_return,
-        }
-
-    def _account_keys(self) -> list[str]:
-        return ["total", Market.CN.value, Market.HK.value, Market.US.value]
-
-    def _account_positions(self, snapshot: PortfolioSnapshot, account: str) -> list[dict[str, object]]:
-        if account == "total":
-            return [self._serialize_position(position) for position in snapshot.positions]
-        return [self._serialize_position(position) for position in snapshot.positions if position.instrument.market.value == account]
-
-    def _account_cash_map(self, snapshot: PortfolioSnapshot) -> dict[str, float]:
-        cash_by_market = self._app.available_cash_by_market()
-        return {
-            "total": snapshot.cash,
-            Market.CN.value: round(cash_by_market.get(Market.CN, 0.0), 4),
-            Market.HK.value: round(cash_by_market.get(Market.HK, 0.0), 4),
-            Market.US.value: round(cash_by_market.get(Market.US, 0.0), 4),
-        }
-
-    def _account_curves(self, limit: int = 90) -> dict[str, list[dict[str, object]]]:
-        curves = {key: [] for key in self._account_keys()}
-        history = self._app.portfolio.nav_history(limit=limit)
-        if not history:
-            return curves
-        current_cash_map = self._account_cash_map(history[-1])
-        for item in history:
-            market_values = {
-                Market.CN.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.CN), 4),
-                Market.HK.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.HK), 4),
-                Market.US.value: round(sum(pos.market_value for pos in item.positions if pos.instrument.market == Market.US), 4),
-            }
-            curves["total"].append({"t": item.timestamp.isoformat(), "v": round(item.nav, 4)})
-            for market_key in (Market.CN.value, Market.HK.value, Market.US.value):
-                curves[market_key].append({"t": item.timestamp.isoformat(), "v": round(market_values[market_key] + current_cash_map.get(market_key, 0.0), 4)})
-        return curves
-
-    def _allocation_mix(self, position_value: float, cash: float, positions: list[dict[str, object]], nav: float) -> dict[str, float]:
-        if not nav:
-            return {"cash": 0.0, "equity": 0.0, "option": 0.0}
-        option_value = sum(float(position["market_value"]) for position in positions if position["asset_class"] == "option")
-        equity_value = max(0.0, position_value - option_value)
-        return {
-            "cash": round(cash / nav, 6),
-            "equity": round(equity_value / nav, 6),
-            "option": round(option_value / nav, 6),
         }
 
     @staticmethod

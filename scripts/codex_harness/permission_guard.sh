@@ -3,22 +3,42 @@
 # 适用于 Claude Code (settings.json) 和 Codex (hooks.json)
 # 兼容无 jq 环境：优先用 jq，回退到 grep/sed 提取字段
 
+RUNTIME="claude"
+
+emit_codex_deny() {
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"'"$1"'"}}'
+  exit 0
+}
+
 allow() {
+  if [ "$RUNTIME" = "codex" ]; then
+    exit 0
+  fi
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"'"$1"'"}}'
   exit 0
 }
 
 deny() {
+  if [ "$RUNTIME" = "codex" ]; then
+    emit_codex_deny "$1"
+  fi
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"'"$1"'"}}'
   exit 0
 }
 
 ask() {
+  if [ "$RUNTIME" = "codex" ]; then
+    emit_codex_deny "$1 需要人工确认后再手动执行。"
+  fi
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"'"$1"'"}}'
   exit 0
 }
 
 INPUT=$(cat)
+
+if echo "$INPUT" | grep -q '"turn_id"'; then
+  RUNTIME="codex"
+fi
 
 if [ -z "$INPUT" ]; then
   allow "空输入，默认放行"

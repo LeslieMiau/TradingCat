@@ -96,3 +96,40 @@ def test_dashboard_facade_sub_builders_are_independently_exercisable():
     assert "recent_plans" in journal
     assert "latest_summary" in journal
     assert "recent_summaries" in journal
+
+
+def test_dashboard_facade_accounts_delegate_to_portfolio_projection_service():
+    facade = app_state.dashboard_facade
+    snapshot = app_state.portfolio.current_snapshot()
+    original_service = app_state.portfolio_projections
+
+    class _StubProjectionService:
+        def account_curves(self, *, limit: int = 90):
+            return {
+                "total": [{"t": "2026-03-29T00:00:00+00:00", "v": 123.0}],
+                "CN": [],
+                "HK": [],
+                "US": [],
+            }
+
+        def account_cash_map(self, snapshot):
+            return {"total": snapshot.cash, "CN": 0.0, "HK": 0.0, "US": 0.0}
+
+        @staticmethod
+        def account_keys():
+            return ["total", "CN", "HK", "US"]
+
+        def account_positions(self, snapshot, account: str):
+            return []
+
+        def allocation_mix(self, position_value: float, cash: float, positions, nav: float):
+            return {"cash": 1.0, "equity": 0.0, "option": 0.0}
+
+    try:
+        app_state.portfolio_projections = _StubProjectionService()
+        accounts = facade._accounts(snapshot, [])
+    finally:
+        app_state.portfolio_projections = original_service
+
+    assert accounts["total"].nav_curve == [{"t": "2026-03-29T00:00:00+00:00", "v": 123.0}]
+    assert accounts["total"].allocation_mix == {"cash": 1.0, "equity": 0.0, "option": 0.0}
