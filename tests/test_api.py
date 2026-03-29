@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from tradingcat.domain.models import AssetClass, Instrument, ManualFill, Market, OrderIntent, OrderSide
+from tradingcat.domain.models import AssetClass, ExecutionReport, Instrument, ManualFill, Market, OrderIntent, OrderSide, OrderStatus
 from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.main import app, app_state
 from tests.support import record_test_alert, reset_runtime_state, seed_execution_fill
@@ -483,6 +483,46 @@ def test_orders_endpoint_exposes_expected_vs_realized_price_context():
     assert payload["reference_source"] == "manual_order_reference"
 
 
+def test_manual_fill_endpoint_returns_reconciliation_trace():
+    app_state.reset_state()
+    app_state.portfolio.reset()
+    try:
+        submit = client.post(
+            "/orders/manual",
+            json={
+                "symbol": "SPY",
+                "market": "US",
+                "side": "buy",
+                "quantity": 1,
+            },
+        )
+        assert submit.status_code == 200
+        order_intent_id = submit.json()["report"]["order_intent_id"]
+
+        reconcile = client.post(
+            "/reconcile/manual-fill",
+            json={
+                "order_intent_id": order_intent_id,
+                "broker_order_id": "manual-trace",
+                "external_source": "broker_statement",
+                "filled_quantity": 1.0,
+                "average_price": 100.5,
+            },
+        )
+
+        assert reconcile.status_code == 200
+        payload = reconcile.json()
+        assert payload["reconciliation"]["order_intent_id"] == order_intent_id
+        assert payload["reconciliation"]["order"]["symbol"] == "SPY"
+        assert payload["reconciliation"]["pricing"]["realized_price"] == 100.5
+        assert payload["reconciliation"]["authorization"]["external_source"] == "broker_statement"
+        assert payload["reconciliation"]["portfolio_effect"]["cash_delta"] < 0
+        assert payload["reconciliation"]["portfolio_after"]["position_count"] >= 1
+    finally:
+        app_state.reset_state()
+        app_state.portfolio.reset()
+
+
 def test_execution_quality_endpoint_exposes_asset_class_summary():
     app_state.execution.clear()
     seed_execution_fill(
@@ -600,6 +640,48 @@ def test_execution_authorization_endpoint_exposes_external_fill_source_and_final
         assert row["external_source"] == "broker_statement"
     finally:
         app_state.reset_state()
+
+
+def test_execution_reconcile_endpoint_returns_reconciliation_traces():
+    app_state.reset_state()
+    app_state.portfolio.reset()
+    live_broker = app_state._live_broker
+    original_reconcile_fills = live_broker.reconcile_fills
+    try:
+        intent = OrderIntent(
+            signal_id="api-live-reconcile",
+            instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+            side=OrderSide.BUY,
+            quantity=2,
+        )
+        app_state.execution.register_expected_prices([intent], {"SPY": 100.0})
+        submitted = app_state.execution.submit(intent)
+        live_broker.reconcile_fills = lambda: [
+            ExecutionReport(
+                order_intent_id=intent.id,
+                broker_order_id=submitted.broker_order_id,
+                status=OrderStatus.FILLED,
+                filled_quantity=2.0,
+                average_price=100.2,
+                message="filled by test broker",
+            )
+        ]
+
+        response = client.post("/execution/reconcile")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["summary"]["fill_updates"] >= 1
+        assert len(payload["reconciliations"]) >= 1
+        trace = payload["reconciliations"][0]
+        assert trace["order"]["symbol"] == "SPY"
+        assert trace["pricing"]["expected_price"] == 100.0
+        assert "cash_delta" in trace["portfolio_effect"]
+        assert "position_count" in trace["portfolio_after"]
+    finally:
+        live_broker.reconcile_fills = original_reconcile_fills
+        app_state.reset_state()
+        app_state.portfolio.reset()
 
 
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():

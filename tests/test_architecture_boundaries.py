@@ -13,6 +13,7 @@ _BANNED_ROUTE_TOKENS = (
     "alerts.evaluate(",
     "audit.execution_metrics_summary()",
     "execution.transaction_cost_summary()",
+    "apply_fill_to_portfolio(",
 )
 
 

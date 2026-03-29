@@ -390,3 +390,22 @@
   - 对已存在审批请求的外部回填场景，保留原 `approval_request_id`，这样后续审计/复盘还能把审批链和成交链重新串起来。
 - Remaining focus for next session:
   - feature #32：reconciliation 输出关联订单、成交、组合快照影响，形成可追责闭环。
+
+## Session update — 2026-03-29
+- Completed feature #32: reconciliation 现在会返回订单上下文、价格上下文、授权上下文以及组合前后快照影响，形成可追责闭环。
+- Code changes:
+  - `TradingCatApplication.reconcile_execution_cycle()` 现在统一处理 live reconcile 的组合应用与 trace 收集，`/execution/reconcile` route 不再自己循环订单并直接操作组合状态；`reconcile_manual_fill()` / import 路径也会返回同一结构的 `reconciliation` / `reconciliations`。
+  - `ExecutionService` 新增 `resolve_authorization_context()` 和 `build_reconciliation_trace()`；trace 里会带上 `authorization_mode`、`final_authorization_mode`、`approval_request_id`、`external_source`，同时把 `expected_price` / `realized_price` 和 order intent metadata 一起串起来。
+  - `ReconciliationService` 现在负责 reconciliation trace 的 payload 组装与组合快照摘要；这一步特意把新 trace builder 放回 execution/reconciliation 服务侧，而不是继续把序列化逻辑堆进 `app.py`，避免刚修复的架构边界再次变软。
+  - API 测试新增手工回填与 live reconcile 的 trace 断言，架构边界测试新增对 route 层 `apply_fill_to_portfolio(` 的禁止，防止对账编排重新泄漏回接口层。
+- Validation:
+  - `.venv/bin/pytest tests/test_api.py tests/test_execution_reconciliation.py tests/test_architecture_boundaries.py -q` -> `43 passed`
+  - 隔离 HTTP 验证：
+    - `GET /preflight/startup` on `http://127.0.0.1:8027` -> `healthy=true`, `data_dir=/tmp/tradingcat-reconcile-rsS1nT`
+    - `POST /execution/reconcile` on `http://127.0.0.1:8027` -> 返回 `reconciliations[0].pricing.expected_price=100.0`、`realized_price=100.2`、`authorization.authorization_mode="risk_approved"`、`portfolio_effect.cash_delta=-200.4`、`portfolio_after.position_count=1`
+  - 手工回填 trace 继续通过 API pytest 覆盖；没有对真实 `/reconcile/manual-fill` 做 HTTP 演练，因为仓库规则把该接口列为需要显式批准的 side-effect 路径。
+- Decisions:
+  - 这一步没有让 route 直接操作 portfolio，也没有把 trace 组装继续塞进 `TradingCatApplication`；应用层只负责前后快照与调用协调，具体 trace payload 留在 execution/reconciliation 服务。
+  - live reconcile 的真实 HTTP 验证使用了临时数据目录和预置 broker fill，确保是完整 FastAPI 链路，同时不污染主数据目录，也不引入真实交易副作用。
+- Remaining focus for next session:
+  - feature #33：审计日志记录每笔订单的授权上下文、对账来源与关键状态迁移。

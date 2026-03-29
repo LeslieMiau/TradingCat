@@ -21,7 +21,6 @@ from tradingcat.domain.models import (
     Market,
     OrderIntent,
     OrderSide,
-    PortfolioSnapshot,
     Signal,
 )
 from tradingcat.facades import AlertsFacade, DashboardFacade, JournalFacade, OperationsFacade, ResearchFacade
@@ -411,21 +410,53 @@ class TradingCatApplication:
         return self.portfolio.reconcile_with_broker(self._live_broker)
 
     def reconcile_manual_fill(self, fill: ManualFill) -> dict[str, object]:
+        before_snapshot = self.portfolio.current_snapshot()
         report = self.execution.reconcile_manual_fill(fill)
         snapshot = self.apply_fill_to_portfolio(fill.order_intent_id, fill.filled_quantity, fill.average_price, fill.side)
+        reconciliation = self.execution.build_reconciliation_trace(
+            order_intent_id=fill.order_intent_id,
+            report=report,
+            before_snapshot=before_snapshot,
+            after_snapshot=snapshot,
+            fill_source="manual_fill",
+        )
         self.audit.log(category="execution", action="manual_fill", details={"broker_order_id": fill.broker_order_id, "order_intent_id": fill.order_intent_id})
-        return {"report": report, "snapshot": snapshot}
+        return {"status": "ok", "report": report, "snapshot": snapshot, "reconciliation": reconciliation}
 
     def reconcile_manual_fill_import(self, fills: list[ManualFill]) -> dict[str, object]:
         reports = []
         snapshots = []
+        reconciliations = []
         for fill in fills:
             reconciled = self.reconcile_manual_fill(fill)
             reports.append(reconciled["report"])
             snapshot = reconciled["snapshot"]
             snapshots.append({"order_intent_id": fill.order_intent_id, "cash": snapshot.cash, "nav": snapshot.nav})
+            reconciliations.append(reconciled["reconciliation"])
         self.audit.log(category="execution", action="manual_fill_import", details={"count": len(fills)})
-        return {"count": len(fills), "reports": reports, "snapshots": snapshots}
+        return {"count": len(fills), "reports": reports, "snapshots": snapshots, "reconciliations": reconciliations}
+
+    def reconcile_execution_cycle(self) -> dict[str, object]:
+        summary = self.execution.reconcile_live_state()
+        applied_snapshots = []
+        reconciliations = []
+        for order_id in summary.applied_fill_order_ids:
+            report = self.execution.get_order(order_id)
+            if report is None or report.average_price is None:
+                continue
+            before_snapshot = self.portfolio.current_snapshot()
+            snapshot = self.apply_fill_to_portfolio(order_id, report.filled_quantity, report.average_price)
+            applied_snapshots.append({"order_intent_id": order_id, "nav": snapshot.nav, "cash": snapshot.cash})
+            reconciliations.append(
+                self.execution.build_reconciliation_trace(
+                    order_intent_id=order_id,
+                    report=report,
+                    before_snapshot=before_snapshot,
+                    after_snapshot=snapshot,
+                    fill_source="live_reconcile",
+                )
+            )
+        return {"summary": summary, "applied_snapshots": applied_snapshots, "reconciliations": reconciliations}
 
     def risk_config(self) -> dict[str, object]:
         return self.risk.config_snapshot()

@@ -349,7 +349,7 @@
       "手工回填和 live reconcile 都能追到最终状态。",
       "reconciliation / portfolio 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 33,

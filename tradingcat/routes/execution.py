@@ -14,16 +14,7 @@ router = APIRouter(prefix="/execution")
 
 @router.post("/reconcile")
 def execution_reconcile(request: Request):
-    app = get_app_state(request)
-    summary = app.execution.reconcile_live_state()
-    applied_snapshots = []
-    for order_id in summary.applied_fill_order_ids:
-        report = next((item for item in app.execution.list_orders() if item.order_intent_id == order_id), None)
-        if report is None or report.average_price is None:
-            continue
-        snapshot = app.apply_fill_to_portfolio(order_id, report.filled_quantity, report.average_price)
-        applied_snapshots.append({"order_intent_id": order_id, "nav": snapshot.nav, "cash": snapshot.cash})
-    return {"summary": summary, "applied_snapshots": applied_snapshots}
+    return get_app_state(request).reconcile_execution_cycle()
 
 
 @router.get("/quality")

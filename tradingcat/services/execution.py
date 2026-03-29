@@ -4,7 +4,7 @@ import logging
 import threading
 
 from tradingcat.adapters.base import BrokerAdapter
-from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, OrderStatus, ReconciliationSummary
+from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, OrderStatus, PortfolioSnapshot, ReconciliationSummary
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.order_state_machine import OrderStateMachine
@@ -267,6 +267,36 @@ class ExecutionService:
             "reference_source": expected.get("reference_source"),
             "recorded_slippage": report.slippage if report is not None else None,
         }
+
+    def resolve_authorization_context(self, order_intent_id: str) -> dict[str, object]:
+        auth = self._authorizations.get(order_intent_id, {})
+        return {
+            "authorization_mode": auth.get("mode"),
+            "final_authorization_mode": auth.get("final_mode"),
+            "approval_request_id": auth.get("approval_request_id"),
+            "approval_status": auth.get("approval_status"),
+            "external_source": auth.get("external_source"),
+        }
+
+    def build_reconciliation_trace(
+        self,
+        *,
+        order_intent_id: str,
+        report: ExecutionReport,
+        before_snapshot: PortfolioSnapshot,
+        after_snapshot: PortfolioSnapshot,
+        fill_source: str,
+    ) -> dict[str, object]:
+        return self._reconciliation.build_trace(
+            order_intent_id=order_intent_id,
+            report=report,
+            fill_source=fill_source,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            intent_context=self.resolve_intent_context(order_intent_id) or {},
+            price_context=self.resolve_price_context(order_intent_id),
+            authorization_context=self.resolve_authorization_context(order_intent_id),
+        )
 
     def update_order_report(self, order_intent_id: str, **changes: object) -> ExecutionReport:
         with self._lock:

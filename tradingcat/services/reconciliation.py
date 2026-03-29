@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tradingcat.adapters.base import BrokerAdapter
-from tradingcat.domain.models import ExecutionReport, ManualFill, OrderStatus, ReconciliationSummary
+from tradingcat.domain.models import ExecutionReport, ManualFill, OrderStatus, PortfolioSnapshot, ReconciliationSummary
 from tradingcat.services.order_state_machine import OrderStateMachine
 
 
@@ -182,6 +182,43 @@ class ReconciliationService:
             "samples": samples,
         }
 
+    def build_trace(
+        self,
+        *,
+        order_intent_id: str,
+        report: ExecutionReport,
+        fill_source: str,
+        before_snapshot: PortfolioSnapshot,
+        after_snapshot: PortfolioSnapshot,
+        intent_context: dict[str, object],
+        price_context: dict[str, object],
+        authorization_context: dict[str, object],
+    ) -> dict[str, object]:
+        return {
+            "order_intent_id": order_intent_id,
+            "broker_order_id": report.broker_order_id,
+            "fill_source": fill_source,
+            "order": {
+                "symbol": intent_context.get("symbol"),
+                "market": intent_context.get("market"),
+                "asset_class": intent_context.get("asset_class"),
+                "side": intent_context.get("side"),
+                "strategy_id": intent_context.get("strategy_id"),
+                "status": report.status.value,
+                "filled_quantity": report.filled_quantity,
+                "average_price": report.average_price,
+            },
+            "pricing": price_context,
+            "authorization": authorization_context,
+            "portfolio_before": self._snapshot_summary(before_snapshot),
+            "portfolio_after": self._snapshot_summary(after_snapshot),
+            "portfolio_effect": {
+                "nav_delta": round(after_snapshot.nav - before_snapshot.nav, 4),
+                "cash_delta": round(after_snapshot.cash - before_snapshot.cash, 4),
+                "position_count_delta": len(after_snapshot.positions) - len(before_snapshot.positions),
+            },
+        }
+
     def _asset_class_quality_summary(self, asset_class: str, samples: list[dict[str, object]]) -> dict[str, object]:
         metric_name = "premium_deviation" if asset_class == "option" else "slippage_bps"
         threshold = 0.10 if asset_class == "option" else 20.0
@@ -289,3 +326,12 @@ class ReconciliationService:
                 report.status.value,
             ]
         )
+
+    @staticmethod
+    def _snapshot_summary(snapshot: PortfolioSnapshot) -> dict[str, object]:
+        return {
+            "timestamp": snapshot.timestamp,
+            "nav": snapshot.nav,
+            "cash": snapshot.cash,
+            "position_count": len(snapshot.positions),
+        }
