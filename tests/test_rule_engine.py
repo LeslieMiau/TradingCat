@@ -131,6 +131,7 @@ def test_rule_engine_keeps_order_pending_when_rsi_is_oversold(tmp_path, caplog):
     assert result["triggered"] == 0
     assert engine.list_orders()[0].status == "PENDING"
     assert engine.list_orders()[0].evaluation_summary["conditions"][0]["passed"] is False
+    assert result["results"][0]["reasons"][0]["reason_type"] == "indicator_not_met"
     assert any(record.metric == "RSI_14" and record.value == rsi_value for record in caplog.records)
 
 
@@ -184,4 +185,24 @@ def test_rule_engine_logs_real_sma_when_condition_is_not_met(tmp_path, caplog):
     assert result["triggered"] == 0
     assert engine.list_orders()[0].status == "PENDING"
     assert engine.list_orders()[0].evaluation_summary["conditions"][0]["passed"] is False
+    assert result["results"][0]["reasons"][0]["reason_type"] == "indicator_not_met"
     assert any(record.metric == "SMA_10" and record.value == sma_value for record in caplog.records)
+
+
+def test_rule_engine_marks_indicator_data_missing_when_history_is_unavailable(tmp_path):
+    engine, _, _ = _build_rule_engine(tmp_path, StaticMarketDataAdapter())
+    order = SmartOrder(
+        account="total",
+        symbol="UNKNOWN",
+        market="US",
+        side=OrderSide.BUY,
+        quantity=1,
+        trigger_conditions=[TriggerCondition(metric="RSI_14", operator=">", target_value=60)],
+    )
+    engine.register_order(order)
+
+    result = engine.evaluate_all()
+
+    assert result["triggered"] == 0
+    assert result["results"][0]["reasons"][0]["reason_type"] == "data_missing"
+    assert "needs 15 closes" in result["results"][0]["reasons"][0]["reason"]

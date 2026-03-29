@@ -281,3 +281,17 @@
   - 没有做真实 HTTP trigger 执行演练，继续遵守当前无显式 side-effect 授权的边界；完整链路由 API/engine 测试覆盖。
 - Remaining focus for next session:
   - feature #26：trigger 评估接口/结果显式给出未触发原因，避免个人交易者靠猜测排错。
+
+## Session update — 2026-03-29
+- Completed feature #26: trigger 评估接口/结果现在会显式给出未触发原因，避免个人交易者靠猜测排错。
+- Code changes:
+  - `RuleEngine.evaluate_all()` 现在会返回 `results`，包含每个 smart order 的条件结果和 `reasons` 列表。
+  - 条件级结果新增 `reason_type / reason / data_ready / source`，目前会区分 `price_not_reached`、`indicator_not_met`、`data_missing`，从而把“价格没到”“指标不满足”“数据不够”拆开。
+  - rule-engine 与 API 测试现在锁定：`/ops/evaluate-triggers` 对未触发的 smart order 会返回显式原因；指标历史缺失时会明确标成 `data_missing`。
+- Validation:
+  - `.venv/bin/pytest tests/test_rule_engine.py tests/test_api.py -q` -> `32 passed`
+- Decisions:
+  - 这一步把未触发原因直接放进 `/ops/evaluate-triggers` 返回值本身，而不是只依赖 `/orders/triggers` 里的快照字段，优先解决“评估完立刻知道为什么没触发”的体验。
+  - 仍然没有做真实 HTTP trigger 执行演练，继续遵守当前无显式 side-effect 授权的边界；原因分类和结果结构由 API/engine 测试完成闭环验证。
+- Remaining focus for next session:
+  - feature #27：执行记录持久化 expected price、realized price 与参考来源，支持个人可用的成交偏差追踪。

@@ -366,6 +366,51 @@ def test_ops_evaluate_triggers_uses_real_sma_series():
     assert "value" in trigger["evaluation_summary"]["conditions"][0]
 
 
+def test_ops_evaluate_triggers_returns_explicit_non_trigger_reasons():
+    app_state.rule_engine._triggers = {}
+    app_state.rule_engine._repository.save({})
+    app_state.rule_engine.register_order(
+        SmartOrder(
+            account="total",
+            symbol="SPY",
+            market="US",
+            side=OrderSide.BUY,
+            quantity=1,
+            trigger_conditions=[TriggerCondition(metric="PRICE", operator=">", target_value=200)],
+        )
+    )
+
+    run = client.post("/ops/evaluate-triggers")
+
+    assert run.status_code == 200
+    payload = run.json()
+    assert payload["triggered"] == 0
+    assert payload["results"][0]["reasons"][0]["reason_type"] == "price_not_reached"
+    assert "PRICE value" in payload["results"][0]["reasons"][0]["reason"]
+
+
+def test_ops_evaluate_triggers_marks_indicator_data_missing():
+    app_state.rule_engine._triggers = {}
+    app_state.rule_engine._repository.save({})
+    app_state.rule_engine.register_order(
+        SmartOrder(
+            account="total",
+            symbol="UNKNOWN",
+            market="US",
+            side=OrderSide.BUY,
+            quantity=1,
+            trigger_conditions=[TriggerCondition(metric="RSI_14", operator=">", target_value=60)],
+        )
+    )
+
+    run = client.post("/ops/evaluate-triggers")
+
+    assert run.status_code == 200
+    payload = run.json()
+    assert payload["triggered"] == 0
+    assert payload["results"][0]["reasons"][0]["reason_type"] == "data_missing"
+
+
 def test_selection_review_endpoint_does_not_activate_blocked_strategy():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.selection.clear()

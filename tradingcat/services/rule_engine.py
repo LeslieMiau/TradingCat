@@ -88,6 +88,7 @@ class RuleEngine:
         triggered_count = 0
         failed_count = 0
         updated = False
+        results: list[dict[str, object]] = []
         now = datetime.now(timezone.utc)
 
         for order in pending:
@@ -102,7 +103,25 @@ class RuleEngine:
                 "conditions": condition_results,
             }
             updated = True
+            result_row = {
+                "smart_order_id": order.smart_order_id,
+                "symbol": order.symbol,
+                "market": order.market,
+                "status": order.status,
+                "triggered": False,
+                "conditions": condition_results,
+                "reasons": [
+                    {
+                        "metric": item["metric"],
+                        "reason_type": item["reason_type"],
+                        "reason": item["reason"],
+                    }
+                    for item in condition_results
+                    if not bool(item["passed"])
+                ],
+            }
             if not all_met:
+                results.append(result_row)
                 continue
 
             order.status = "TRIGGERED"
@@ -113,23 +132,44 @@ class RuleEngine:
                 report = self._execution.submit(intent)
                 order.execution_order_id = report.broker_order_id
                 triggered_count += 1
+                result_row["status"] = order.status
+                result_row["triggered"] = True
             except Exception:
                 logger.exception("Smart order execution failed", extra={"smart_order_id": order.smart_order_id, "symbol": order.symbol})
                 order.status = "FAILED"
                 failed_count += 1
+                result_row["status"] = order.status
+                result_row["reasons"].append(
+                    {
+                        "metric": "EXECUTION",
+                        "reason_type": "execution_failed",
+                        "reason": "Order submission failed after trigger conditions passed.",
+                    }
+                )
+            results.append(result_row)
 
         if updated or triggered_count > 0 or failed_count > 0:
             self._repository.save(self._triggers)
 
-        return {"evaluated": len(pending), "triggered": triggered_count, "failed": failed_count}
+        return {"evaluated": len(pending), "triggered": triggered_count, "failed": failed_count, "results": results}
 
     def _evaluate_conditions(self, order: SmartOrder, price: float) -> tuple[bool, list[dict[str, object]]]:
         results: list[dict[str, object]] = []
         all_met = True
         for condition in order.trigger_conditions:
-            value = self._metric_value(condition.metric, order.symbol, Market(str(order.market)), price)
+            observation = self._metric_observation(condition.metric, order.symbol, Market(str(order.market)), price)
+            value = float(observation["value"])
             target = condition.target_value
-            passed = self._compare(value=value, operator=condition.operator, target=target)
+            data_ready = bool(observation["data_ready"])
+            passed = data_ready and self._compare(value=value, operator=condition.operator, target=target)
+            reason_type, reason = self._condition_reason(
+                metric=condition.metric,
+                operator=condition.operator,
+                target=target,
+                value=value,
+                data_ready=data_ready,
+                observation_reason=str(observation.get("reason", "")),
+            )
             results.append(
                 {
                     "metric": condition.metric,
@@ -137,6 +177,10 @@ class RuleEngine:
                     "target": target,
                     "value": value,
                     "passed": passed,
+                    "data_ready": data_ready,
+                    "source": observation["source"],
+                    "reason_type": reason_type,
+                    "reason": reason,
                 }
             )
             if not passed:
@@ -145,16 +189,19 @@ class RuleEngine:
         return all_met, results
 
     def _metric_value(self, metric: str, symbol: str, market: Market, price: float) -> float:
+        return float(self._metric_observation(metric, symbol, market, price)["value"])
+
+    def _metric_observation(self, metric: str, symbol: str, market: Market, price: float) -> dict[str, object]:
         metric_upper = metric.upper()
         if metric_upper == "PRICE":
-            return price
+            return {"value": price, "data_ready": True, "source": "quote", "reason": ""}
         if metric_upper.startswith("RSI"):
             period = self._metric_period(metric_upper, default=14)
-            return self._rsi_value(symbol=symbol, market=market, period=period)
+            return self._rsi_observation(symbol=symbol, market=market, period=period, metric=metric_upper)
         if metric_upper.startswith("SMA"):
             period = self._metric_period(metric_upper, default=20)
-            return self._sma_value(symbol=symbol, market=market, period=period)
-        return price
+            return self._sma_observation(symbol=symbol, market=market, period=period, metric=metric_upper)
+        return {"value": price, "data_ready": True, "source": "quote", "reason": ""}
 
     def _metric_period(self, metric: str, default: int) -> int:
         parts = metric.split("_", 1)
@@ -166,25 +213,36 @@ class RuleEngine:
             return default
         return value if value > 0 else default
 
-    def _rsi_value(self, *, symbol: str, market: Market, period: int) -> float:
+    def _rsi_observation(self, *, symbol: str, market: Market, period: int, metric: str) -> dict[str, object]:
         closes = self._recent_closes(symbol=symbol, market=market, lookback_days=max(period * 4, 30))
         if len(closes) <= period:
-            return 50.0
+            return {
+                "value": 50.0,
+                "data_ready": False,
+                "source": "history",
+                "reason": f"{metric} needs {period + 1} closes but only {len(closes)} are available.",
+            }
         deltas = [current - previous for previous, current in zip(closes, closes[1:], strict=False)]
         window = deltas[-period:]
         average_gain = sum(max(delta, 0.0) for delta in window) / period
         average_loss = sum(abs(min(delta, 0.0)) for delta in window) / period
         if average_loss == 0:
-            return 100.0 if average_gain > 0 else 50.0
+            value = 100.0 if average_gain > 0 else 50.0
+            return {"value": value, "data_ready": True, "source": "history", "reason": ""}
         relative_strength = average_gain / average_loss
-        return round(100.0 - (100.0 / (1.0 + relative_strength)), 4)
+        return {"value": round(100.0 - (100.0 / (1.0 + relative_strength)), 4), "data_ready": True, "source": "history", "reason": ""}
 
-    def _sma_value(self, *, symbol: str, market: Market, period: int) -> float:
+    def _sma_observation(self, *, symbol: str, market: Market, period: int, metric: str) -> dict[str, object]:
         closes = self._recent_closes(symbol=symbol, market=market, lookback_days=max(period * 4, 30))
         if len(closes) < period:
-            return closes[-1] if closes else 0.0
+            return {
+                "value": closes[-1] if closes else 0.0,
+                "data_ready": False,
+                "source": "history",
+                "reason": f"{metric} needs {period} closes but only {len(closes)} are available.",
+            }
         window = closes[-period:]
-        return round(sum(window) / len(window), 4)
+        return {"value": round(sum(window) / len(window), 4), "data_ready": True, "source": "history", "reason": ""}
 
     def _recent_closes(self, *, symbol: str, market: Market, lookback_days: int) -> list[float]:
         end = date.today()
@@ -216,6 +274,27 @@ class RuleEngine:
         if operator == "==":
             return value == target
         return False
+
+    def _condition_reason(
+        self,
+        *,
+        metric: str,
+        operator: str,
+        target: float,
+        value: float,
+        data_ready: bool,
+        observation_reason: str,
+    ) -> tuple[str, str]:
+        metric_upper = metric.upper()
+        if not data_ready:
+            return "data_missing", observation_reason or f"{metric} is missing required data."
+        if self._compare(value=value, operator=operator, target=target):
+            return "passed", "Condition passed."
+        if metric_upper == "PRICE":
+            return "price_not_reached", f"PRICE value {value:.4f} did not satisfy {operator} {target:.4f}."
+        if metric_upper.startswith(("RSI", "SMA")):
+            return "indicator_not_met", f"{metric_upper} value {value:.4f} did not satisfy {operator} {target:.4f}."
+        return "condition_not_met", f"{metric_upper} value {value:.4f} did not satisfy {operator} {target:.4f}."
 
     def _build_intent(self, order: SmartOrder, reference_price: float) -> OrderIntent:
         market = Market(str(order.market))
