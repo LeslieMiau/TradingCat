@@ -119,6 +119,56 @@ def test_execution_quality_summary_groups_samples_by_asset_class(tmp_path):
     assert summary["asset_class_summary"]["option"]["message"] == "No filled option samples available yet."
 
 
+def test_transaction_cost_summary_exposes_sample_breakdown_and_direction(tmp_path):
+    service = ExecutionService(
+        live_broker=SimulatedBrokerAdapter(),
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    buy_intent = OrderIntent(
+        signal_id="sig-buy-tca",
+        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=2,
+    )
+    sell_intent = OrderIntent(
+        signal_id="sig-sell-tca",
+        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
+        side=OrderSide.SELL,
+        quantity=3,
+    )
+
+    service.register_expected_prices([buy_intent, sell_intent], {"SPY": 200.0, "MSFT": 100.0})
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=buy_intent.id,
+            broker_order_id="manual-buy-tca",
+            filled_quantity=2.0,
+            average_price=200.4,
+        )
+    )
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=sell_intent.id,
+            broker_order_id="manual-sell-tca",
+            filled_quantity=3.0,
+            average_price=99.8,
+        )
+    )
+
+    summary = service.transaction_cost_summary()
+
+    assert summary["sample_count"] == 2
+    assert summary["filled_quantity"] == 5.0
+    assert summary["direction_summary"]["buy"]["sample_count"] == 1
+    assert summary["direction_summary"]["sell"]["sample_count"] == 1
+    assert summary["samples"][0]["expected_price"] in {100.0, 200.0}
+    assert summary["samples"][0]["realized_price"] in {99.8, 200.4}
+    assert {sample["direction"] for sample in summary["samples"]} == {"buy", "sell"}
+
+
 def test_execution_price_context_persists_expected_and_realized_price(tmp_path):
     service = ExecutionService(
         live_broker=SimulatedBrokerAdapter(),

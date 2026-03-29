@@ -118,9 +118,11 @@ class ReconciliationService:
                     "symbol": baseline.get("symbol"),
                     "market": baseline.get("market"),
                     "asset_class": asset_class,
+                    "side": baseline.get("side"),
                     "reference_price": reference_price,
                     "reference_source": baseline.get("reference_source", "market_quote"),
                     "fill_price": report.average_price,
+                    "filled_quantity": report.filled_quantity,
                     metric_name: metric,
                     "threshold": threshold,
                     "within_threshold": within_threshold,
@@ -157,6 +159,25 @@ class ReconciliationService:
             "option_premium_deviation_limit": 0.10,
             "within_limits": equity_breaches == 0 and option_breaches == 0,
             "asset_class_summary": asset_class_summary,
+            "samples": samples,
+        }
+
+    def transaction_cost_summary(self, *, orders: dict[str, ExecutionReport], expected_prices: dict[str, dict[str, object]]) -> dict[str, object]:
+        quality = self.execution_quality_summary(orders=orders, expected_prices=expected_prices)
+        samples = [self._tca_sample(sample) for sample in quality["samples"]]
+        direction_summary = {
+            "buy": self._tca_bucket_summary([sample for sample in samples if sample["direction"] == "buy"]),
+            "sell": self._tca_bucket_summary([sample for sample in samples if sample["direction"] == "sell"]),
+        }
+        total_filled_quantity = round(sum(float(sample["filled_quantity"]) for sample in samples), 4) if samples else 0.0
+        return {
+            "sample_count": len(samples),
+            "filled_quantity": total_filled_quantity,
+            "missing_baselines": quality["missing_baselines"],
+            "insufficient_data": len(samples) == 0,
+            "message": "No execution samples with baselines available yet." if not samples else f"TCA built from {len(samples)} filled samples.",
+            "asset_class_summary": quality["asset_class_summary"],
+            "direction_summary": direction_summary,
             "samples": samples,
         }
 
@@ -204,6 +225,47 @@ class ReconciliationService:
             "max_metric": round(max(metric_values), rounding),
             "severity": severity,
             "message": message,
+        }
+
+    def _tca_sample(self, sample: dict[str, object]) -> dict[str, object]:
+        is_option = sample["asset_class"] == "option"
+        deviation_metric = "premium_deviation" if is_option else "slippage_bps"
+        return {
+            "order_intent_id": sample["order_intent_id"],
+            "broker_order_id": sample["broker_order_id"],
+            "symbol": sample["symbol"],
+            "market": sample["market"],
+            "asset_class": sample["asset_class"],
+            "direction": sample.get("side"),
+            "filled_quantity": sample.get("filled_quantity", 0.0),
+            "expected_price": sample["reference_price"],
+            "realized_price": sample["fill_price"],
+            "reference_source": sample["reference_source"],
+            "deviation_metric": deviation_metric,
+            "deviation_value": sample[deviation_metric],
+            "threshold": sample["threshold"],
+            "within_threshold": sample["within_threshold"],
+            "recorded_slippage": sample["recorded_slippage"],
+        }
+
+    def _tca_bucket_summary(self, samples: list[dict[str, object]]) -> dict[str, object]:
+        if not samples:
+            return {
+                "sample_count": 0,
+                "filled_quantity": 0.0,
+                "average_slippage_bps": None,
+                "average_premium_deviation": None,
+                "message": "No samples for this direction.",
+            }
+
+        equity_values = [float(sample["deviation_value"]) for sample in samples if sample["deviation_metric"] == "slippage_bps"]
+        option_values = [float(sample["deviation_value"]) for sample in samples if sample["deviation_metric"] == "premium_deviation"]
+        return {
+            "sample_count": len(samples),
+            "filled_quantity": round(sum(float(sample["filled_quantity"]) for sample in samples), 4),
+            "average_slippage_bps": round(sum(equity_values) / len(equity_values), 2) if equity_values else None,
+            "average_premium_deviation": round(sum(option_values) / len(option_values), 4) if option_values else None,
+            "message": f"{len(samples)} samples in this direction.",
         }
 
     def order_state_summary(self, orders: dict[str, ExecutionReport]) -> dict[str, int]:

@@ -68,6 +68,7 @@ class ExecutionService:
                     "symbol": intent.instrument.symbol,
                     "market": intent.instrument.market.value,
                     "asset_class": intent.instrument.asset_class.value,
+                    "side": intent.side.value,
                     "reference_price": float(reference_price),
                     "reference_source": reference_source,
                 }
@@ -216,6 +217,9 @@ class ExecutionService:
 
     def execution_quality_summary(self) -> dict[str, object]:
         return self._reconciliation.execution_quality_summary(orders=self._orders, expected_prices=self._expected_prices)
+
+    def transaction_cost_summary(self) -> dict[str, object]:
+        return self._reconciliation.transaction_cost_summary(orders=self._orders, expected_prices=self._expected_prices)
 
     def authorization_summary(self) -> dict[str, object]:
         authorized = 0

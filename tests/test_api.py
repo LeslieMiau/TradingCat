@@ -526,6 +526,50 @@ def test_execution_quality_endpoint_exposes_asset_class_summary():
     assert payload["asset_class_summary"]["option"]["message"] == "No filled option samples available yet."
 
 
+def test_ops_tca_endpoint_exposes_sample_breakdown():
+    app_state.execution.clear()
+    buy_intent = OrderIntent(
+        signal_id="api-buy-tca",
+        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=2,
+    )
+    sell_intent = OrderIntent(
+        signal_id="api-sell-tca",
+        instrument=Instrument(symbol="MSFT", market=Market.US, asset_class=AssetClass.STOCK, currency="USD"),
+        side=OrderSide.SELL,
+        quantity=3,
+    )
+    app_state.execution.register_expected_prices([buy_intent, sell_intent], {"SPY": 200.0, "MSFT": 100.0})
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=buy_intent.id,
+            broker_order_id="api-buy-tca",
+            filled_quantity=2.0,
+            average_price=200.4,
+        )
+    )
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=sell_intent.id,
+            broker_order_id="api-sell-tca",
+            filled_quantity=3.0,
+            average_price=99.8,
+        )
+    )
+
+    response = client.get("/ops/tca")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample_count"] == 2
+    assert payload["direction_summary"]["buy"]["sample_count"] == 1
+    assert payload["direction_summary"]["sell"]["sample_count"] == 1
+    assert payload["samples"][0]["expected_price"] in {100.0, 200.0}
+    assert payload["samples"][0]["realized_price"] in {99.8, 200.4}
+    assert {sample["direction"] for sample in payload["samples"]} == {"buy", "sell"}
+
+
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():
     original = app_state.strategy_analysis.recommend_strategy_actions
     app_state.allocations.clear()

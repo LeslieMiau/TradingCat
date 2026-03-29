@@ -325,3 +325,18 @@
   - 偏差等级规则收敛为“小样本 breach 先 warning、样本够多且多数 breach 再 error”，避免单笔噪声把个人交易者误导成系统性故障。
 - Remaining focus for next session:
   - feature #29：ops TCA 输出样本拆解，至少覆盖预期价、成交价、偏差、方向与样本量。
+
+## Session update — 2026-03-29
+- Completed feature #29: `/ops/tca` 现在会输出样本拆解，覆盖预期价、成交价、偏差、方向与样本量。
+- Code changes:
+  - `ExecutionService` / `ReconciliationService` 现在会把 `side` 与 `filled_quantity` 一并带进成交质量样本，并新增 `transaction_cost_summary()`，输出 `sample_count`、`filled_quantity`、`direction_summary`、`asset_class_summary` 和逐笔 `samples`。
+  - `/ops/tca` 路由现在保留原有 audit 聚合字段，同时叠加真正的 TCA 样本明细，因此既不会丢掉旧的运行统计，也能直接复盘每笔执行的 `expected_price`、`realized_price`、`deviation_metric`、`direction`。
+  - execution/API 测试新增了 buy/sell 双方向样本断言，锁定 `/ops/tca` 可以区分方向并返回逐笔样本拆解。
+- Validation:
+  - `.venv/bin/pytest tests/test_execution_reconciliation.py tests/test_api.py -q` -> `36 passed`
+  - 在临时 seeded 数据目录上运行 `curl -sS http://127.0.0.1:8023/ops/tca` -> 返回 `sample_count=2`、`direction_summary.buy/sell.sample_count=1`，并包含逐笔 `expected_price`、`realized_price`、`deviation_metric`、`direction`
+- Decisions:
+  - 这一步让 `/ops/tca` 兼容保留旧的 audit 统计字段，避免现有消费方直接断掉；新增的 sample breakdown 则从 execution 实际状态生成，而不是继续堆在 audit log 上做猜测。
+  - 样本聚合先按方向输出 `average_slippage_bps` / `average_premium_deviation`，让股票/ETF 与期权的量纲不被强行揉成一个数字；更高层的“主要拖累摘要”留给 `#30`。
+- Remaining focus for next session:
+  - feature #30：日报/周报/运营摘要高亮主要成交拖累与主要异常来源，支持快速复盘。

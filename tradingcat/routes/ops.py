@@ -29,7 +29,11 @@ def update_risk_config(request: Request, payload: RiskUpdatePayload):
 
 @router.get("/tca")
 def get_tca_metrics(request: Request):
-    return get_app_state(request).audit.execution_metrics_summary()
+    app = get_app_state(request)
+    return {
+        **app.audit.execution_metrics_summary(),
+        **app.execution.transaction_cost_summary(),
+    }
 
 
 @router.get("/audit/summary")
