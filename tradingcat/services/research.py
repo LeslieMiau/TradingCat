@@ -197,7 +197,8 @@ class ResearchService:
     def _load_signal_history(self, signals: list[Signal], start: date, end: date):
         if self._market_data is None or not signals:
             return {}
-        return self._market_data.ensure_history(sorted({signal.instrument.symbol for signal in signals}), start, end)
+        # Long walk-forward reads should not overwrite the short-window cache used by live signal generation.
+        return self._market_data.history_snapshot(sorted({signal.instrument.symbol for signal in signals}), start, end)
 
     def _load_signal_corporate_action_coverage(self, signals: list[Signal], start: date, end: date) -> dict[str, object]:
         if self._market_data is None or not signals:

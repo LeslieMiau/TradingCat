@@ -581,7 +581,7 @@ class StrategyAnalysisService:
         benchmark_symbol = self._benchmark_symbol(signals)
         if self._market_data is None or benchmark_symbol is None:
             return {"ready": False, "symbol": benchmark_symbol, "monthly_returns": [], "nav_curve": [], "drawdown_curve": [], "relative_curve": [], "rolling_excess_curve": [], "comparison": {}, "metrics": {}}
-        bars = self._market_data.ensure_history([benchmark_symbol], start, end).get(benchmark_symbol, [])
+        bars = self._market_data.history_snapshot([benchmark_symbol], start, end).get(benchmark_symbol, [])
         if not bars:
             return {"ready": False, "symbol": benchmark_symbol, "monthly_returns": [], "nav_curve": [], "drawdown_curve": [], "relative_curve": [], "rolling_excess_curve": [], "comparison": {}, "metrics": {}}
         monthly_returns = self._monthly_returns_from_bars(bars)

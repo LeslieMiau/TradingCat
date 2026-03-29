@@ -218,6 +218,29 @@
   - 同一临时环境下 `curl -sS "http://127.0.0.1:8020/research/strategies/strategy_a_etf_rotation?as_of=2026-03-08"` -> 返回 `fx_ready`、`fx_blockers`、`fx_coverage`
 - Decisions:
   - 这一步把 FX 缺失 blocker 放在 research assumptions 层统一生成，而不是只在 route 层拼文案，这样 report/detail/scorecard 后续都能复用同一套语义。
+
+## Session update — 2026-03-29
+- Completed feature: 架构治理 Feature 1，修复 persistent-universe 回归，确保研究详情/报告不会被 bootstrap sample 和研究长窗口缓存污染。
+- Code changes:
+  - `MarketDataService.research_universe()` 现在在存在 operator/custom 标的时优先返回这些持久化标的，不再把 bootstrap sample silently 混进研究主链路。
+  - `MarketDataService` 新增 `history_snapshot()`，并让 `ResearchService` 的长窗口 walk-forward 读取走非持久化快照；研究报告/详情里的只读历史加载不再回写共享短窗缓存。
+  - `summarize_corporate_actions_coverage()` 改为直接抓公司行为而不复用 `sync_history()`，避免为了确认 `confirmed_none` 把长窗口 price bars 写回本地缓存。
+  - `StrategyAnalysisService._benchmark_comparison()` 改为读取非持久化历史快照，避免策略详情 benchmark 计算污染后续信号生成。
+  - 新增两个回归测试：一个锁定 `research_universe()` 对 custom symbol 的优先级，另一个锁定“研究报告不会把股票动量策略从 `AAPL` 污染回 `VTI` fallback”。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py -q` -> `16 passed`
+  - `.venv/bin/pytest tests/test_research_reporting.py::test_research_report_does_not_pollute_short_window_stock_signals -q` -> `1 passed`
+  - `.venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+  - 真实 HTTP 验证：
+    - `curl -sS http://127.0.0.1:8022/preflight/startup` -> `healthy=true`
+    - `POST /data/instruments` upsert `IVV` / `VOO` / `AAPL`
+    - `GET /research/strategies/strategy_a_etf_rotation?as_of=2026-03-08` -> `signals=["IVV","VOO"]`，`signal_source="historical_momentum_rotation"`
+    - `GET /research/strategies/strategy_b_equity_momentum?as_of=2026-03-08` -> `symbol="AAPL"`，`signal_source="historical_equity_momentum"`，`blackout_active=false`
+    - `GET /research/strategies/strategy_c_option_overlay?as_of=2026-03-08` -> `underlying_symbol="IVV"`，`signal_source="historical_option_overlay"`
+    - `POST /research/report/run?as_of=2026-03-08` -> ETF `signal_insights[0]` 返回 `symbol="IVV"`、`signal_source="historical_momentum_rotation"`、`indicator_snapshot`
+- Decisions:
+  - 这次没有改 `PLAN.json`；仓库里的现有 harness plan 是上一轮 48 个 feature 的已完成状态，且该文件按规则不能重写描述。本轮新架构治理任务只在 `PROGRESS.md` 追加 checkpoint，避免污染旧 plan。
+  - 根因不是单纯 universe 过滤，而是“研究只读路径回写共享缓存”导致短窗信号被长窗样本污染；因此这一步优先切断读写耦合，而不是继续在策略层补更多 fallback 特判。
   - 真实 HTTP 当前验证到的是 `available` 正常路径；“FX 缺失时必须阻塞”的强语义由新增 service/research/API 测试锁定，避免依赖运行时临时制造空 FX。
 - Remaining focus for next session:
   - feature #22：为主 universe 提供最小可复现的历史回填基线，降低长期依赖样例数据的概率。

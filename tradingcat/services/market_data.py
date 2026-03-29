@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 class MarketDataService:
     _COVERAGE_THRESHOLD = 0.95
     _LIQUIDITY_ORDER = {"low": 0, "medium": 1, "high": 2}
+    _BOOTSTRAP_SAMPLE_KEYS = {
+        f"{instrument.market.value}:{instrument.symbol}"
+        for instrument in sample_instruments()
+    }
 
     def __init__(
         self,
@@ -97,7 +101,7 @@ class MarketDataService:
         asset_classes: list[str] | None = None,
         minimum_liquidity_bucket: str = "medium",
     ) -> list[Instrument]:
-        return self.list_instruments(
+        instruments = self.list_instruments(
             markets=markets,
             asset_classes=asset_classes,
             enabled_only=True,
@@ -105,6 +109,12 @@ class MarketDataService:
             liquid_only=True,
             minimum_liquidity_bucket=minimum_liquidity_bucket,
         )
+        custom_instruments = [
+            instrument
+            for instrument in instruments
+            if self._key(instrument) not in self._BOOTSTRAP_SAMPLE_KEYS
+        ]
+        return custom_instruments or instruments
 
     def get_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
         return self._resolve_instrument(symbol, strict=strict)
@@ -388,11 +398,16 @@ class MarketDataService:
             actions = self._history.load_corporate_actions(instrument, start_date, end_date)
             error: str | None = None
             if not actions:
-                sync = self.sync_history(symbols=[instrument.symbol], start=start_date, end=end_date, include_corporate_actions=True)
-                failure = next((item for item in sync.get("failures", []) if item.get("symbol") == instrument.symbol), None)
-                if failure is not None:
-                    error = str(failure.get("error") or "corporate action sync failed")
-                actions = self._history.load_corporate_actions(instrument, start_date, end_date)
+                try:
+                    fetched_actions = self._adapter.fetch_corporate_actions(instrument, start_date, end_date)
+                    self._history.save_corporate_actions(instrument, fetched_actions)
+                    actions = self._history.load_corporate_actions(instrument, start_date, end_date)
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to fetch corporate actions",
+                        extra={"symbol": instrument.symbol, "market": instrument.market.value},
+                    )
+                    error = str(exc)
 
             actions_by_symbol[instrument.symbol] = self._deserialize_corporate_actions(instrument, actions, start_date)
 
@@ -548,6 +563,19 @@ class MarketDataService:
         }
 
     def ensure_history(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
+        return self._load_history(symbols, start, end, persist=True)
+
+    def history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
+        return self._load_history(symbols, start, end, persist=False)
+
+    def _load_history(
+        self,
+        symbols: list[str],
+        start: date,
+        end: date,
+        *,
+        persist: bool,
+    ) -> dict[str, list[Bar]]:
         targets = [self._resolve_instrument(symbol) for symbol in symbols if self._resolve_instrument(symbol, strict=False) is not None]
         loaded: dict[str, list[Bar]] = {}
         missing_symbols: list[str] = []
@@ -560,12 +588,18 @@ class MarketDataService:
                 loaded[instrument.symbol] = bars
 
         if missing_symbols:
-            self.sync_history(symbols=missing_symbols, start=start, end=end, include_corporate_actions=True)
-            for symbol in missing_symbols:
-                instrument = self._resolve_instrument(symbol)
-                bars = self._history.load_bars(instrument, start, end)
-                if bars:
-                    loaded[symbol] = bars
+            if persist:
+                self.sync_history(symbols=missing_symbols, start=start, end=end, include_corporate_actions=True)
+                for symbol in missing_symbols:
+                    instrument = self._resolve_instrument(symbol)
+                    bars = self._history.load_bars(instrument, start, end)
+                    if bars:
+                        loaded[symbol] = bars
+            else:
+                for symbol in missing_symbols:
+                    bars = self.fetch_bars(symbol, start, end)
+                    if bars:
+                        loaded[symbol] = bars
 
         return loaded
 

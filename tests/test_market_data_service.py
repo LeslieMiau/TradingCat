@@ -85,6 +85,41 @@ def test_market_data_service_persists_filtered_research_universe(tmp_path):
     assert all(instrument.symbol != "OTC1" for instrument in research_universe)
 
 
+def test_market_data_service_research_universe_prefers_custom_symbols_over_bootstrap_samples(tmp_path):
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    service.upsert_instruments(
+        [
+            Instrument(
+                symbol="IVV",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="iShares Core S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=6200,
+            ),
+            Instrument(
+                symbol="VOO",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="Vanguard S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=5400,
+            ),
+        ]
+    )
+
+    research_universe = service.research_universe(asset_classes=[AssetClass.ETF.value], markets=["US"])
+
+    assert {instrument.symbol for instrument in research_universe} == {"IVV", "VOO"}
+
+
 def test_market_data_service_ensure_history_refreshes_sparse_monthly_cache(tmp_path):
     service = MarketDataService(
         adapter=StaticMarketDataAdapter(),

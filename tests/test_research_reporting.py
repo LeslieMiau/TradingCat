@@ -2,6 +2,8 @@ from datetime import date, datetime, timezone
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.domain.models import AssetClass, Bar, Instrument, Market
+from tradingcat.app import TradingCatApplication
+from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.services.market_data import MarketDataService
@@ -166,6 +168,52 @@ def test_research_experiment_prefers_historical_market_data(tmp_path):
     assert experiment.assumptions["data_source"] == "historical"
     assert experiment.assumptions["history_symbols"] >= 1
     assert experiment.assumptions["ledger_entries"] >= 1
+
+
+def test_research_report_does_not_pollute_short_window_stock_signals(tmp_path):
+    app = TradingCatApplication(AppConfig(data_dir=tmp_path))
+    app.market_history.upsert_instruments(
+        [
+            Instrument(
+                symbol="IVV",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="iShares Core S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=6200,
+            ),
+            Instrument(
+                symbol="VOO",
+                market=Market.US,
+                asset_class=AssetClass.ETF,
+                currency="USD",
+                name="Vanguard S&P 500 ETF",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=5400,
+            ),
+            Instrument(
+                symbol="AAPL",
+                market=Market.US,
+                asset_class=AssetClass.STOCK,
+                currency="USD",
+                name="Apple",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=8400,
+            ),
+        ]
+    )
+    as_of = date(2026, 3, 8)
+
+    initial_signals = app.strategy_by_id("strategy_b_equity_momentum").generate_signals(as_of)
+    _ = app.research_facade.strategy_detail("strategy_a_etf_rotation", as_of)
+    _ = app.research_facade.report(as_of)
+    refreshed_signals = app.strategy_by_id("strategy_b_equity_momentum").generate_signals(as_of)
+
+    assert initial_signals[0].instrument.symbol == "AAPL"
+    assert initial_signals[0].metadata["signal_source"] == "historical_equity_momentum"
+    assert refreshed_signals[0].instrument.symbol == "AAPL"
+    assert refreshed_signals[0].metadata["signal_source"] == "historical_equity_momentum"
 
 
 def test_research_experiment_records_replay_fingerprint_and_compare(tmp_path):
