@@ -128,7 +128,7 @@ class RuleEngine:
             order.triggered_at = now
             intent = self._build_intent(order, price)
             try:
-                self._execution.register_expected_prices([intent], {order.symbol: price})
+                self._execution.register_expected_prices([intent], {order.symbol: price}, source="trigger_quote")
                 report = self._execution.submit(intent)
                 order.execution_order_id = report.broker_order_id
                 triggered_count += 1

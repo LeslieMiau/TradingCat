@@ -439,7 +439,6 @@ def test_selection_review_endpoint_does_not_activate_blocked_strategy():
         assert payload["summary"]["paper_only"] == ["strategy_a_etf_rotation"]
         assert payload["updated"][0]["decision"] == "paper_only"
         assert payload["updated"][0]["recommended_action"] == "paper_only"
-
         summary = client.get("/research/selections/summary")
         assert summary.status_code == 200
         assert summary.json()["active"] == []
@@ -447,6 +446,40 @@ def test_selection_review_endpoint_does_not_activate_blocked_strategy():
     finally:
         app_state.strategy_analysis.recommend_strategy_actions = original
         app_state.selection.clear()
+
+
+def test_orders_endpoint_exposes_expected_vs_realized_price_context():
+    app_state.execution.clear()
+    submit = client.post(
+        "/orders/manual",
+        json={
+            "symbol": "SPY",
+            "market": "US",
+            "side": "buy",
+            "quantity": 1,
+        },
+    )
+    assert submit.status_code == 200
+    order_intent_id = submit.json()["report"]["order_intent_id"]
+    reconcile = client.post(
+        "/reconcile/manual-fill",
+        json={
+            "order_intent_id": order_intent_id,
+            "broker_order_id": "manual-orders-context",
+            "filled_quantity": 1.0,
+            "average_price": 100.5,
+            "notes": "seed fill",
+        },
+    )
+    assert reconcile.status_code == 200
+
+    response = client.get("/orders")
+
+    assert response.status_code == 200
+    payload = response.json()[0]
+    assert payload["expected_price"] == 100.0
+    assert payload["realized_price"] == 100.5
+    assert payload["reference_source"] == "manual_order_reference"
 
 
 def test_allocation_review_endpoint_keeps_blocked_strategy_out_of_active_weight():

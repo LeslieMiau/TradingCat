@@ -229,6 +229,7 @@ class DashboardFacade:
         rows: list[dict[str, object]] = []
         for order in orders:
             context = self._app.execution.resolve_intent_context(order.order_intent_id) or {}
+            price_context = self._app.execution.resolve_price_context(order.order_intent_id)
             rows.append(
                 {
                     **order.model_dump(mode="json"),
@@ -236,6 +237,9 @@ class DashboardFacade:
                     "market": context.get("market"),
                     "asset_class": context.get("asset_class"),
                     "strategy_id": context.get("strategy_id"),
+                    "expected_price": price_context.get("expected_price"),
+                    "realized_price": price_context.get("realized_price"),
+                    "reference_source": price_context.get("reference_source"),
                 }
             )
         return rows

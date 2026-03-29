@@ -295,3 +295,18 @@
   - 仍然没有做真实 HTTP trigger 执行演练，继续遵守当前无显式 side-effect 授权的边界；原因分类和结果结构由 API/engine 测试完成闭环验证。
 - Remaining focus for next session:
   - feature #27：执行记录持久化 expected price、realized price 与参考来源，支持个人可用的成交偏差追踪。
+
+## Session update — 2026-03-29
+- Completed feature #27: 执行记录现在会持久化 expected price、realized price 与参考来源，支持个人可用的成交偏差追踪。
+- Code changes:
+  - `ExecutionService.register_expected_prices()` 现在会保存参考价来源，并支持直接接收 `{price, source}` 结构；同时新增 `resolve_price_context()`，统一返回 `expected_price`、`realized_price`、`reference_source` 与已记录 slippage。
+  - `/orders` 与 dashboard recent orders 现在都会带上订单上下文和价格上下文，所以查询订单时就能直接看到预期价、成交价以及参考价来自 `trigger_quote`、`execution_preview_quote` 还是 `manual_order_reference`。
+  - `ReconciliationService.execution_quality_summary()` 样本明细现在也会携带 `reference_source`；execution/API 测试新增了“价格上下文持久化”和“orders endpoint 暴露 expected vs realized”断言。
+- Validation:
+  - `bash ~/.codex/scripts/global-init.sh` -> 先暴露出 `tests/test_api.py` 的语法错误；已在本 feature 收口时修复并重新通过验证。
+  - `.venv/bin/pytest tests/test_execution_reconciliation.py tests/test_api.py -q` -> `32 passed`
+- Decisions:
+  - 这一步优先把价格上下文统一落在 execution/reconciliation/order-query 共享模型上，而不是只在单一报表接口里临时拼字段，给后续 `#28/#29` 的 execution quality 和 TCA 继续复用。
+  - 没有做真实 HTTP 的 `/reconcile/manual-fill` 演练，因为仓库规则把该接口列为需要显式批准的 side-effect 路径；本次改用 API pytest 完成完整链路验证，并在这里显式记录这个边界。
+- Remaining focus for next session:
+  - feature #28：execution quality 按资产类别给出偏差等级与样本数，帮助个人识别实现拖累。

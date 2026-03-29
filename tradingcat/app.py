@@ -356,7 +356,7 @@ class TradingCatApplication:
             return gate
         preview = self.preview_execution(as_of)
         intents = list(preview["order_intents"])
-        self.execution.register_expected_prices(intents, dict(preview["prices"]))
+        self.execution.register_expected_prices(intents, dict(preview["prices"]), source="execution_preview_quote")
         submitted = []
         failed = []
         approval_count = 0
@@ -1021,7 +1021,7 @@ class TradingCatApplication:
             algo=algo,
             notes=emotional_tag,
         )
-        self.execution.register_expected_prices([intent], {instrument.symbol: price})
+        self.execution.register_expected_prices([intent], {instrument.symbol: price}, source="manual_order_reference")
         report = self.execution.submit(intent)
         report = self.execution.update_order_report(intent.id, emotional_tag=emotional_tag)
         self.audit.log(

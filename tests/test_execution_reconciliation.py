@@ -61,6 +61,40 @@ def test_execution_quality_summary_tracks_threshold_breaches(tmp_path):
     assert summary["filled_samples"] == 1
     assert summary["equity_breaches"] == 1
     assert summary["within_limits"] is False
+    assert summary["samples"][0]["reference_source"] == "market_quote"
+
+
+def test_execution_price_context_persists_expected_and_realized_price(tmp_path):
+    service = ExecutionService(
+        live_broker=SimulatedBrokerAdapter(),
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    intent = OrderIntent(
+        signal_id="sig-price-context",
+        instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD"),
+        side=OrderSide.BUY,
+        quantity=10,
+    )
+
+    service.register_expected_prices([intent], {"SPY": {"price": 100.0, "source": "execution_preview_quote"}})
+    service.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=intent.id,
+            broker_order_id="manual-price-context",
+            filled_quantity=10.0,
+            average_price=100.5,
+            notes="seed fill",
+        )
+    )
+
+    context = service.resolve_price_context(intent.id)
+
+    assert context["expected_price"] == 100.0
+    assert context["realized_price"] == 100.5
+    assert context["reference_source"] == "execution_preview_quote"
 
 
 def test_execution_authorization_summary_marks_pending_and_auto_orders(tmp_path):

@@ -12,7 +12,13 @@ router = APIRouter(prefix="/orders")
 
 @router.get("")
 def orders(request: Request):
-    return get_app_state(request).execution.list_orders()
+    app = get_app_state(request)
+    rows = []
+    for order in app.execution.list_orders():
+        context = app.execution.resolve_intent_context(order.order_intent_id) or {}
+        price_context = app.execution.resolve_price_context(order.order_intent_id)
+        rows.append({**order.model_dump(mode="json"), **context, **price_context})
+    return rows
 
 
 @router.post("/{broker_order_id}/cancel")
@@ -47,4 +53,3 @@ def list_smart_orders(request: Request):
 @router.post("/triggers")
 def create_smart_order(request: Request, order: SmartOrder):
     return get_app_state(request).rule_engine.register_order(order)
-

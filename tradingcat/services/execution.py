@@ -51,11 +51,17 @@ class ExecutionService:
             if isinstance(value, dict)
         }
 
-    def register_expected_prices(self, intents: list[OrderIntent], prices: dict[str, float]) -> None:
+    def register_expected_prices(self, intents: list[OrderIntent], prices: dict[str, float | dict[str, object]], source: str = "market_quote") -> None:
         with self._lock:
             updated = False
             for intent in intents:
-                reference_price = prices.get(intent.instrument.symbol)
+                reference_raw = prices.get(intent.instrument.symbol)
+                if isinstance(reference_raw, dict):
+                    reference_price = reference_raw.get("price", reference_raw.get("reference_price"))
+                    reference_source = str(reference_raw.get("source") or source)
+                else:
+                    reference_price = reference_raw
+                    reference_source = source
                 if reference_price is None or reference_price <= 0:
                     continue
                 self._expected_prices[intent.id] = {
@@ -63,6 +69,7 @@ class ExecutionService:
                     "market": intent.instrument.market.value,
                     "asset_class": intent.instrument.asset_class.value,
                     "reference_price": float(reference_price),
+                    "reference_source": reference_source,
                 }
                 updated = True
             if updated:
@@ -246,6 +253,16 @@ class ExecutionService:
 
     def resolve_intent_context(self, order_intent_id: str) -> dict[str, object] | None:
         return self._intent_metadata.get(order_intent_id)
+
+    def resolve_price_context(self, order_intent_id: str) -> dict[str, object]:
+        expected = self._expected_prices.get(order_intent_id, {})
+        report = self._orders.get(order_intent_id)
+        return {
+            "expected_price": expected.get("reference_price"),
+            "realized_price": report.average_price if report is not None else None,
+            "reference_source": expected.get("reference_source"),
+            "recorded_slippage": report.slippage if report is not None else None,
+        }
 
     def update_order_report(self, order_intent_id: str, **changes: object) -> ExecutionReport:
         with self._lock:

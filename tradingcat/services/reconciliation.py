@@ -119,6 +119,7 @@ class ReconciliationService:
                     "market": baseline.get("market"),
                     "asset_class": asset_class,
                     "reference_price": reference_price,
+                    "reference_source": baseline.get("reference_source", "market_quote"),
                     "fill_price": report.average_price,
                     metric_name: metric,
                     "threshold": threshold,
