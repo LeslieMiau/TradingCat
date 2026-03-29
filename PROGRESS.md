@@ -170,3 +170,20 @@
   - 真实 HTTP 验证里我先并行打了 repair 和 coverage，读到的是修复前状态；随后按顺序重试确认了接口闭环本身没有问题。
 - Remaining focus for next session:
   - feature #19：让 `data_quality_summary` / `/ops/readiness` 直接复用 coverage blockers，把研究主 universe 缺口抬升成显式 readiness blocker。
+
+## Session update — 2026-03-29
+- Completed feature #19: `data_quality_summary` 与 `/ops/readiness` 现在会把研究可推广性所需的数据就绪性抬升成显式 blocker。
+- Code changes:
+  - `TradingCatApplication.data_quality_summary()` 现在会优先检查 active execution symbols；如果当前没有 active 策略，则回退到研究主 universe 的优先 symbol，并返回 `scope`、`minimum_coverage_ratio`、`minimum_required_ratio`、`missing_symbols`、`blockers`。
+  - `TradingCatApplication.operations_readiness()` 现在直接消费 `data_quality_summary()`，把 coverage blockers 暴露到顶层 `blockers`，同时把完整 `data_quality` 摘要挂进 readiness 响应。
+  - `OperationsReadinessResponse` 与相关测试已更新，锁定 `/data/quality`、`/ops/readiness` 在 coverage 不足时都会返回 `ready=false` 与显式 blocker。
+- Validation:
+  - `.venv/bin/pytest tests/test_selection_service.py tests/test_api.py -q` -> `26 passed`
+  - `curl -sS http://127.0.0.1:8018/preflight/startup` -> `healthy=true`
+  - 在临时空数据目录上运行 `curl -sS http://127.0.0.1:8018/data/quality` -> 返回 `ready=false`、`scope="research_universe"`、`minimum_coverage_ratio=0.0`、显式 `blockers`
+  - 同一临时环境下 `curl -sS http://127.0.0.1:8018/ops/readiness` -> 返回顶层 `blockers`，且 `data_quality.ready=false`
+- Decisions:
+  - 当没有 active execution strategy 时，这一步选择回退到研究主 universe，而不是返回“中性 ready”；这样 readiness 更符合“能不能把研究结果当真”的语义。
+  - 顶层 readiness 当前只直接暴露数据 blocker 文案，不额外重复拼接 alerts/compliance 文案，避免一个响应里出现多套重复 blocker 文本。
+- Remaining focus for next session:
+  - feature #20：让公司行为覆盖率和缺失状态进入研究输出，避免个股/ETF 回测在拆股/分红场景下静默失真。

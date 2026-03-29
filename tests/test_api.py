@@ -154,6 +154,52 @@ def test_data_history_repair_endpoint_returns_recheck_summary():
     assert "remaining_symbols" in payload["recheck"]
 
 
+def test_data_quality_and_readiness_surface_coverage_blockers():
+    original_summary = app_state.market_history.summarize_history_coverage
+    try:
+        app_state.market_history.summarize_history_coverage = lambda symbols=None, start=None, end=None: {
+            "start": date(2026, 3, 2),
+            "end": date(2026, 3, 6),
+            "instrument_count": 1,
+            "expected_trading_days": 5,
+            "complete_instruments": 0,
+            "minimum_coverage_ratio": 0.2,
+            "minimum_required_ratio": 0.95,
+            "missing_symbols": ["SPY"],
+            "missing_windows": [],
+            "blocked": True,
+            "blocker_count": 2,
+            "blockers": [
+                "Minimum history coverage is 20.00%, below the 95% requirement.",
+                "Missing history detected for: SPY.",
+            ],
+            "reports": [
+                {
+                    "symbol": "SPY",
+                    "market": "US",
+                    "coverage_ratio": 0.2,
+                    "missing_count": 4,
+                    "missing_preview": ["2026-03-02"],
+                }
+            ],
+        }
+        quality = client.get("/data/quality")
+        assert quality.status_code == 200
+        quality_payload = quality.json()
+        assert quality_payload["ready"] is False
+        assert quality_payload["blockers"]
+        assert quality_payload["scope"] in {"active_execution", "research_universe"}
+
+        readiness = client.get("/ops/readiness")
+        assert readiness.status_code == 200
+        readiness_payload = readiness.json()
+        assert readiness_payload["ready"] is False
+        assert readiness_payload["blockers"]
+        assert readiness_payload["data_quality"]["ready"] is False
+    finally:
+        app_state.market_history.summarize_history_coverage = original_summary
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

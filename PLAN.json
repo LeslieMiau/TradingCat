@@ -206,7 +206,7 @@
       "研究主 universe 缺口会抬升数据质量风险等级。",
       "data-quality / readiness 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 20,

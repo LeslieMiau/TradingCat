@@ -528,14 +528,24 @@ class TradingCatApplication:
             if strategy.strategy_id in explicit_ids:
                 explicit_signals.extend(self._execution_signals_for_strategy(strategy, as_of))
         target_symbols = sorted({signal.instrument.symbol for signal in explicit_signals})
+        scope = "active_execution"
         if not target_symbols:
-            return {"ready": True, "target_symbols": [], "incomplete_count": 0, "reports": []}
+            target_symbols = self._repair_priority_symbols(as_of=as_of)[:5]
+            scope = "research_universe"
+        if not target_symbols:
+            return {"ready": True, "scope": scope, "target_symbols": [], "incomplete_count": 0, "reports": [], "blockers": []}
         coverage = self.market_history.summarize_history_coverage(symbols=target_symbols, start=as_of - timedelta(days=lookback_days), end=as_of)
         incomplete = [report for report in coverage["reports"] if float(report.get("coverage_ratio", 0.0)) < 0.95]
+        blockers = [str(item) for item in coverage.get("blockers", [])]
         return {
-            "ready": not incomplete,
+            "ready": not incomplete and not blockers,
+            "scope": scope,
             "target_symbols": target_symbols,
             "incomplete_count": len(incomplete),
+            "minimum_coverage_ratio": coverage.get("minimum_coverage_ratio", 1.0),
+            "minimum_required_ratio": coverage.get("minimum_required_ratio", 0.95),
+            "missing_symbols": coverage.get("missing_symbols", []),
+            "blockers": blockers,
             "reports": coverage["reports"],
         }
 
@@ -702,18 +712,27 @@ class TradingCatApplication:
     def operations_readiness(self) -> dict[str, object]:
         validation = self._base_validation_snapshot(date.today())
         broker_status = self.broker_status()
+        data_quality = self.data_quality_summary()
         alerts_summary = self.alerts.latest_summary()
         compliance_summary = self.compliance.summary()
         compliance_counts = self._compliance_counts(compliance_summary)
         diagnostics = validation["diagnostics"]
-        ready = bool(diagnostics["ready"]) and alerts_summary["count"] == 0 and compliance_counts["blocked_count"] == 0
+        blockers = list(data_quality.get("blockers", []))
+        ready = (
+            bool(diagnostics["ready"])
+            and bool(data_quality.get("ready", True))
+            and alerts_summary["count"] == 0
+            and compliance_counts["blocked_count"] == 0
+        )
         latest_dir = latest_report_dir(self.config.data_dir)
         return {
             "ready": ready,
+            "blockers": blockers,
             "diagnostics": diagnostics,
             "preflight": validation["preflight"],
             "broker_status": broker_status,
             "broker_validation": validation["broker_validation"],
+            "data_quality": data_quality,
             "alerts": alerts_summary,
             "compliance": {**compliance_summary, **compliance_counts},
             "latest_report_dir": str(latest_dir) if latest_dir else None,

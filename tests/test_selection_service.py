@@ -166,14 +166,16 @@ def test_app_data_quality_targets_active_execution_symbols(tmp_path):
     summary = app.data_quality_summary()
 
     assert summary["target_symbols"] == ["0700"]
+    assert summary["scope"] == "active_execution"
 
 
-def test_app_data_quality_is_neutral_without_active_strategies(tmp_path):
+def test_app_data_quality_falls_back_to_research_universe_without_active_strategies(tmp_path):
     config = AppConfig(data_dir=tmp_path)
     app = TradingCatApplication(config=config)
     app.reset_state()
 
     summary = app.data_quality_summary()
 
-    assert summary["ready"] is True
-    assert summary["target_symbols"] == []
+    assert summary["scope"] == "research_universe"
+    assert summary["target_symbols"]
+    assert "blockers" in summary

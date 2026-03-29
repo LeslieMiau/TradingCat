@@ -100,10 +100,12 @@ class ResearchScorecardResponse(FlexibleModel):
 
 class OperationsReadinessResponse(FlexibleModel):
     ready: bool
+    blockers: list[str] = Field(default_factory=list)
     diagnostics: dict[str, Any]
     preflight: dict[str, Any]
     broker_status: dict[str, Any]
     broker_validation: dict[str, Any]
+    data_quality: dict[str, Any] = Field(default_factory=dict)
     alerts: dict[str, Any]
     compliance: dict[str, Any]
     latest_report_dir: str | None = None
