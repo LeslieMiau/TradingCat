@@ -83,7 +83,21 @@ def data_fx_sync(request: Request, payload: FxSyncPayload):
 
 @router.get("/data/fx/rates")
 def data_fx_rates(request: Request, base_currency: str, quote_currency: str, start: date, end: date):
-    return get_app_state(request).market_history.get_fx_rates(base_currency, quote_currency, start, end)
+    app = get_app_state(request)
+    summary = app.market_history.summarize_fx_coverage(base_currency, [quote_currency], start, end)
+    report = summary["reports"][0] if summary.get("reports") else {"pair": f"{quote_currency.upper()}/{base_currency.upper()}", "status": "unknown", "rate_count": 0}
+    return {
+        "base_currency": base_currency.upper(),
+        "quote_currency": quote_currency.upper(),
+        "start": summary["start"],
+        "end": summary["end"],
+        "ready": summary["ready"],
+        "status": report.get("status", "unknown"),
+        "rate_count": report.get("rate_count", 0),
+        "missing_quote_currencies": summary.get("missing_quote_currencies", []),
+        "blockers": summary.get("blockers", []),
+        "rates": app.market_history.get_fx_rates(base_currency, quote_currency, start, end),
+    }
 
 
 @router.get("/data/quality")

@@ -196,6 +196,32 @@ def test_market_data_service_syncs_and_reads_fx_rates(tmp_path):
     assert rates[0].quote_currency == "USD"
 
 
+def test_market_data_service_summarizes_missing_fx_coverage(tmp_path):
+    class MissingFxMarketDataService(MarketDataService):
+        def sync_fx_rates(self, base_currency="CNY", quote_currencies=None, start=None, end=None):
+            return {
+                "base_currency": base_currency,
+                "quote_currencies": quote_currencies or [],
+                "rate_count": 0,
+                "start": start,
+                "end": end,
+            }
+
+    service = MissingFxMarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    coverage = service.summarize_fx_coverage(base_currency="CNY", quote_currencies=["USD"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+
+    assert coverage["ready"] is False
+    assert coverage["missing_quote_currencies"] == ["USD"]
+    assert coverage["reports"][0]["status"] == "missing"
+    assert coverage["blocker_count"] == len(coverage["blockers"])
+    assert any("fx coverage into cny is unavailable" in blocker.lower() for blocker in coverage["blockers"])
+
+
 def test_history_sync_service_records_runs_and_repair_plan(tmp_path):
     market_data = MarketDataService(
         adapter=StaticMarketDataAdapter(),

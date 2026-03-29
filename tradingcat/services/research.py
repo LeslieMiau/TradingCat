@@ -55,7 +55,8 @@ class ResearchService:
         complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
         corporate_action_coverage = self._load_signal_corporate_action_coverage(all_signals or signals, sample_start, as_of)
         corporate_actions_by_symbol = dict(corporate_action_coverage.get("actions_by_symbol", {}))
-        fx_rates_by_pair = self._load_signal_fx_rates(all_signals or signals, sample_start, as_of, base_currency="CNY")
+        fx_coverage = self._load_signal_fx_coverage(all_signals or signals, sample_start, as_of, base_currency="CNY")
+        fx_rates_by_pair = dict(fx_coverage.get("rates_by_pair", {}))
         if complete_history:
             metrics, windows, monthly_returns, ledger = self._backtester.run_walk_forward_from_history(
                 strategy_id,
@@ -84,7 +85,10 @@ class ResearchService:
         corporate_actions_ready = bool(corporate_action_coverage.get("ready", True))
         missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
         corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
-        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol) and corporate_actions_ready
+        fx_ready = bool(fx_coverage.get("ready", True))
+        missing_fx_pairs = [str(item) for item in fx_coverage.get("missing_quote_currencies", [])]
+        fx_blockers = [str(item) for item in fx_coverage.get("blockers", [])]
+        data_ready = data_source == "historical" and complete_history and bool(history_by_symbol) and corporate_actions_ready and fx_ready
         data_blockers = self._research_data_blockers(
             data_source=data_source,
             signal_symbol_count=len(signal_symbols),
@@ -92,6 +96,8 @@ class ResearchService:
             missing_history_symbols=missing_history_symbols,
             missing_corporate_action_symbols=missing_corporate_action_symbols,
             corporate_action_blockers=corporate_action_blockers,
+            missing_fx_pairs=missing_fx_pairs,
+            fx_blockers=fx_blockers,
         )
         correlation_key = "|".join(f"{value:.6f}" for value in monthly_returns)
         replay_inputs = self._build_replay_inputs(strategy_id, as_of, signals, sample_start, data_source)
@@ -122,6 +128,10 @@ class ResearchService:
                 "missing_history_symbols": missing_history_symbols,
                 "history_complete": complete_history,
                 "fx_pairs": len(fx_rates_by_pair),
+                "fx_ready": fx_ready,
+                "missing_fx_pairs": missing_fx_pairs,
+                "fx_blockers": fx_blockers,
+                "fx_coverage": self._serialize_fx_coverage(fx_coverage),
                 "corporate_action_symbols": len([symbol for symbol, actions in corporate_actions_by_symbol.items() if actions]),
                 "corporate_actions_ready": corporate_actions_ready,
                 "missing_corporate_action_symbols": missing_corporate_action_symbols,
@@ -215,9 +225,15 @@ class ResearchService:
             }
         return self._market_data.summarize_corporate_actions_coverage(symbols, start, end)
 
-    def _load_signal_fx_rates(self, signals: list[Signal], start: date, end: date, base_currency: str):
+    def _load_signal_fx_coverage(self, signals: list[Signal], start: date, end: date, base_currency: str) -> dict[str, object]:
         if self._market_data is None or not signals:
-            return {}
+            return {
+                "ready": True,
+                "missing_quote_currencies": [],
+                "blockers": [],
+                "reports": [],
+                "rates_by_pair": {},
+            }
         quote_currencies = sorted(
             {
                 signal.instrument.currency.upper()
@@ -225,7 +241,7 @@ class ResearchService:
                 if signal.instrument.currency.upper() != base_currency.upper()
             }
         )
-        return self._market_data.ensure_fx_rates(base_currency, quote_currencies, start, end)
+        return self._market_data.summarize_fx_coverage(base_currency, quote_currencies, start, end)
 
     def _build_replay_inputs(self, strategy_id: str, as_of: date, signals: list[Signal], sample_start: date, data_source: str) -> dict[str, object]:
         return {
@@ -265,6 +281,8 @@ class ResearchService:
         missing_history_symbols: int,
         missing_corporate_action_symbols: list[str],
         corporate_action_blockers: list[str],
+        missing_fx_pairs: list[str],
+        fx_blockers: list[str],
     ) -> list[str]:
         blockers: list[str] = []
         if data_source != "historical":
@@ -277,7 +295,12 @@ class ResearchService:
             blockers.append(
                 f"Corporate action coverage is incomplete for: {', '.join(sorted(dict.fromkeys(missing_corporate_action_symbols)))}."
             )
+        if missing_fx_pairs:
+            blockers.append(
+                f"FX coverage is incomplete for quote currencies: {', '.join(sorted(dict.fromkeys(missing_fx_pairs)))}."
+            )
         blockers.extend(corporate_action_blockers)
+        blockers.extend(fx_blockers)
         return blockers
 
     def _serialize_corporate_action_coverage(self, payload: dict[str, object]) -> dict[str, object]:
@@ -287,6 +310,18 @@ class ResearchService:
             "missing_symbols": [str(item) for item in payload.get("missing_symbols", [])],
             "available_symbols": [str(item) for item in payload.get("available_symbols", [])],
             "confirmed_none_symbols": [str(item) for item in payload.get("confirmed_none_symbols", [])],
+            "blockers": [str(item) for item in payload.get("blockers", [])],
+            "reports": list(payload.get("reports", [])),
+        }
+
+    def _serialize_fx_coverage(self, payload: dict[str, object]) -> dict[str, object]:
+        return {
+            "ready": bool(payload.get("ready", True)),
+            "status": payload.get("status", "ready"),
+            "base_currency": payload.get("base_currency", "CNY"),
+            "quote_currencies": [str(item) for item in payload.get("quote_currencies", [])],
+            "available_quote_currencies": [str(item) for item in payload.get("available_quote_currencies", [])],
+            "missing_quote_currencies": [str(item) for item in payload.get("missing_quote_currencies", [])],
             "blockers": [str(item) for item in payload.get("blockers", [])],
             "reports": list(payload.get("reports", [])),
         }

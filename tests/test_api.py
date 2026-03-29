@@ -234,6 +234,41 @@ def test_data_history_corporate_actions_endpoint_exposes_status():
         app_state.market_history.get_corporate_actions = original_actions
 
 
+def test_data_fx_rates_endpoint_exposes_status():
+    original_summary = app_state.market_history.summarize_fx_coverage
+    original_rates = app_state.market_history.get_fx_rates
+    try:
+        app_state.market_history.summarize_fx_coverage = lambda base_currency, quote_currencies, start, end: {
+            "base_currency": "CNY",
+            "quote_currencies": ["USD"],
+            "ready": False,
+            "missing_quote_currencies": ["USD"],
+            "blockers": ["FX coverage into CNY is unavailable for: USD."],
+            "reports": [
+                {
+                    "pair": "USD/CNY",
+                    "status": "missing",
+                    "rate_count": 0,
+                }
+            ],
+            "start": date(2026, 3, 2),
+            "end": date(2026, 3, 6),
+        }
+        app_state.market_history.get_fx_rates = lambda base_currency, quote_currency, start, end: []
+
+        response = client.get("/data/fx/rates", params={"base_currency": "CNY", "quote_currency": "USD", "start": "2026-03-02", "end": "2026-03-06"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ready"] is False
+        assert payload["status"] == "missing"
+        assert payload["missing_quote_currencies"] == ["USD"]
+        assert payload["blockers"]
+        assert payload["rates"] == []
+    finally:
+        app_state.market_history.summarize_fx_coverage = original_summary
+        app_state.market_history.get_fx_rates = original_rates
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200
@@ -588,6 +623,9 @@ def test_research_scorecard_and_strategy_detail_endpoints():
     assert "benchmark" in payload
     assert "yearly_performance" in payload
     assert "recommendation" in payload
+    assert "fx_ready" in payload
+    assert "fx_coverage" in payload
+    assert "fx_blockers" in payload
     assert "corporate_actions_ready" in payload
     assert "corporate_action_coverage" in payload
     assert "corporate_action_blockers" in payload

@@ -228,7 +228,7 @@
       "缺失 FX 时，跨市场策略不会静默当成 fully validated。",
       "相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 22,

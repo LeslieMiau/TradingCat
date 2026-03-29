@@ -413,6 +413,75 @@ def test_research_strategy_detail_exposes_corporate_action_gaps(tmp_path):
     assert detail["corporate_action_coverage"]["ready"] is False
 
 
+def test_research_report_blocks_missing_fx_coverage(tmp_path):
+    class MissingFxMarketDataService(MarketDataService):
+        def sync_fx_rates(self, base_currency="CNY", quote_currencies=None, start=None, end=None):
+            return {
+                "base_currency": base_currency,
+                "quote_currencies": quote_currencies or [],
+                "rate_count": 0,
+                "start": start,
+                "end": end,
+            }
+
+    market_data = MissingFxMarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    report = service.summarize_strategy_report(
+        as_of,
+        {strategy.strategy_id: strategy.generate_signals(as_of)},
+    )
+
+    strategy_report = report["strategy_reports"][0]
+    assert strategy_report["data_source"] == "historical"
+    assert strategy_report["data_ready"] is False
+    assert strategy_report["fx_ready"] is False
+    assert strategy_report["missing_fx_pairs"] == ["USD"]
+    assert strategy_report["fx_blockers"]
+    assert report["hard_blocked"] is True
+    assert any("fx coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
+
+
+def test_research_strategy_detail_exposes_fx_gaps(tmp_path):
+    class MissingFxMarketDataService(MarketDataService):
+        def sync_fx_rates(self, base_currency="CNY", quote_currencies=None, start=None, end=None):
+            return {
+                "base_currency": base_currency,
+                "quote_currencies": quote_currencies or [],
+                "rate_count": 0,
+                "start": start,
+                "end": end,
+            }
+
+    market_data = MissingFxMarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+
+    assert detail["fx_ready"] is False
+    assert detail["missing_fx_pairs"] == ["USD"]
+    assert detail["fx_blockers"]
+    assert detail["fx_coverage"]["ready"] is False
+
+
 def test_research_monthly_returns_support_mixed_timezone_bars(tmp_path):
     service = ResearchService(BacktestExperimentRepository(tmp_path))
     instrument = Instrument(symbol="QQQ", market=Market.US, asset_class=AssetClass.ETF)

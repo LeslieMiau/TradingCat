@@ -409,6 +409,77 @@ class MarketDataService:
     def get_fx_rates(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
         return self._history.load_fx_rates(base_currency.upper(), quote_currency.upper(), start, end)
 
+    def summarize_fx_coverage(
+        self,
+        base_currency: str,
+        quote_currencies: list[str] | None,
+        start: date,
+        end: date,
+    ) -> dict[str, object]:
+        normalized = sorted({currency.upper() for currency in (quote_currencies or []) if currency.upper() != base_currency.upper()})
+        if not normalized:
+            return {
+                "base_currency": base_currency.upper(),
+                "quote_currencies": [],
+                "ready": True,
+                "status": "ready",
+                "missing_quote_currencies": [],
+                "blocker_count": 0,
+                "blockers": [],
+                "reports": [],
+                "rates_by_pair": {},
+                "start": start,
+                "end": end,
+            }
+
+        rates_by_pair: dict[str, list[FxRate]] = {}
+        reports: list[dict[str, object]] = []
+        available_quote_currencies: list[str] = []
+        missing_quote_currencies: list[str] = []
+
+        for quote_currency in normalized:
+            rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
+            if not rates:
+                self.sync_fx_rates(base_currency=base_currency.upper(), quote_currencies=[quote_currency], start=start, end=end)
+                rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
+
+            pair = f"{quote_currency}/{base_currency.upper()}"
+            if rates:
+                rates_by_pair[pair] = rates
+                available_quote_currencies.append(quote_currency)
+                status = "available"
+            else:
+                missing_quote_currencies.append(quote_currency)
+                status = "missing"
+
+            reports.append(
+                {
+                    "pair": pair,
+                    "base_currency": base_currency.upper(),
+                    "quote_currency": quote_currency,
+                    "status": status,
+                    "rate_count": len(rates),
+                    "first_date": rates[0].date if rates else None,
+                    "last_date": rates[-1].date if rates else None,
+                }
+            )
+
+        blockers = self._fx_blockers(base_currency.upper(), missing_quote_currencies)
+        return {
+            "base_currency": base_currency.upper(),
+            "quote_currencies": normalized,
+            "available_quote_currencies": available_quote_currencies,
+            "missing_quote_currencies": missing_quote_currencies,
+            "ready": not missing_quote_currencies,
+            "status": "blocked" if missing_quote_currencies else "ready",
+            "blocker_count": len(blockers),
+            "blockers": blockers,
+            "reports": reports,
+            "rates_by_pair": rates_by_pair,
+            "start": start,
+            "end": end,
+        }
+
     def ensure_history(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
         targets = [self._resolve_instrument(symbol) for symbol in symbols if self._resolve_instrument(symbol, strict=False) is not None]
         loaded: dict[str, list[Bar]] = {}
@@ -436,21 +507,8 @@ class MarketDataService:
         return dict(coverage.get("actions_by_symbol", {}))
 
     def ensure_fx_rates(self, base_currency: str, quote_currencies: list[str], start: date, end: date) -> dict[str, list[FxRate]]:
-        loaded: dict[str, list[FxRate]] = {}
-        missing: list[str] = []
-        for quote_currency in sorted({currency.upper() for currency in quote_currencies if currency.upper() != base_currency.upper()}):
-            rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
-            if not rates:
-                missing.append(quote_currency)
-            else:
-                loaded[f"{quote_currency}/{base_currency.upper()}"] = rates
-        if missing:
-            self.sync_fx_rates(base_currency=base_currency.upper(), quote_currencies=missing, start=start, end=end)
-            for quote_currency in missing:
-                rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
-                if rates:
-                    loaded[f"{quote_currency}/{base_currency.upper()}"] = rates
-        return loaded
+        coverage = self.summarize_fx_coverage(base_currency=base_currency, quote_currencies=quote_currencies, start=start, end=end)
+        return dict(coverage.get("rates_by_pair", {}))
 
     def _resolve_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
         matches = [instrument for instrument in self._catalog.values() if instrument.symbol == symbol]
@@ -560,4 +618,13 @@ class MarketDataService:
         return [
             f"Corporate action coverage is unavailable for: {joined}.",
             "Run POST /data/history/sync with include_corporate_actions=true for the affected symbols, then recheck GET /data/history/corporate-actions.",
+        ]
+
+    def _fx_blockers(self, base_currency: str, missing_quote_currencies: list[str]) -> list[str]:
+        if not missing_quote_currencies:
+            return []
+        joined = ", ".join(sorted(dict.fromkeys(missing_quote_currencies)))
+        return [
+            f"FX coverage into {base_currency} is unavailable for: {joined}.",
+            f"Run POST /data/fx/sync for the missing quote currencies against {base_currency}, then recheck GET /data/fx/rates.",
         ]

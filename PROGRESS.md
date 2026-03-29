@@ -204,3 +204,20 @@
   - 缺失公司行为的强阻塞语义主要由新增单测锁定；真实 HTTP 则优先验证新字段已经稳定暴露，避免依赖外部行情源在当前时刻恰好返回缺失。
 - Remaining focus for next session:
   - feature #21：让 FX 覆盖率与缺失状态进入研究输出，避免跨市场收益换算静默失真。
+
+## Session update — 2026-03-29
+- Completed feature #21: FX 覆盖率与缺失状态现在会进入研究输出，避免跨市场收益换算静默失真。
+- Code changes:
+  - `MarketDataService` 新增 FX 覆盖摘要：会返回 `available / missing` 状态、缺失 quote currencies、`blockers` 和 `rates_by_pair`；`/data/fx/rates` 也改为直接返回状态、阻塞信息和汇率列表。
+  - `ResearchService.run_experiment()` 现在把 FX 覆盖纳入 `data_ready` 判定，并把 `fx_ready`、`missing_fx_pairs`、`fx_blockers`、`fx_coverage` 落进研究 assumptions，避免 FX 缺失时 backtest 静默走 synthetic FX fallback。
+  - `StrategyAnalysisService` 的 report/detail 现在会暴露这些 FX 字段，因此策略详情和研究报告都能直接看到跨市场换算是否具备所需 FX 数据。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_research_reporting.py tests/test_api.py -q` -> `56 passed`
+  - `curl -sS http://127.0.0.1:8020/preflight/startup` -> `healthy=true`
+  - 在临时空数据目录上运行 `curl -sS "http://127.0.0.1:8020/data/fx/rates?base_currency=CNY&quote_currency=USD&start=2026-03-02&end=2026-03-06"` -> 返回 `status="available"`、`ready=true`、`rate_count=1`
+  - 同一临时环境下 `curl -sS "http://127.0.0.1:8020/research/strategies/strategy_a_etf_rotation?as_of=2026-03-08"` -> 返回 `fx_ready`、`fx_blockers`、`fx_coverage`
+- Decisions:
+  - 这一步把 FX 缺失 blocker 放在 research assumptions 层统一生成，而不是只在 route 层拼文案，这样 report/detail/scorecard 后续都能复用同一套语义。
+  - 真实 HTTP 当前验证到的是 `available` 正常路径；“FX 缺失时必须阻塞”的强语义由新增 service/research/API 测试锁定，避免依赖运行时临时制造空 FX。
+- Remaining focus for next session:
+  - feature #22：为主 universe 提供最小可复现的历史回填基线，降低长期依赖样例数据的概率。
