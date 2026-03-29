@@ -267,3 +267,17 @@
   - 没有做真实 HTTP 的 `/ops/evaluate-triggers` 触发演练，原因与 `#23` 相同：避免在没有显式指令的情况下进入订单提交 side-effect 路径。
 - Remaining focus for next session:
   - feature #25：trigger 评估记录指标快照与执行上下文，便于复盘为什么触发或未触发。
+
+## Session update — 2026-03-29
+- Completed feature #25: trigger 评估现在会记录指标快照与执行上下文，便于复盘为什么触发或未触发。
+- Code changes:
+  - `SmartOrder` 现在持久化 `last_evaluated_at` 与 `evaluation_summary`，每次评估都会记录每个条件的 `metric / operator / target / value / passed`。
+  - `OrderIntent` 新增 `metadata`，rule engine 在触发时会把同一份 `trigger_context` 带进 execution intent；`ExecutionService` 的 intent metadata 也会保留这份上下文。
+  - rule-engine 与 API 测试现在都会校验 `/orders/triggers` 能看到 evaluation snapshot，且 execution intent context 里也带有来自 trigger 的条件快照。
+- Validation:
+  - `.venv/bin/pytest tests/test_rule_engine.py tests/test_execution_reconciliation.py tests/test_api.py -q` -> `32 passed`
+- Decisions:
+  - 这一步先把 trigger 快照落到持久化模型和 execution context，本身还不强求 route 层输出“未触发原因”的专门格式，给 `#26` 留出清晰边界。
+  - 没有做真实 HTTP trigger 执行演练，继续遵守当前无显式 side-effect 授权的边界；完整链路由 API/engine 测试覆盖。
+- Remaining focus for next session:
+  - feature #26：trigger 评估接口/结果显式给出未触发原因，避免个人交易者靠猜测排错。

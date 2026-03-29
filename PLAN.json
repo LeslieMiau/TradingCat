@@ -272,7 +272,7 @@
       "触发后的订单带上来自 trigger 的上下文信息。",
       "trigger / execution 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 26,

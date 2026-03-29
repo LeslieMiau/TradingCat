@@ -87,11 +87,22 @@ class RuleEngine:
 
         triggered_count = 0
         failed_count = 0
+        updated = False
         now = datetime.now(timezone.utc)
 
         for order in pending:
             price = float(quotes.get(order.symbol, 100.0))
-            if not self._all_conditions_met(order, price):
+            all_met, condition_results = self._evaluate_conditions(order, price)
+            order.last_evaluated_at = now
+            order.evaluation_summary = {
+                "symbol": order.symbol,
+                "market": order.market,
+                "price": price,
+                "all_conditions_met": all_met,
+                "conditions": condition_results,
+            }
+            updated = True
+            if not all_met:
                 continue
 
             order.status = "TRIGGERED"
@@ -107,31 +118,31 @@ class RuleEngine:
                 order.status = "FAILED"
                 failed_count += 1
 
-        if triggered_count > 0 or failed_count > 0:
+        if updated or triggered_count > 0 or failed_count > 0:
             self._repository.save(self._triggers)
 
         return {"evaluated": len(pending), "triggered": triggered_count, "failed": failed_count}
 
-    def _all_conditions_met(self, order: SmartOrder, price: float) -> bool:
+    def _evaluate_conditions(self, order: SmartOrder, price: float) -> tuple[bool, list[dict[str, object]]]:
+        results: list[dict[str, object]] = []
+        all_met = True
         for condition in order.trigger_conditions:
             value = self._metric_value(condition.metric, order.symbol, Market(str(order.market)), price)
             target = condition.target_value
-            if condition.operator == "<" and not (value < target):
+            passed = self._compare(value=value, operator=condition.operator, target=target)
+            results.append(
+                {
+                    "metric": condition.metric,
+                    "operator": condition.operator,
+                    "target": target,
+                    "value": value,
+                    "passed": passed,
+                }
+            )
+            if not passed:
                 logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
-                return False
-            if condition.operator == "<=" and not (value <= target):
-                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
-                return False
-            if condition.operator == ">" and not (value > target):
-                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
-                return False
-            if condition.operator == ">=" and not (value >= target):
-                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
-                return False
-            if condition.operator == "==" and not (value == target):
-                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
-                return False
-        return True
+                all_met = False
+        return all_met, results
 
     def _metric_value(self, metric: str, symbol: str, market: Market, price: float) -> float:
         metric_upper = metric.upper()
@@ -193,6 +204,19 @@ class RuleEngine:
         )
         return [float(bar.close) for bar in ordered if getattr(bar.instrument, "market", market) == market]
 
+    def _compare(self, *, value: float, operator: str, target: float) -> bool:
+        if operator == "<":
+            return value < target
+        if operator == "<=":
+            return value <= target
+        if operator == ">":
+            return value > target
+        if operator == ">=":
+            return value >= target
+        if operator == "==":
+            return value == target
+        return False
+
     def _build_intent(self, order: SmartOrder, reference_price: float) -> OrderIntent:
         market = Market(str(order.market))
         instrument = Instrument(symbol=order.symbol, market=market, asset_class=AssetClass.STOCK)
@@ -203,4 +227,5 @@ class RuleEngine:
             quantity=order.quantity,
             requires_approval=(market == Market.CN),
             notes=f"Smart order {order.smart_order_id} triggered",
+            metadata={"trigger_context": order.evaluation_summary},
         )

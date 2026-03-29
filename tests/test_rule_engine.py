@@ -77,11 +77,11 @@ def _build_rule_engine(tmp_path, adapter):
         market_data=market_data,
         execution=execution,
     )
-    return engine, market_data
+    return engine, market_data, execution
 
 
 def test_rule_engine_uses_real_rsi_for_uptrend(tmp_path):
-    engine, market_data = _build_rule_engine(tmp_path, RisingBarsAdapter())
+    engine, market_data, execution = _build_rule_engine(tmp_path, RisingBarsAdapter())
     end = date.today()
     market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
     order = SmartOrder(
@@ -100,11 +100,17 @@ def test_rule_engine_uses_real_rsi_for_uptrend(tmp_path):
     assert rsi_value > 70
     assert rsi_value != 30.0
     assert result["triggered"] == 1
-    assert engine.list_orders()[0].status == "TRIGGERED"
+    order = engine.list_orders()[0]
+    assert order.status == "TRIGGERED"
+    assert order.evaluation_summary["all_conditions_met"] is True
+    assert order.evaluation_summary["conditions"][0]["metric"] == "RSI_14"
+    report = execution.list_orders()[0]
+    context = execution.resolve_intent_context(report.order_intent_id)
+    assert context["trigger_context"]["conditions"][0]["metric"] == "RSI_14"
 
 
 def test_rule_engine_keeps_order_pending_when_rsi_is_oversold(tmp_path, caplog):
-    engine, market_data = _build_rule_engine(tmp_path, FallingBarsAdapter())
+    engine, market_data, _ = _build_rule_engine(tmp_path, FallingBarsAdapter())
     end = date.today()
     market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
     order = SmartOrder(
@@ -124,11 +130,12 @@ def test_rule_engine_keeps_order_pending_when_rsi_is_oversold(tmp_path, caplog):
     assert rsi_value < 30
     assert result["triggered"] == 0
     assert engine.list_orders()[0].status == "PENDING"
+    assert engine.list_orders()[0].evaluation_summary["conditions"][0]["passed"] is False
     assert any(record.metric == "RSI_14" and record.value == rsi_value for record in caplog.records)
 
 
 def test_rule_engine_uses_real_sma_for_uptrend(tmp_path):
-    engine, market_data = _build_rule_engine(tmp_path, RisingBarsAdapter())
+    engine, market_data, execution = _build_rule_engine(tmp_path, RisingBarsAdapter())
     end = date.today()
     market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
     order = SmartOrder(
@@ -147,11 +154,16 @@ def test_rule_engine_uses_real_sma_for_uptrend(tmp_path):
     assert sma_value > 120
     assert sma_value != 95.0
     assert result["triggered"] == 1
-    assert engine.list_orders()[0].status == "TRIGGERED"
+    order = engine.list_orders()[0]
+    assert order.status == "TRIGGERED"
+    assert order.evaluation_summary["conditions"][0]["metric"] == "SMA_10"
+    report = execution.list_orders()[0]
+    context = execution.resolve_intent_context(report.order_intent_id)
+    assert context["trigger_context"]["conditions"][0]["metric"] == "SMA_10"
 
 
 def test_rule_engine_logs_real_sma_when_condition_is_not_met(tmp_path, caplog):
-    engine, market_data = _build_rule_engine(tmp_path, FallingBarsAdapter())
+    engine, market_data, _ = _build_rule_engine(tmp_path, FallingBarsAdapter())
     end = date.today()
     market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
     order = SmartOrder(
@@ -171,4 +183,5 @@ def test_rule_engine_logs_real_sma_when_condition_is_not_met(tmp_path, caplog):
     assert sma_value < 120
     assert result["triggered"] == 0
     assert engine.list_orders()[0].status == "PENDING"
+    assert engine.list_orders()[0].evaluation_summary["conditions"][0]["passed"] is False
     assert any(record.metric == "SMA_10" and record.value == sma_value for record in caplog.records)

@@ -334,6 +334,9 @@ def test_ops_evaluate_triggers_uses_real_rsi_series():
     assert run.status_code == 200
     assert metric_value != 30.0
     assert run.json()["triggered"] >= 1
+    trigger = client.get("/orders/triggers").json()[0]
+    assert trigger["evaluation_summary"]["conditions"][0]["metric"] == "RSI_14"
+    assert "value" in trigger["evaluation_summary"]["conditions"][0]
 
 
 def test_ops_evaluate_triggers_uses_real_sma_series():
@@ -358,6 +361,9 @@ def test_ops_evaluate_triggers_uses_real_sma_series():
     assert run.status_code == 200
     assert metric_value != 95.0
     assert run.json()["triggered"] >= 1
+    trigger = client.get("/orders/triggers").json()[0]
+    assert trigger["evaluation_summary"]["conditions"][0]["metric"] == "SMA_10"
+    assert "value" in trigger["evaluation_summary"]["conditions"][0]
 
 
 def test_selection_review_endpoint_does_not_activate_blocked_strategy():

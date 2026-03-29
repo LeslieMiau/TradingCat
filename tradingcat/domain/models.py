@@ -134,6 +134,7 @@ class OrderIntent(BaseModel):
     quantity: float
     requires_approval: bool = False
     notes: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
     order_type: str = "market"  # "market" or "limit"
     limit_price: float | None = None
     algo: AlgoExecution | None = None

@@ -21,5 +21,7 @@ class SmartOrder(BaseModel):
     trigger_conditions: list[TriggerCondition]
     status: str = "PENDING"  # PENDING, TRIGGERED, CANCELLED, FAILED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_evaluated_at: datetime | None = None
+    evaluation_summary: dict[str, object] = Field(default_factory=dict)
     triggered_at: datetime | None = None
     execution_order_id: str | None = None

@@ -263,6 +263,7 @@ class ExecutionService:
             "currency": intent.instrument.currency,
             "side": intent.side.value,
             "strategy_id": self._infer_strategy_id(intent),
+            "trigger_context": intent.metadata.get("trigger_context"),
         }
 
     @staticmethod
