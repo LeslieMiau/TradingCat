@@ -298,9 +298,16 @@ function renderStrategyValidation(context) {
     `样本外最大回撤: ${fmtPct(split.out_of_sample?.max_drawdown)}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   const coverage = payload.history_coverage || {};
+  const minimumCoverageRatio = payload.minimum_coverage_ratio ?? coverage.minimum_coverage_ratio;
+  const coverageThreshold = payload.history_coverage_threshold ?? coverage.minimum_required_ratio;
+  const missingCoverageSymbols = payload.missing_coverage_symbols || [];
+  const coverageBlockers = payload.history_coverage_blockers || [];
   document.getElementById("coverage-list").innerHTML = [
     `coverage ready: ${coverage.ready}`,
-    `minimum ratio: ${fmtPct(coverage.minimum_coverage_ratio)}`,
+    `minimum ratio: ${fmtPct(minimumCoverageRatio)}`,
+    `threshold: ${fmtPct(coverageThreshold)}`,
+    `missing symbols: ${missingCoverageSymbols.length ? missingCoverageSymbols.join(", ") : "none"}`,
+    ...coverageBlockers.slice(0, 3).map((item) => `blocker: ${item}`),
     ...(coverage.reports || []).slice(0, 5).map((item) => `${item.symbol}: ${fmtPct(item.coverage_ratio)} (${item.bar_count}/${item.expected_count})`),
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   renderMonthlyHeatmap(payload.monthly_table || []);

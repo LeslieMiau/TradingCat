@@ -314,10 +314,42 @@ def test_research_strategy_detail_returns_curve(tmp_path):
     assert "data_ready" in detail
     assert "promotion_blocked" in detail
     assert "blocking_reasons" in detail
+    assert "minimum_coverage_ratio" in detail
+    assert "history_coverage_threshold" in detail
+    assert "missing_coverage_symbols" in detail
+    assert "history_coverage_blockers" in detail
     assert "benchmark" in detail
     assert "symbol" in detail["benchmark"]
     assert "rolling_excess_curve" in detail["benchmark"]
     assert "yearly_performance" in detail
+
+
+def test_research_strategy_detail_exposes_missing_history_symbols(tmp_path):
+    class PartialFailureAdapter(StaticMarketDataAdapter):
+        def fetch_bars(self, instrument, start, end):
+            if instrument.symbol in {"QQQ", "510300"}:
+                raise RuntimeError("history unavailable")
+            return super().fetch_bars(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=PartialFailureAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,
+    )
+    as_of = date(2026, 3, 8)
+    strategy = EtfRotationStrategy()
+
+    detail = service.strategy_detail(strategy.strategy_id, as_of, strategy.generate_signals(as_of))
+
+    assert detail["promotion_blocked"] is True
+    assert detail["minimum_coverage_ratio"] < detail["history_coverage_threshold"]
+    assert detail["history_coverage_threshold"] == 0.95
+    assert detail["missing_coverage_symbols"] == ["510300", "QQQ"]
+    assert any("510300, QQQ" in reason or "QQQ, 510300" in reason for reason in detail["history_coverage_blockers"])
 
 
 def test_research_monthly_returns_support_mixed_timezone_bars(tmp_path):

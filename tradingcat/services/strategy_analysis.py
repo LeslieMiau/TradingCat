@@ -300,6 +300,9 @@ class StrategyAnalysisService:
         nav_curve = self._nav_curve_from_monthly_returns(monthly_returns)
         split_metrics = self._sample_split_metrics(monthly_returns, signals)
         coverage = self._strategy_history_coverage(signals, experiment.sample_start, as_of)
+        coverage_threshold = self._history_coverage_threshold()
+        blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
+        missing_coverage_symbols = self._missing_coverage_symbols(coverage, coverage_threshold)
         benchmark = self._benchmark_comparison(signals, experiment.sample_start, as_of, nav_curve)
         yearly_performance = self._yearly_performance(monthly_returns, benchmark.get("monthly_returns", []), experiment.sample_start)
         return {
@@ -309,7 +312,11 @@ class StrategyAnalysisService:
             "data_source": experiment.assumptions.get("data_source"),
             "data_ready": bool(experiment.assumptions.get("data_ready", False)),
             "promotion_blocked": not bool(experiment.assumptions.get("data_ready", False)),
-            "blocking_reasons": [str(item) for item in experiment.assumptions.get("data_blockers", [])],
+            "blocking_reasons": blocking_reasons,
+            "minimum_coverage_ratio": round(float(coverage.get("minimum_coverage_ratio", 0.0)), 4),
+            "history_coverage_threshold": coverage_threshold,
+            "missing_coverage_symbols": missing_coverage_symbols,
+            "history_coverage_blockers": self._history_coverage_blockers(coverage, blocking_reasons),
             "signals": [
                 {
                     "symbol": signal.instrument.symbol,
@@ -481,15 +488,52 @@ class StrategyAnalysisService:
         return {"split_index": split_index, "in_sample": in_sample.model_dump(mode="json"), "out_of_sample": out_of_sample.model_dump(mode="json")}
 
     def _strategy_history_coverage(self, signals: list[Signal], start: date, end: date) -> dict[str, object]:
+        threshold = self._history_coverage_threshold()
         if self._market_data is None or not signals:
-            return {"ready": False, "reports": [], "minimum_coverage_ratio": 0.0}
+            return {"ready": False, "reports": [], "minimum_coverage_ratio": 0.0, "minimum_required_ratio": threshold}
         symbols = sorted({signal.instrument.symbol for signal in signals if signal.instrument.asset_class != "option"})
         if not symbols:
-            return {"ready": True, "reports": [], "minimum_coverage_ratio": 1.0}
+            return {"ready": True, "reports": [], "minimum_coverage_ratio": 1.0, "minimum_required_ratio": threshold}
         coverage = self._market_data.summarize_history_coverage(symbols=symbols, start=start, end=end)
         reports = coverage.get("reports", [])
         minimum = min((float(item["coverage_ratio"]) for item in reports), default=1.0)
-        return {"ready": minimum >= 0.95, "minimum_coverage_ratio": round(minimum, 4), "reports": reports}
+        return {
+            "ready": minimum >= threshold,
+            "minimum_coverage_ratio": round(minimum, 4),
+            "minimum_required_ratio": threshold,
+            "reports": reports,
+        }
+
+    def _history_coverage_threshold(self) -> float:
+        return 0.95
+
+    def _missing_coverage_symbols(self, coverage: dict[str, object], threshold: float | None = None) -> list[str]:
+        minimum_required = threshold if threshold is not None else self._history_coverage_threshold()
+        reports = coverage.get("reports", [])
+        symbols = [
+            str(item.get("symbol"))
+            for item in reports
+            if float(item.get("coverage_ratio", 0.0)) < minimum_required or int(item.get("missing_count", 0)) > 0
+        ]
+        return sorted(dict.fromkeys(symbols))
+
+    def _history_coverage_blockers(self, coverage: dict[str, object], reasons: list[str]) -> list[str]:
+        blockers = list(reasons)
+        missing_symbols = self._missing_coverage_symbols(coverage)
+        minimum_ratio = round(float(coverage.get("minimum_coverage_ratio", 0.0)), 4)
+        minimum_required = round(float(coverage.get("minimum_required_ratio", self._history_coverage_threshold())), 4)
+        if missing_symbols:
+            blockers.append(
+                f"History coverage minimum ratio {minimum_ratio:.2%} is below the {minimum_required:.0%} threshold for: {', '.join(missing_symbols)}."
+            )
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in blockers:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return deduped
 
     def _benchmark_comparison(self, signals: list[Signal], start: date, end: date, strategy_nav_curve: list[dict[str, float]]) -> dict[str, object]:
         benchmark_symbol = self._benchmark_symbol(signals)

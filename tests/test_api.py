@@ -52,6 +52,10 @@ def test_research_interfaces_expose_data_blockers():
     assert "data_ready" in detail_payload
     assert "promotion_blocked" in detail_payload
     assert "blocking_reasons" in detail_payload
+    assert "minimum_coverage_ratio" in detail_payload
+    assert "history_coverage_threshold" in detail_payload
+    assert "missing_coverage_symbols" in detail_payload
+    assert "history_coverage_blockers" in detail_payload
 
 
 def test_scheduler_and_market_session_endpoints():
@@ -230,6 +234,12 @@ def test_dashboard_page_and_assets():
     assert "策略画像" in strategy_page.text
     assert "今日落地情况" in strategy_page.text
     assert "账户影响快照" in strategy_page.text
+
+    strategy_js = client.get("/static/strategy.js")
+    assert strategy_js.status_code == 200
+    assert "history_coverage_threshold" in strategy_js.text
+    assert "missing_coverage_symbols" in strategy_js.text
+    assert "history_coverage_blockers" in strategy_js.text
 
     account_page = client.get("/dashboard/accounts/total")
     assert account_page.status_code == 200
