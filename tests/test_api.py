@@ -384,6 +384,16 @@ def test_data_read_endpoints_publish_response_models_in_openapi():
     assert corporate_actions_schema["$ref"].endswith("/CorporateActionsResponse")
 
 
+def test_research_read_endpoints_publish_response_models_in_openapi():
+    schema = app.openapi()
+
+    report_schema = schema["paths"]["/research/report/run"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
+    detail_schema = schema["paths"]["/research/strategies/{strategy_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert report_schema["$ref"].endswith("/ResearchReportResponse")
+    assert detail_schema["$ref"].endswith("/StrategyDetailResponse")
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

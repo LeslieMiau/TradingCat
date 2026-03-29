@@ -143,6 +143,75 @@ class FxRatesResponse(FlexibleModel):
     rates: list[FxRateItemView] = Field(default_factory=list)
 
 
+class ResearchSignalInsightView(FlexibleModel):
+    symbol: str
+    signal_source: str | None = None
+    indicator_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchStrategyReportView(FlexibleModel):
+    strategy_id: str
+    validation_status: str
+    data_source: str | None = None
+    data_ready: bool | None = None
+    promotion_blocked: bool | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)
+    minimum_coverage_ratio: float | None = None
+    signal_insights: list[ResearchSignalInsightView] = Field(default_factory=list)
+
+
+class ResearchReportResponse(FlexibleModel):
+    as_of: date
+    blocked_count: int = 0
+    blocked_strategy_ids: list[str] = Field(default_factory=list)
+    hard_blocked: bool = False
+    report_status: str
+    minimum_history_coverage_ratio: float | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)
+    strategy_reports: list[ResearchStrategyReportView] = Field(default_factory=list)
+
+
+class StrategyDetailSignalView(FlexibleModel):
+    symbol: str
+    market: str
+    asset_class: str
+    side: str
+    target_weight: float
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    signal_source: str | None = None
+    indicator_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class StrategyDetailResponse(FlexibleModel):
+    as_of: date
+    strategy_id: str
+    signal_count: int = 0
+    data_source: str | None = None
+    data_ready: bool | None = None
+    promotion_blocked: bool | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)
+    minimum_coverage_ratio: float | None = None
+    history_coverage_threshold: float | None = None
+    missing_coverage_symbols: list[str] = Field(default_factory=list)
+    history_coverage_blockers: list[str] = Field(default_factory=list)
+    fx_ready: bool | None = None
+    missing_fx_pairs: list[str] = Field(default_factory=list)
+    fx_blockers: list[str] = Field(default_factory=list)
+    fx_coverage: dict[str, Any] = Field(default_factory=dict)
+    corporate_actions_ready: bool | None = None
+    missing_corporate_action_symbols: list[str] = Field(default_factory=list)
+    corporate_action_blockers: list[str] = Field(default_factory=list)
+    corporate_action_coverage: dict[str, Any] = Field(default_factory=dict)
+    signals: list[StrategyDetailSignalView] = Field(default_factory=list)
+    indicator_snapshots: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    nav_curve: list[dict[str, Any]] = Field(default_factory=list)
+    benchmark: dict[str, Any] = Field(default_factory=dict)
+    yearly_performance: list[dict[str, Any]] = Field(default_factory=list)
+    recommendation: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResearchScorecardRowView(FlexibleModel):
     strategy_id: str
     action: str | None = None

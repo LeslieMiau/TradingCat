@@ -654,3 +654,18 @@
   - `test_data_quality_and_readiness_surface_coverage_blockers` 仍会被现有 readiness 重链路拖慢，所以本次不把它作为 typed contract feature 的 gating；语义兼容由更窄的 API 回归和真实 HTTP 覆盖。
 - Remaining focus for next session:
   - 新 architecture harness 的下一步优先把 typed payload 继续推进到 research/report 与 strategy detail，再考虑把 `OperationsReadinessResponse` 里的 `data_quality` 等嵌套字段收紧成 typed model。
+
+## Session update — 2026-03-29
+- Completed architecture harness feature: 为 `/research/report/run` 和 `/research/strategies/{id}` 补上显式 `response_model`，把 research 主读链路也收口到 typed contract。
+- Code changes:
+  - `tradingcat/api/view_models.py` 新增 `ResearchReportResponse`、`ResearchStrategyReportView`、`StrategyDetailResponse`、`StrategyDetailSignalView` 等兼容型 model，只锁定页面和测试已经依赖的关键字段，其余字段继续允许扩展。
+  - `tradingcat/routes/research.py` 现在为 `/research/report/run` 和 `/research/strategies/{strategy_id}` 声明了 `response_model`，不再让 report/detail 停留在隐式 dict 契约。
+  - `tests/test_api.py` 新增 OpenAPI 断言，锁定这两个 research read endpoint 已经真正发布 typed schema。
+- Validation:
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_read_endpoints_publish_response_models_in_openapi -q` -> `1 passed`
+  - `TRADINGCAT_DATA_DIR=$(mktemp -d) TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_api.py::test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots -q` -> `1 passed`
+- Decisions:
+  - 这一步继续采用“兼容型 model”策略，只把已被测试与前端消费的表面字段钉住，避免一次性把 detail/report 里仍在演化的长尾字段硬编码死。
+  - `test_research_interfaces_expose_data_blockers` 和 `test_research_scorecard_and_strategy_detail_endpoints` 在当前研究链路下仍然很重，所以本次不把它们作为 response-model feature 的 gating；关键兼容性由 persistent-universe API 回归和 OpenAPI 断言覆盖。
+- Remaining focus for next session:
+  - 新 architecture harness 的下一步优先把 `OperationsReadinessResponse` 里的 `data_quality` 等嵌套字段收紧成 typed model，并评估是否继续把 `ResearchFacade` 向更薄的协调层收口。

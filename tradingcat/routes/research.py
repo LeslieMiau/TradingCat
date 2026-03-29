@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Request
 
 from tradingcat.api.schemas import AssetCorrelationPayload, ResearchNewsSummaryPayload
-from tradingcat.api.view_models import ResearchScorecardResponse
+from tradingcat.api.view_models import ResearchReportResponse, ResearchScorecardResponse, StrategyDetailResponse
 from tradingcat.routes.common import get_app_state
 
 
@@ -43,7 +43,7 @@ def research_backtests_compare(request: Request, left_id: str, right_id: str):
     return get_app_state(request).research.compare_experiments(left_id, right_id)
 
 
-@router.post("/report/run")
+@router.post("/report/run", response_model=ResearchReportResponse)
 def research_report_run(request: Request, as_of: date | None = None):
     app = get_app_state(request)
     return app.research_facade.report(as_of or date.today())
@@ -121,7 +121,7 @@ def research_allocations_summary(request: Request):
     return get_app_state(request).allocations.summary()
 
 
-@router.get("/strategies/{strategy_id}")
+@router.get("/strategies/{strategy_id}", response_model=StrategyDetailResponse)
 def research_strategy_detail(request: Request, strategy_id: str, as_of: date | None = None):
     app = get_app_state(request)
     return app.research_facade.strategy_detail(strategy_id, as_of or date.today())
