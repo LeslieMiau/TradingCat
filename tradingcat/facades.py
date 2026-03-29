@@ -11,7 +11,7 @@ from tradingcat.api.view_models import (
     PositionView,
     ResearchScorecardResponse,
 )
-from tradingcat.domain.models import ApprovalRequest, Market, PortfolioSnapshot
+from tradingcat.domain.models import ApprovalRequest, DailyTradingPlanNote, DailyTradingSummaryNote, Market, PortfolioSnapshot
 from tradingcat.strategies.simple import strategy_metadata
 
 if TYPE_CHECKING:
@@ -39,17 +39,15 @@ class DashboardFacade:
         daily_report = self._app.operations_period_report(window_days=1, label="daily")
         weekly_report = self._app.operations_period_report(window_days=7, label="weekly")
         live_acceptance = self._app.live_acceptance_summary(evaluation_date)
+        rollout = self._app.operations_rollout()
         operations = self._app.operations_readiness()
         recent_orders = self._recent_orders()
         plan_items = [PlanItemView.model_validate(item) for item in plan_note.items]
         approvals = self._approval_rows()
+        strategy_signals = self._app.strategy_signal_map(evaluation_date, include_candidates=True)
         candidate_scorecard = self._app.strategy_analysis.build_profit_scorecard(
             evaluation_date,
-            self._app.strategy_signal_map(evaluation_date, include_candidates=True),
-        )
-        strategy_report = self._app.strategy_analysis.summarize_strategy_report(
-            evaluation_date,
-            self._app.strategy_signal_map(evaluation_date, include_candidates=True),
+            strategy_signals,
         )
 
         payload = DashboardSummaryResponse(
@@ -61,24 +59,37 @@ class DashboardFacade:
                 "positions": [self._serialize_position(position) for position in snapshot.positions],
             },
             accounts=self._accounts(snapshot, plan_items),
-            strategies=self._strategies(strategy_report, candidate_scorecard),
+            strategies=self._strategies(candidate_scorecard, candidate_scorecard),
             candidates=self._candidate_summary(candidate_scorecard),
             trading_plan=self._trading_plan_summary(plan_note, plan_items, approvals, gate),
             journal=self._journal_summary(plan_note, summary_note),
             summaries=self._summaries_summary(plan_note, summary_note, daily_report, weekly_report),
-            details=self._details_summary(gate, live_acceptance, operations, recent_orders),
+            details=self._details_summary(gate, live_acceptance, rollout, operations, recent_orders),
         )
         return payload
 
     def _ensure_plan_note(self, evaluation_date: date):
         note = self._app.trading_journal.latest_plan(as_of=evaluation_date)
-        if note is None or any("intent_id" not in item or "target_weight" not in item for item in note.items):
-            note = self._app.generate_daily_trading_plan(evaluation_date)
-        return note
+        if note is not None and all("intent_id" in item and "target_weight" in item for item in note.items):
+            return note
+        return DailyTradingPlanNote(
+            as_of=evaluation_date,
+            status="no_trade",
+            headline="No archived trading plan is available for this date yet.",
+            reasons=["Generate or archive a daily trading plan to populate this panel."],
+            metrics={"source": "dashboard_fallback"},
+            items=[],
+        )
 
     def _ensure_summary_note(self, evaluation_date: date):
         note = self._app.trading_journal.latest_summary(as_of=evaluation_date)
-        return note or self._app.generate_daily_trading_summary(evaluation_date)
+        return note or DailyTradingSummaryNote(
+            as_of=evaluation_date,
+            headline="No archived daily summary is available for this date yet.",
+            highlights=["Generate a daily summary after review to populate this panel."],
+            next_actions=["Run the summary/archive flow after the daily review closes."],
+            metrics={"source": "dashboard_fallback"},
+        )
 
     def _overview(self, snapshot: PortfolioSnapshot) -> dict[str, object]:
         return {
@@ -148,12 +159,22 @@ class DashboardFacade:
         self,
         gate: dict[str, object],
         live_acceptance: dict[str, object],
+        rollout: dict[str, object],
         operations: dict[str, object],
         recent_orders: list[dict[str, object]],
     ) -> dict[str, object]:
+        acceptance_progress = {
+            "current_clean_day_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_day_streak"),
+            "current_clean_week_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_week_streak"),
+            "remaining_clean_days": live_acceptance.get("next_requirement", {}).get("remaining_clean_days"),
+            "remaining_clean_weeks": live_acceptance.get("next_requirement", {}).get("remaining_clean_weeks"),
+            "next_requirement": live_acceptance.get("next_requirement", {}),
+            "blockers": list(live_acceptance.get("blockers", [])) or list(rollout.get("blockers", [])),
+        }
         return {
             "execution_gate": gate,
             "live_acceptance": live_acceptance,
+            "acceptance_progress": acceptance_progress,
             "data_quality": self._app.data_quality_summary(),
             "operations": operations,
             "recent_orders": recent_orders,
@@ -198,27 +219,55 @@ class DashboardFacade:
 
     def _strategies(self, strategy_report: dict[str, object], candidate_scorecard: dict[str, object]) -> dict[str, object]:
         active_ids = set(self._app.active_execution_strategy_ids())
+        selection_summary = self._app.selection.summary()
+        allocation_summary = self._app.allocations.summary()
+        selection_paper_only_ids = set(selection_summary.get("paper_only", []))
+        allocation_paper_only_ids = {
+            str(item.get("strategy_id"))
+            for item in allocation_summary.get("paper_only", [])
+            if item.get("strategy_id") is not None
+        }
         rows = []
         for row in candidate_scorecard.get("rows", []):
             if row.get("strategy_id") not in active_ids:
                 continue
             meta = strategy_metadata(str(row.get("strategy_id")))
+            strategy_id = str(row.get("strategy_id"))
+            blocked_by_data = bool(row.get("promotion_blocked"))
+            selection_paper_only = strategy_id in selection_paper_only_ids
+            allocation_paper_only = strategy_id in allocation_paper_only_ids
+            display_status = (
+                "blocked_by_data"
+                if blocked_by_data
+                else "paper_only"
+                if selection_paper_only or allocation_paper_only or row.get("action") == "paper_only"
+                else "active"
+            )
+            status_reason = (
+                (row.get("blocking_reasons") or [None])[0]
+                if blocked_by_data
+                else "Selection/allocation keeps this strategy in paper-only mode."
+                if display_status == "paper_only"
+                else "Current execution set includes this strategy."
+            )
             rows.append(
                 {
                     **row,
                     **meta,
                     "markets": list(meta.get("focus_markets", [])),
                     "action": "active" if row.get("strategy_id") in active_ids else row.get("action"),
+                    "display_status": display_status,
+                    "status_reason": status_reason,
                 }
             )
-        selection_summary = self._app.selection.summary()
-        allocation_summary = self._app.allocations.summary()
         return {
             "selection": selection_summary,
             "allocations": allocation_summary,
             "rows": rows,
             "next_actions": candidate_scorecard.get("next_actions", []),
             "active_count": len(rows),
+            "blocked_by_data_count": sum(1 for row in rows if row.get("display_status") == "blocked_by_data"),
+            "paper_only_count": sum(1 for row in rows if row.get("display_status") == "paper_only"),
             "accepted_strategy_ids": strategy_report.get("accepted_strategy_ids", []),
             "portfolio_metrics": strategy_report.get("portfolio_metrics", {}),
             "portfolio_passed": strategy_report.get("portfolio_passed", False),

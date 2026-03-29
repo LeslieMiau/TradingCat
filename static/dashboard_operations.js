@@ -151,10 +151,12 @@
     const daily = state.summary?.summaries?.daily ?? {};
     const weekly = state.summary?.summaries?.weekly ?? {};
     const details = state.summary?.details ?? {};
+    const acceptance = details.acceptance_progress ?? {};
     const note = summaryNote(state);
     const blockers = [
       ...(details.execution_gate?.reasons ?? []).map(gateReasonText),
       ...(details.live_acceptance?.blockers ?? []),
+      ...(acceptance.blockers ?? []),
       ...(note.blockers ?? []),
     ];
     const actions = [
@@ -204,6 +206,8 @@
         metricTile("最近订单", fmt(recentOrders.length), "recent broker orders", recentOrders.length ? "ok" : "warning"),
         metricTile("已成交", fmt(filledOrders), "filled recently", filledOrders ? "ok" : "warning"),
         metricTile("处理中", fmt(workingOrders), "submitted / pending", workingOrders ? "warning" : "ok"),
+        metricTile("Clean 周", fmt(acceptance.current_clean_week_streak), `remaining ${fmt(acceptance.remaining_clean_weeks)}`, Number(acceptance.current_clean_week_streak || 0) >= 4 ? "ok" : "warning"),
+        metricTile("距门槛天数", fmt(acceptance.remaining_clean_days), acceptance.next_requirement?.explanation ?? "acceptance gate", Number(acceptance.remaining_clean_days || 0) === 0 ? "ok" : "warning"),
       ].join("");
     }
     if (document.getElementById("queue-approvals-list")) {

@@ -470,7 +470,7 @@
       "返回结果能区分 synthetic fallback、history incomplete 和其他执行类问题。",
       "diagnostics 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 44,
@@ -481,7 +481,7 @@
       "响应中能定位是数据、执行还是验收问题。",
       "preflight / readiness 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 45,
@@ -492,7 +492,7 @@
       "前端页面能通过现有 API 展示这些状态而不误导用户。",
       "dashboard 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 46,
@@ -503,7 +503,7 @@
       "页面中能看到距离 4 周/6 周门槛还有多少 clean days 或 blocker。",
       "dashboard / operations 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 47,
@@ -514,7 +514,7 @@
       "相关 selection/allocation 联动测试也保持通过。",
       "回归测试能证明策略不会因为 synthetic 数据被静默升为 active。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 48,
@@ -525,6 +525,6 @@
       "关键接口在 evidence 不足时返回一致 blocker 与未就绪状态。",
       "归档与 dashboard 摘要链路能消费新增字段且不回归。"
     ],
-    "passes": false
+    "passes": true
   }
 ]

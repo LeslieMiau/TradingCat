@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from io import StringIO
+from time import monotonic
 
 from fastapi import FastAPI
 
@@ -90,6 +91,8 @@ logger = logging.getLogger(__name__)
 
 
 class TradingCatApplication:
+    _SUMMARY_CACHE_TTL_SECONDS = 60.0
+
     def __init__(self, config: AppConfig | None = None) -> None:
         self.config = config or AppConfig.from_env()
         self.config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -124,6 +127,7 @@ class TradingCatApplication:
         self.operations_analytics = OperationsAnalyticsService()
 
         self.runtime: ApplicationRuntime | None = None
+        self._summary_cache: dict[tuple[object, ...], tuple[float, object]] = {}
         self.runtime_manager = ApplicationRuntimeManager(self)
         self.scheduler_runtime = ApplicationSchedulerRuntime(self)
         self.dashboard_facade = DashboardFacade(self)
@@ -215,6 +219,7 @@ class TradingCatApplication:
         self.scheduler.stop()
 
     def reset_state(self) -> None:
+        self._clear_summary_cache()
         self.execution.clear()
         self.approvals.clear()
         self.audit.clear()
@@ -229,6 +234,18 @@ class TradingCatApplication:
         self.market_history.reset_cache()
         self.risk.set_kill_switch(False, reason="reset_state")
         self.research.clear()
+
+    def _clear_summary_cache(self) -> None:
+        self._summary_cache.clear()
+
+    def _cached_summary(self, cache_key: tuple[object, ...], builder):
+        cached = self._summary_cache.get(cache_key)
+        now = monotonic()
+        if cached is not None and (now - cached[0]) <= self._SUMMARY_CACHE_TTL_SECONDS:
+            return cached[1]
+        value = builder()
+        self._summary_cache[cache_key] = (now, value)
+        return value
 
     def _build_runtime_components(self) -> None:
         self.runtime_manager.initialize()
@@ -705,7 +722,13 @@ class TradingCatApplication:
         }
 
     def _base_validation_snapshot(self, as_of: date) -> dict[str, object]:
-        preflight = build_startup_preflight(self.config)
+        return self._cached_summary(
+            ("base_validation_snapshot", as_of.isoformat()),
+            lambda: self._build_base_validation_snapshot(as_of),
+        )
+
+    def _build_base_validation_snapshot(self, as_of: date) -> dict[str, object]:
+        preflight = self.startup_preflight_summary(as_of)
         broker_validation = self.broker_validation()
         market_data = None
         market_data_error = None
@@ -735,6 +758,59 @@ class TradingCatApplication:
             "market_data": market_data,
             "preview": preview,
             "diagnostics": diagnostics,
+        }
+
+    def research_readiness_summary(self, as_of: date | None = None) -> dict[str, object]:
+        evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("research_readiness_summary", evaluation_date.isoformat()),
+            lambda: self._build_research_readiness_summary(evaluation_date),
+        )
+
+    def _build_research_readiness_summary(self, evaluation_date: date) -> dict[str, object]:
+        report = self.strategy_analysis.summarize_strategy_report(
+            evaluation_date,
+            self._strategy_signal_map(evaluation_date),
+        )
+        strategies = [
+            {
+                "strategy_id": item["strategy_id"],
+                "validation_status": item["validation_status"],
+                "data_source": item["data_source"],
+                "data_ready": item["data_ready"],
+                "promotion_blocked": item["promotion_blocked"],
+                "blocking_reasons": item["blocking_reasons"],
+            }
+            for item in report.get("strategy_reports", [])
+        ]
+        return {
+            "as_of": evaluation_date,
+            "ready": not bool(report.get("hard_blocked", False)),
+            "report_status": report.get("report_status", "review"),
+            "blocked_count": report.get("blocked_count", 0),
+            "blocked_strategy_ids": list(report.get("blocked_strategy_ids", [])),
+            "ready_strategy_ids": list(report.get("ready_strategy_ids", [])),
+            "blocking_reasons": list(report.get("blocking_reasons", [])),
+            "minimum_history_coverage_ratio": report.get("minimum_history_coverage_ratio", 1.0),
+            "strategies": strategies,
+        }
+
+    def startup_preflight_summary(self, as_of: date | None = None) -> dict[str, object]:
+        evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("startup_preflight_summary", evaluation_date.isoformat()),
+            lambda: self._build_startup_preflight_summary(evaluation_date),
+        )
+
+    def _build_startup_preflight_summary(self, evaluation_date: date) -> dict[str, object]:
+        preflight = build_startup_preflight(self.config)
+        research_readiness = self.research_readiness_summary(evaluation_date)
+        return {
+            **preflight,
+            "research_ready": research_readiness["ready"],
+            "research_blockers": list(research_readiness.get("blocking_reasons", [])),
+            "research_readiness": research_readiness,
+            "system_ready": bool(preflight.get("healthy", False)) and bool(research_readiness["ready"]),
         }
 
     def history_sync_repair_plan(self, symbols: list[str] | None = None, start: date | None = None, end: date | None = None) -> dict[str, object]:
@@ -789,8 +865,15 @@ class TradingCatApplication:
 
     def execution_gate_summary(self, as_of: date | None = None) -> dict[str, object]:
         evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("execution_gate_summary", evaluation_date.isoformat()),
+            lambda: self._build_execution_gate_summary(evaluation_date),
+        )
+
+    def _build_execution_gate_summary(self, evaluation_date: date) -> dict[str, object]:
         validation = self._base_validation_snapshot(evaluation_date)
         diagnostics = validation["diagnostics"]
+        research_readiness = validation["preflight"].get("research_readiness", {})
         rollout = self.operations_rollout()
         policy = self.rollout_policy.current()
         execution_readiness = self.operations_analytics.execution_readiness(
@@ -799,14 +882,15 @@ class TradingCatApplication:
             alerts_summary=self.alerts.latest_summary(),
         )
         reasons = list(diagnostics["findings"])
+        reasons.extend(str(item) for item in research_readiness.get("blocking_reasons", []))
         reasons.extend(execution_readiness["blockers"])
         if not rollout["ready_for_rollout"]:
             reasons.extend(blocker for blocker in rollout["blockers"])
         reasons = list(dict.fromkeys(str(reason) for reason in reasons))
         return {
             "as_of": evaluation_date,
-            "ready": bool(diagnostics["ready"]) and rollout["ready_for_rollout"] and execution_readiness["ready"],
-            "should_block": (not bool(diagnostics["ready"])) or (not rollout["ready_for_rollout"]) or (not execution_readiness["ready"]),
+            "ready": bool(diagnostics["ready"]) and bool(research_readiness.get("ready", True)) and rollout["ready_for_rollout"] and execution_readiness["ready"],
+            "should_block": (not bool(diagnostics["ready"])) or (not bool(research_readiness.get("ready", True))) or (not rollout["ready_for_rollout"]) or (not execution_readiness["ready"]),
             "reasons": reasons,
             "next_actions": list(diagnostics["next_actions"]),
             "policy_stage": policy.stage,
@@ -831,9 +915,16 @@ class TradingCatApplication:
         )
 
     def operations_readiness(self) -> dict[str, object]:
+        return self._cached_summary(
+            ("operations_readiness", date.today().isoformat()),
+            self._build_operations_readiness,
+        )
+
+    def _build_operations_readiness(self) -> dict[str, object]:
         validation = self._base_validation_snapshot(date.today())
         broker_status = self.broker_status()
         data_quality = self.data_quality_summary()
+        research_readiness = validation["preflight"].get("research_readiness", {})
         alerts_summary = self.alerts.latest_summary()
         compliance_summary = self.compliance.summary()
         compliance_counts = self._compliance_counts(compliance_summary)
@@ -843,11 +934,14 @@ class TradingCatApplication:
             authorization=self.execution.authorization_summary(),
             alerts_summary=alerts_summary,
         )
-        blockers = list(data_quality.get("blockers", []))
+        blockers = list(diagnostics.get("findings", []))
+        blockers.extend(str(item) for item in research_readiness.get("blocking_reasons", []))
+        blockers.extend(data_quality.get("blockers", []))
         blockers.extend(execution_readiness["blockers"])
         blockers = list(dict.fromkeys(str(blocker) for blocker in blockers))
         ready = (
             bool(diagnostics["ready"])
+            and bool(research_readiness.get("ready", True))
             and bool(data_quality.get("ready", True))
             and compliance_counts["blocked_count"] == 0
             and execution_readiness["ready"]
@@ -860,6 +954,7 @@ class TradingCatApplication:
             "preflight": validation["preflight"],
             "broker_status": broker_status,
             "broker_validation": validation["broker_validation"],
+            "research_readiness": research_readiness,
             "data_quality": data_quality,
             "execution": execution_readiness,
             "alerts": alerts_summary,
@@ -868,10 +963,13 @@ class TradingCatApplication:
         }
 
     def operations_rollout(self) -> dict[str, object]:
-        return self.operations.rollout_summary(
-            readiness=self.operations_readiness(),
-            compliance_summary=self.compliance.summary(),
-            alerts_summary=self.alerts.latest_summary(),
+        return self._cached_summary(
+            ("operations_rollout", date.today().isoformat()),
+            lambda: self.operations.rollout_summary(
+                readiness=self.operations_readiness(),
+                compliance_summary=self.compliance.summary(),
+                alerts_summary=self.alerts.latest_summary(),
+            ),
         )
 
     def rollout_policy_summary(self) -> dict[str, object]:
@@ -906,7 +1004,14 @@ class TradingCatApplication:
         return {"stage": target_stage, "ready": not blockers, "as_of": as_of or date.today(), "blockers": blockers}
 
     def go_live_summary(self, as_of: date | None = None) -> dict[str, object]:
-        gate = self.execution_gate_summary(as_of or date.today())
+        evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("go_live_summary", evaluation_date.isoformat()),
+            lambda: self._build_go_live_summary(evaluation_date),
+        )
+
+    def _build_go_live_summary(self, evaluation_date: date) -> dict[str, object]:
+        gate = self.execution_gate_summary(evaluation_date)
         rollout = self.operations_rollout()
         milestones = self.operations.rollout_milestones()
         policy = self.rollout_policy_summary()
@@ -933,7 +1038,14 @@ class TradingCatApplication:
         }
 
     def live_acceptance_summary(self, as_of: date | None = None, incident_window_days: int = 14) -> dict[str, object]:
-        go_live = self.go_live_summary(as_of)
+        evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("live_acceptance_summary", evaluation_date.isoformat(), incident_window_days),
+            lambda: self._build_live_acceptance_summary(evaluation_date, incident_window_days),
+        )
+
+    def _build_live_acceptance_summary(self, evaluation_date: date, incident_window_days: int) -> dict[str, object]:
+        go_live = self.go_live_summary(evaluation_date)
         metrics = self.operations_execution_metrics()
         alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=incident_window_days)
         acceptance = self.operations.acceptance_summary()
@@ -954,7 +1066,7 @@ class TradingCatApplication:
         if incident_days > 0:
             blockers.append(f"{incident_days} incident day(s) remain in the acceptance evidence history.")
         return {
-            "as_of": as_of or date.today(),
+            "as_of": evaluation_date,
             "ready_for_live": len(blockers) == 0,
             "incident_count": len(alerts),
             "blockers": blockers,
@@ -965,6 +1077,12 @@ class TradingCatApplication:
         }
 
     def operations_period_report(self, window_days: int, label: str) -> dict[str, object]:
+        return self._cached_summary(
+            ("operations_period_report", date.today().isoformat(), label, window_days),
+            lambda: self._build_operations_period_report(window_days, label),
+        )
+
+    def _build_operations_period_report(self, window_days: int, label: str) -> dict[str, object]:
         readiness = self.operations_readiness()
         execution_metrics = self.operations_execution_metrics()
         alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=window_days)

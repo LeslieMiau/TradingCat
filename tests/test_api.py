@@ -1243,6 +1243,9 @@ def test_preflight_and_broker_recovery_endpoints():
     assert preflight.status_code == 200
     preflight_payload = preflight.json()
     assert preflight_payload["healthy"] is True
+    assert "research_ready" in preflight_payload
+    assert "research_blockers" in preflight_payload
+    assert "system_ready" in preflight_payload
     assert "checks" in preflight_payload
     assert "recommendations" in preflight_payload
 
@@ -1276,12 +1279,63 @@ def test_preflight_and_broker_recovery_endpoints():
     assert "ready" in readiness_payload
     assert "diagnostics" in readiness_payload
     assert "broker_status" in readiness_payload
+    assert "research_readiness" in readiness_payload
 
     dashboard = client.get("/dashboard/summary")
     assert dashboard.status_code == 200
     dashboard_payload = dashboard.json()
     assert "details" in dashboard_payload
     assert "live_acceptance" in dashboard_payload["details"]
+    assert "acceptance_progress" in dashboard_payload["details"]
+
+
+def test_preflight_and_readiness_align_research_blockers():
+    original = app_state.research_readiness_summary
+    try:
+        app_state.research_readiness_summary = lambda as_of=None: {
+            "as_of": as_of or date.today(),
+            "ready": False,
+            "report_status": "blocked",
+            "blocked_count": 1,
+            "blocked_strategy_ids": ["strategy_a_etf_rotation"],
+            "ready_strategy_ids": [],
+            "blocking_reasons": [
+                "strategy_a_etf_rotation: Research used synthetic fallback data; keep the strategy out of keep/active until local history is complete."
+            ],
+            "minimum_history_coverage_ratio": 0.0,
+            "strategies": [
+                {
+                    "strategy_id": "strategy_a_etf_rotation",
+                    "validation_status": "blocked",
+                    "data_source": "synthetic",
+                    "data_ready": False,
+                    "promotion_blocked": True,
+                    "blocking_reasons": [
+                        "Research used synthetic fallback data; keep the strategy out of keep/active until local history is complete."
+                    ],
+                }
+            ],
+        }
+
+        preflight = client.get("/preflight/startup")
+        diagnostics = client.get("/diagnostics/summary")
+        readiness = client.get("/ops/readiness")
+
+        assert preflight.status_code == 200
+        assert diagnostics.status_code == 200
+        assert readiness.status_code == 200
+        preflight_payload = preflight.json()
+        diagnostics_payload = diagnostics.json()
+        readiness_payload = readiness.json()
+        assert preflight_payload["research_ready"] is False
+        assert preflight_payload["research_blockers"]
+        assert preflight_payload["system_ready"] is False
+        assert diagnostics_payload["research_readiness"]["ready"] is False
+        assert readiness_payload["research_readiness"]["ready"] is False
+        assert any("synthetic fallback data" in blocker.lower() for blocker in diagnostics_payload["blockers"])
+        assert any("synthetic fallback data" in blocker.lower() for blocker in readiness_payload["blockers"])
+    finally:
+        app_state.research_readiness_summary = original
 
 
 def test_dashboard_page_and_assets():
@@ -1335,12 +1389,16 @@ def test_dashboard_page_and_assets():
     assert "DashboardStrategy" in strategy_js.text
     assert "function renderPlan" in strategy_js.text
     assert "function renderCandidates" in strategy_js.text
+    assert "blocked_by_data" in strategy_js.text
+    assert "status_reason" in strategy_js.text
 
     operations_js = client.get("/static/dashboard_operations.js")
     assert operations_js.status_code == 200
     assert "DashboardOperations" in operations_js.text
     assert "function renderSummaries" in operations_js.text
     assert "function renderPriorityActions" in operations_js.text
+    assert "acceptance_progress" in operations_js.text
+    assert "remaining_clean_days" in operations_js.text
 
     api_js = client.get("/static/api.js")
     assert api_js.status_code == 200
@@ -1438,6 +1496,7 @@ def test_dashboard_summary_endpoint():
     assert "daily" in payload["summaries"]
     assert "weekly" in payload["summaries"]
     assert "live_acceptance" in payload["details"]
+    assert "acceptance_progress" in payload["details"]
     assert "recent_orders" in payload["details"]
     assert "label" in payload["accounts"]["total"]
     assert "nav" in payload["accounts"]["total"]
@@ -1447,6 +1506,96 @@ def test_dashboard_summary_endpoint():
     for item in payload["details"]["execution_gate"].get("reasons", []):
         assert "type" in item
         assert "detail" in item
+
+
+def test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress():
+    original_build_profit_scorecard = app_state.strategy_analysis.build_profit_scorecard
+    original_summarize_strategy_report = app_state.strategy_analysis.summarize_strategy_report
+    original_active_execution_strategy_ids = app_state.active_execution_strategy_ids
+    original_selection_summary = app_state.selection.summary
+    original_allocation_summary = app_state.allocations.summary
+    original_live_acceptance_summary = app_state.live_acceptance_summary
+    original_operations_readiness = app_state.operations_readiness
+    original_execution_gate_summary = app_state.execution_gate_summary
+    try:
+        app_state.strategy_analysis.build_profit_scorecard = lambda as_of, strategy_signals: {
+            "rows": [
+                {
+                    "strategy_id": "strategy_a_etf_rotation",
+                    "verdict": "paper_only",
+                    "action": "paper_only",
+                    "profitability_score": 0.62,
+                    "annualized_return": 0.14,
+                    "sharpe": 1.4,
+                    "max_drawdown": 0.08,
+                    "calmar": 1.75,
+                    "validation_pass_rate": 0.7,
+                    "stability_bucket": "watch",
+                    "capacity_tier": "high",
+                    "promotion_blocked": True,
+                    "blocking_reasons": ["history coverage is incomplete"],
+                },
+                {
+                    "strategy_id": "strategy_b_equity_momentum",
+                    "verdict": "paper_only",
+                    "action": "paper_only",
+                    "profitability_score": 0.58,
+                    "annualized_return": 0.11,
+                    "sharpe": 1.2,
+                    "max_drawdown": 0.09,
+                    "calmar": 1.22,
+                    "validation_pass_rate": 0.65,
+                    "stability_bucket": "watch",
+                    "capacity_tier": "medium",
+                    "promotion_blocked": False,
+                    "blocking_reasons": [],
+                },
+            ],
+            "top_candidates": [],
+            "next_actions": [],
+            "deploy_candidate_count": 0,
+            "paper_only_count": 2,
+            "rejected_count": 0,
+        }
+        app_state.strategy_analysis.summarize_strategy_report = lambda as_of, strategy_signals: {
+            "accepted_strategy_ids": [],
+            "portfolio_metrics": {"annualized_return": 0.0, "strategy_count": 0, "max_drawdown": 0.0, "calmar": 0.0},
+            "portfolio_passed": False,
+        }
+        app_state.active_execution_strategy_ids = lambda: ["strategy_a_etf_rotation", "strategy_b_equity_momentum"]
+        app_state.selection.summary = lambda: {"active": [], "paper_only": ["strategy_b_equity_momentum"], "rejected": []}
+        app_state.allocations.summary = lambda: {
+            "active": [],
+            "paper_only": [{"strategy_id": "strategy_b_equity_momentum", "target_weight": 0.0, "shadow_weight": 0.05}],
+        }
+        app_state.live_acceptance_summary = lambda as_of=None, incident_window_days=14: {
+            "ready_for_live": False,
+            "blockers": ["Need 4 more clean week(s) before the next rollout gate."],
+            "acceptance_evidence": {"current_clean_day_streak": 3, "current_clean_week_streak": 0},
+            "next_requirement": {"remaining_clean_days": 25, "remaining_clean_weeks": 4, "explanation": "Need 4-week gate."},
+        }
+        app_state.operations_readiness = lambda: {"ready": False, "blockers": [], "diagnostics": {}, "alerts": {}, "compliance": {}, "broker_status": {}, "broker_validation": {}}
+        app_state.execution_gate_summary = lambda as_of=None: {"ready": False, "should_block": True, "reasons": [], "next_actions": [], "policy_stage": "simulate"}
+
+        response = client.get("/dashboard/summary")
+        assert response.status_code == 200
+        payload = response.json()
+        rows = {row["strategy_id"]: row for row in payload["strategies"]["rows"]}
+        assert payload["strategies"]["blocked_by_data_count"] == 1
+        assert payload["strategies"]["paper_only_count"] == 1
+        assert rows["strategy_a_etf_rotation"]["display_status"] == "blocked_by_data"
+        assert rows["strategy_b_equity_momentum"]["display_status"] == "paper_only"
+        assert payload["details"]["acceptance_progress"]["remaining_clean_days"] == 25
+        assert payload["details"]["acceptance_progress"]["current_clean_week_streak"] == 0
+    finally:
+        app_state.strategy_analysis.build_profit_scorecard = original_build_profit_scorecard
+        app_state.strategy_analysis.summarize_strategy_report = original_summarize_strategy_report
+        app_state.active_execution_strategy_ids = original_active_execution_strategy_ids
+        app_state.selection.summary = original_selection_summary
+        app_state.allocations.summary = original_allocation_summary
+        app_state.live_acceptance_summary = original_live_acceptance_summary
+        app_state.operations_readiness = original_operations_readiness
+        app_state.execution_gate_summary = original_execution_gate_summary
 
 
 def test_ops_period_reports_highlight_execution_drags_and_anomalies():

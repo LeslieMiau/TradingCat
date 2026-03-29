@@ -295,6 +295,7 @@ class StrategyAnalysisService:
         return {
             "as_of": as_of,
             "portfolio_passed": recommendation_report["portfolio_passed"],
+            "portfolio_metrics": recommendation_report["portfolio_metrics"],
             "accepted_strategy_ids": recommendation_report["accepted_strategy_ids"],
             "blocked_strategy_ids": blocked_strategy_ids,
             "blocked_count": len(blocked_strategy_ids),

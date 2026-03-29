@@ -81,10 +81,12 @@ def test_dashboard_facade_sub_builders_are_independently_exercisable():
     details = facade._details_summary(
         {"ready": True, "should_block": False},
         {"ready_for_live": False, "blockers": ["waiting"]},
+        {"current_recommendation": "simulate", "blockers": ["waiting"]},
         {"ready": False},
         [{"broker_order_id": "order-1"}],
     )
     assert details["live_acceptance"]["ready_for_live"] is False
+    assert details["acceptance_progress"]["blockers"] == ["waiting"]
     assert details["recent_orders"][0]["broker_order_id"] == "order-1"
 
     actual_plan = facade._ensure_plan_note(date.today())

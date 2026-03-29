@@ -529,3 +529,22 @@
   - 标签规则先保持简单直接：`clean_day` 看 readiness + 无告警，`manual_day` 看 pending approval，`incident_day` 看告警/错误，`blocked_day` 看 readiness=false；后续 feature 再逐步把这些标签消费到周报和 rollout 门槛里。
 - Remaining focus for next session:
   - feature #37：周报聚合过去 7 天 acceptance 证据，帮助个人交易者判断是否维持 paper-trading 纪律。
+
+## Session update — 2026-03-29
+- Completed features #43-#48: diagnostics / preflight / readiness / dashboard / regression 收尾完成，`PLAN.json` 全部 48 项已完成。
+- Code changes:
+  - `TradingCatApplication` 新增短时 summary cache，并把 `research_readiness_summary()`、`startup_preflight_summary()`、`_base_validation_snapshot()`、`execution_gate_summary()`、`operations_readiness()`、`operations_rollout()`、`go_live_summary()`、`live_acceptance_summary()`、`operations_period_report()` 改成复用缓存，避免 dashboard / readiness 在同一请求里重复做整套重计算。
+  - `preflight/startup` 现在返回带 `research_ready`、`research_blockers`、`research_readiness`、`system_ready` 的聚合结果；`/diagnostics/summary` 与 `/ops/readiness` 统一复用这套 research blocker 语义，不再一个接口说健康、另一个接口才报 blocked。
+  - `DashboardFacade` 去掉了循环内重复读取 selection/allocation summary 的坏味道；`dashboard/summary` 也不再在 GET 链路里偷偷生成并落盘新的日报/计划，而是在缺少归档时返回显式 fallback note，避免只读接口带副作用。
+  - `dashboard/summary` 改成复用单次 `strategy_signal_map + build_profit_scorecard()` 结果，不再对同一组 strategy signals 额外重复跑一次完整 report；`build_profit_scorecard()` 也补上 `portfolio_metrics`，让 dashboard 不必再额外拉一次 report。
+  - dashboard 前端和 API 现在完整消费 `blocked_by_data` / `paper_only` / `status_reason` / `acceptance_progress`；策略卡片会明确区分“数据阻塞”和“仅纸面”，operations 区也能直接看到 clean week streak 和距离下一门槛的剩余天数。
+- Validation:
+  - `.venv/bin/pytest tests/test_research_reporting.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_facade.py tests/test_reports_helper.py tests/test_operations_journal.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_dashboard_page_and_assets tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q` -> `53 passed`
+  - 隔离 HTTP 验证（`TRADINGCAT_DATA_DIR=/tmp/tradingcat-harness-http-final.7u2ntO`, `http://127.0.0.1:8037`）：
+    - `GET /preflight/startup` -> `healthy=true`, `research_ready=false`, `system_ready=false`，并返回 `research_blockers`
+    - `GET /diagnostics/summary` -> `ready=false`，`blockers` 包含 synthetic fallback / missing history blocker，且返回 `research_readiness`
+    - `GET /ops/readiness` -> `ready=false`，顶层 `blockers` 与 `research_readiness.blocking_reasons` 对齐
+    - `GET /dashboard/summary` -> 返回 `details.acceptance_progress`、`strategies.blocked_by_data_count=1`，且 `strategy_c_option_overlay.display_status="blocked_by_data"`
+- Decisions:
+  - 为了避免这次 harness 再次把 `app.py` / facade 推成大对象，这轮优先做“复用已有 service + 缓存聚合 + 去掉 GET 副作用”，而不是继续往 route 或 dashboard facade 里硬塞新判断。
+  - 老的 `tests/test_api.py::test_preflight_and_broker_recovery_endpoints` 单跑仍然非常慢，当前没有把它作为这轮 feature 收尾的 gating；相应功能由更窄的 API 回归测试和真实 HTTP 验证覆盖。后续若要继续优化，可单独把 broker recovery 测试拆开做轻量化。

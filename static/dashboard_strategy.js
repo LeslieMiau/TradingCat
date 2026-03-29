@@ -32,6 +32,8 @@
         metricTile("组合夏普", fmt(metrics.sharpe), `策略数 ${fmt(metrics.strategy_count)}`, "ok"),
         metricTile("组合最大回撤", fmtPct(metrics.max_drawdown), `Calmar ${fmt(metrics.calmar)}`, "warning"),
         metricTile("通过策略", fmt((strategies.accepted_strategy_ids ?? []).length), `Accepted ${(strategies.accepted_strategy_ids ?? []).join(", ") || "None"}`, (strategies.accepted_strategy_ids ?? []).length ? "ok" : "warning"),
+        metricTile("数据阻塞", fmt(strategies.blocked_by_data_count), "blocked_by_data", strategies.blocked_by_data_count ? "blocked" : "ok"),
+        metricTile("仅纸面", fmt(strategies.paper_only_count), "paper_only", strategies.paper_only_count ? "warning" : "ok"),
       ].join("");
     }
 
@@ -45,10 +47,11 @@
                   <h3><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></h3>
                   <p class="detail-paragraph">${escapeHtml(row.thesis)}</p>
                   <div class="tag-row">
-                    <span class="badge status-${badgeTone(row.action)}">${escapeHtml(row.action)}</span>
+                    <span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(row.display_status ?? row.action)}</span>
                     <span class="tag">${escapeHtml(row.cadence)}</span>
                     <span class="tag">${escapeHtml(row.capacity_tier)}</span>
                   </div>
+                  <p class="detail-paragraph">${escapeHtml(row.status_reason ?? "")}</p>
                   <div class="tag-row">
                     ${(row.focus_instruments ?? []).map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}
                   </div>
@@ -69,12 +72,12 @@
               (row) => `
                 <tr>
                   <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></strong><br /><span class="meta-text">${escapeHtml(row.strategy_id)}</span></td>
-                  <td><span class="badge status-${badgeTone(row.action)}">${escapeHtml(row.action)}</span></td>
+                  <td><span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(row.display_status ?? row.action)}</span></td>
                   <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
                   <td>${escapeHtml(fmt(row.sharpe))}</td>
                   <td>${escapeHtml(fmtPct(row.max_drawdown))}</td>
                   <td>${escapeHtml(fmt(row.calmar))}</td>
-                  <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}</td>
+                  <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}<br /><span class="meta-text">${escapeHtml(row.status_reason ?? "")}</span></td>
                 </tr>
               `,
             )
