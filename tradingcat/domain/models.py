@@ -276,7 +276,12 @@ class HistorySyncRun(BaseModel):
     minimum_coverage_ratio: float = 0.0
     include_corporate_actions: bool = True
     symbols: list[str] = Field(default_factory=list)
+    successful_symbols: list[str] = Field(default_factory=list)
+    failed_symbols: list[str] = Field(default_factory=list)
     missing_symbols: list[str] = Field(default_factory=list)
+    failed_symbol_count: int = 0
+    missing_symbol_count: int = 0
+    symbol_stats: list[dict[str, object]] = Field(default_factory=list)
     status: str = "ok"
     notes: list[str] = Field(default_factory=list)
 

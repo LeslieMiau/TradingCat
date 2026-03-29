@@ -75,6 +75,28 @@ def test_data_history_coverage_endpoint_exposes_summary_fields():
     assert "blockers" in payload
 
 
+def test_data_history_sync_runs_expose_symbol_level_stats():
+    sync = client.post(
+        "/data/history/sync",
+        json={
+            "symbols": ["SPY"],
+            "start": "2026-03-02",
+            "end": "2026-03-06",
+            "include_corporate_actions": True,
+        },
+    )
+    assert sync.status_code == 200
+
+    runs = client.get("/data/history/sync-runs")
+    assert runs.status_code == 200
+    latest = runs.json()[0]
+    assert "successful_symbols" in latest
+    assert "failed_symbols" in latest
+    assert "failed_symbol_count" in latest
+    assert "missing_symbol_count" in latest
+    assert "symbol_stats" in latest
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

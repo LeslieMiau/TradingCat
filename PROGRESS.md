@@ -122,3 +122,19 @@
   - 真实 HTTP 里 `QQQ` 在该窗口上仍然返回 `blocked=false`，说明当前本机数据状态比单测更完整；blocked 路径由新增的 partial-history service 测试覆盖。
 - Remaining focus for next session:
   - feature #16：history sync run 需要把 symbol 级成功/失败/缺失统计落到 run 记录和列表里，为长期数据质量追踪做准备。
+
+## Session update — 2026-03-29
+- Completed feature #16: history sync run 现在保存 symbol 级成功/失败/缺失统计，`/data/history/sync-runs` 可直接用于长期数据质量追踪。
+- Code changes:
+  - `HistorySyncRun` 新增 `successful_symbols`、`failed_symbols`、`failed_symbol_count`、`missing_symbol_count`、`symbol_stats`。
+  - `HistorySyncService.record_run()` 现在从 sync result / coverage result 组装 symbol 级 `ok / failed / missing` 状态，并把失败 symbol 纳入 partial 判定与 notes。
+  - 新增 market-data service 与 API 测试，验证 sync-runs 列表会返回这些 symbol 级字段。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_api.py -q` -> `27 passed`
+  - `curl -sS -X POST http://127.0.0.1:8015/data/history/sync ...` -> 返回 `run.successful_symbols=[\"SPY\"]`、`symbol_stats=[{\"symbol\":\"SPY\",\"status\":\"ok\",...}]`
+  - `curl -sS http://127.0.0.1:8015/data/history/sync-runs` -> 返回 `successful_symbols`、`failed_symbols`、`failed_symbol_count`、`missing_symbol_count`、`symbol_stats`
+- Decisions:
+  - 历史 run 的旧记录会自然缺少这些新字段或为空数组，这是兼容接受的；从这次开始的新 run 会带完整 symbol 级统计。
+  - 这里先把 symbol 级统计落到 run 记录本身，下一步 repair-plan 就可以直接拿这些字段做优先级排序，不必再重新拼 sync/coverage 两份结果。
+- Remaining focus for next session:
+  - feature #17：让 repair-plan 按缺口严重程度排序，优先修最影响研究主链路的 symbol 与窗口。

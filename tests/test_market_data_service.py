@@ -191,6 +191,43 @@ def test_history_sync_service_records_runs_and_repair_plan(tmp_path):
     repair = history_sync.repair_plan(coverage)
 
     assert run.status == "ok"
+    assert run.successful_symbols == ["SPY"]
+    assert run.failed_symbols == []
+    assert run.failed_symbol_count == 0
+    assert run.missing_symbol_count == 0
+    assert run.symbol_stats[0]["symbol"] == "SPY"
+    assert run.symbol_stats[0]["status"] == "ok"
     assert summary["count"] == 1
     assert summary["healthy"] is True
     assert repair["repair_count"] == 0
+
+
+def test_history_sync_service_records_symbol_level_failures(tmp_path):
+    class PartialFailureAdapter(StaticMarketDataAdapter):
+        def fetch_bars(self, instrument, start, end):
+            if instrument.symbol == "QQQ":
+                raise RuntimeError("quote permission missing")
+            return super().fetch_bars(instrument, start, end)
+
+    market_data = MarketDataService(
+        adapter=PartialFailureAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    history_sync = HistorySyncService(HistorySyncRunRepository(tmp_path))
+
+    sync = market_data.sync_history(symbols=["SPY", "QQQ"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+    coverage = market_data.summarize_history_coverage(symbols=["SPY", "QQQ"], start=date(2026, 3, 2), end=date(2026, 3, 6))
+    run = history_sync.record_run(
+        sync_result=sync,
+        coverage_result=coverage,
+        symbols=["SPY", "QQQ"],
+        include_corporate_actions=True,
+    )
+
+    assert run.status == "partial"
+    assert run.successful_symbols == ["SPY"]
+    assert run.failed_symbols == ["QQQ"]
+    assert run.failed_symbol_count == 1
+    assert run.missing_symbol_count == 1
+    assert any(item["symbol"] == "QQQ" and item["status"] == "failed" for item in run.symbol_stats)

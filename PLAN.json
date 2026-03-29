@@ -173,7 +173,7 @@
       "sync-status 能反映最近一次同步的健康状态与缺口数量。",
       "history sync 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 17,
