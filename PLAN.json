@@ -250,7 +250,7 @@
       "未满足 RSI 条件时，可通过接口或日志看见真实计算值。",
       "rule engine 相关 pytest 通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 24,

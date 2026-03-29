@@ -1,7 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
+from tradingcat.domain.models import Market, OrderSide
+from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.main import app, app_state
 
 client = TestClient(app)
@@ -308,6 +310,30 @@ def test_scheduler_selection_review_job_refreshes_allocations():
     allocation_summary = client.get("/research/allocations/summary")
     assert allocation_summary.status_code == 200
     assert allocation_summary.json()["count"] == 7
+
+
+def test_ops_evaluate_triggers_uses_real_rsi_series():
+    app_state.rule_engine._triggers = {}
+    app_state.rule_engine._repository.save({})
+    end = date.today()
+    app_state.market_history.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    metric_value = app_state.rule_engine._metric_value("RSI_14", "SPY", Market.US, 100.0)
+    app_state.rule_engine.register_order(
+        SmartOrder(
+            account="total",
+            symbol="SPY",
+            market="US",
+            side=OrderSide.BUY,
+            quantity=1,
+            trigger_conditions=[TriggerCondition(metric="RSI_14", operator=">", target_value=max(metric_value - 1, 0.0))],
+        )
+    )
+
+    run = client.post("/ops/evaluate-triggers")
+
+    assert run.status_code == 200
+    assert metric_value != 30.0
+    assert run.json()["triggered"] >= 1
 
 
 def test_selection_review_endpoint_does_not_activate_blocked_strategy():

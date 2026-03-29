@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import AssetClass, Instrument, Market, OrderIntent
@@ -114,31 +114,77 @@ class RuleEngine:
 
     def _all_conditions_met(self, order: SmartOrder, price: float) -> bool:
         for condition in order.trigger_conditions:
-            value = self._metric_value(condition.metric, price)
+            value = self._metric_value(condition.metric, order.symbol, Market(str(order.market)), price)
             target = condition.target_value
             if condition.operator == "<" and not (value < target):
+                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
                 return False
             if condition.operator == "<=" and not (value <= target):
+                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
                 return False
             if condition.operator == ">" and not (value > target):
+                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
                 return False
             if condition.operator == ">=" and not (value >= target):
+                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
                 return False
             if condition.operator == "==" and not (value == target):
+                logger.info("Smart order condition not met", extra={"smart_order_id": order.smart_order_id, "metric": condition.metric, "value": value, "operator": condition.operator, "target": target})
                 return False
         return True
 
-    def _metric_value(self, metric: str, price: float) -> float:
+    def _metric_value(self, metric: str, symbol: str, market: Market, price: float) -> float:
         metric_upper = metric.upper()
         if metric_upper == "PRICE":
             return price
-        # TODO: Replace mock RSI calculations with real indicator inputs.
         if metric_upper.startswith("RSI"):
-            return 30.0
+            period = self._metric_period(metric_upper, default=14)
+            return self._rsi_value(symbol=symbol, market=market, period=period)
         # TODO: Replace mock SMA calculations with real indicator inputs.
         if metric_upper.startswith("SMA"):
             return price * 0.95
         return price
+
+    def _metric_period(self, metric: str, default: int) -> int:
+        parts = metric.split("_", 1)
+        if len(parts) != 2:
+            return default
+        try:
+            value = int(parts[1])
+        except ValueError:
+            return default
+        return value if value > 0 else default
+
+    def _rsi_value(self, *, symbol: str, market: Market, period: int) -> float:
+        closes = self._recent_closes(symbol=symbol, market=market, lookback_days=max(period * 4, 30))
+        if len(closes) <= period:
+            return 50.0
+        deltas = [current - previous for previous, current in zip(closes, closes[1:], strict=False)]
+        window = deltas[-period:]
+        average_gain = sum(max(delta, 0.0) for delta in window) / period
+        average_loss = sum(abs(min(delta, 0.0)) for delta in window) / period
+        if average_loss == 0:
+            return 100.0 if average_gain > 0 else 50.0
+        relative_strength = average_gain / average_loss
+        return round(100.0 - (100.0 / (1.0 + relative_strength)), 4)
+
+    def _recent_closes(self, *, symbol: str, market: Market, lookback_days: int) -> list[float]:
+        end = date.today()
+        start = end - timedelta(days=lookback_days)
+        bars = self._market_data.ensure_history([symbol], start, end).get(symbol, [])
+        ordered = sorted(
+            bars,
+            key=lambda item: (
+                item.timestamp.year,
+                item.timestamp.month,
+                item.timestamp.day,
+                item.timestamp.hour,
+                item.timestamp.minute,
+                item.timestamp.second,
+                item.timestamp.microsecond,
+            ),
+        )
+        return [float(bar.close) for bar in ordered if getattr(bar.instrument, "market", market) == market]
 
     def _build_intent(self, order: SmartOrder, reference_price: float) -> OrderIntent:
         market = Market(str(order.market))

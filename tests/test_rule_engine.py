@@ -1,0 +1,127 @@
+from datetime import date, datetime, timedelta, timezone
+
+from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
+from tradingcat.adapters.market import StaticMarketDataAdapter
+from tradingcat.config import AppConfig
+from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OrderSide
+from tradingcat.domain.triggers import SmartOrder, TriggerCondition
+from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
+from tradingcat.repositories.state import ApprovalRepository, ExecutionStateRepository, OrderRepository
+from tradingcat.services.approval import ApprovalService
+from tradingcat.services.execution import ExecutionService
+from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
+
+
+class RisingBarsAdapter(StaticMarketDataAdapter):
+    def fetch_bars(self, instrument, start, end):
+        current = start
+        price = 100.0
+        bars: list[Bar] = []
+        while current <= end:
+            price += 1.5
+            bars.append(
+                Bar(
+                    instrument=instrument,
+                    timestamp=datetime.combine(current, datetime.min.time(), tzinfo=timezone.utc),
+                    open=price - 0.5,
+                    high=price + 0.5,
+                    low=price - 1.0,
+                    close=price,
+                    volume=1_000_000,
+                )
+            )
+            current += timedelta(days=1)
+        return bars
+
+
+class FallingBarsAdapter(StaticMarketDataAdapter):
+    def fetch_bars(self, instrument, start, end):
+        current = start
+        price = 140.0
+        bars: list[Bar] = []
+        while current <= end:
+            price -= 1.5
+            bars.append(
+                Bar(
+                    instrument=instrument,
+                    timestamp=datetime.combine(current, datetime.min.time(), tzinfo=timezone.utc),
+                    open=price + 0.5,
+                    high=price + 1.0,
+                    low=price - 0.5,
+                    close=price,
+                    volume=1_000_000,
+                )
+            )
+            current += timedelta(days=1)
+        return bars
+
+
+def _build_rule_engine(tmp_path, adapter):
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=adapter,
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    execution = ExecutionService(
+        live_broker=SimulatedBrokerAdapter(),
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    engine = RuleEngine(
+        config,
+        TriggerRepository(config),
+        market_data=market_data,
+        execution=execution,
+    )
+    return engine, market_data
+
+
+def test_rule_engine_uses_real_rsi_for_uptrend(tmp_path):
+    engine, market_data = _build_rule_engine(tmp_path, RisingBarsAdapter())
+    end = date.today()
+    market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    order = SmartOrder(
+        account="total",
+        symbol="SPY",
+        market="US",
+        side=OrderSide.BUY,
+        quantity=1,
+        trigger_conditions=[TriggerCondition(metric="RSI_14", operator=">", target_value=70)],
+    )
+    engine.register_order(order)
+
+    rsi_value = engine._metric_value("RSI_14", "SPY", Market.US, 100.0)
+    result = engine.evaluate_all()
+
+    assert rsi_value > 70
+    assert rsi_value != 30.0
+    assert result["triggered"] == 1
+    assert engine.list_orders()[0].status == "TRIGGERED"
+
+
+def test_rule_engine_keeps_order_pending_when_rsi_is_oversold(tmp_path, caplog):
+    engine, market_data = _build_rule_engine(tmp_path, FallingBarsAdapter())
+    end = date.today()
+    market_data.sync_history(symbols=["SPY"], start=end - timedelta(days=30), end=end)
+    order = SmartOrder(
+        account="total",
+        symbol="SPY",
+        market="US",
+        side=OrderSide.BUY,
+        quantity=1,
+        trigger_conditions=[TriggerCondition(metric="RSI_14", operator=">", target_value=70)],
+    )
+    engine.register_order(order)
+
+    rsi_value = engine._metric_value("RSI_14", "SPY", Market.US, 100.0)
+    with caplog.at_level("INFO"):
+        result = engine.evaluate_all()
+
+    assert rsi_value < 30
+    assert result["triggered"] == 0
+    assert engine.list_orders()[0].status == "PENDING"
+    assert any(record.metric == "RSI_14" and record.value == rsi_value for record in caplog.records)

@@ -238,3 +238,18 @@
   - baseline 目前按“研究优先级最高的 5 个 symbol”固定下来，先解决个人交易主链路的最小可复现性，而不是一次把全 universe 都做厚。
 - Remaining focus for next session:
   - feature #23：把 smart order 的 RSI 条件改成真实指标计算，而不是 mock 常量。
+
+## Session update — 2026-03-29
+- Completed feature #23: smart order 的 RSI 条件现在使用真实价格序列计算，而不是 mock 常量。
+- Code changes:
+  - `RuleEngine._metric_value()` 里的 `RSI_*` 分支现在会按最近历史 bars 计算真实 RSI 值，并支持从指标名里解析周期参数，例如 `RSI_14`。
+  - 当 smart order 条件未满足时，rule engine 会记录带有 `metric / value / target / operator` 的日志，至少能从日志里看到真实 RSI 值而不是黑箱常量。
+  - 新增 `tests/test_rule_engine.py`，分别锁定上涨序列下 RSI 高位触发、下跌序列下 RSI 低位不触发且日志暴露真实值；API 测试也锁定 `/ops/evaluate-triggers` 使用的 RSI 不是旧的 `30.0` 常量。
+- Validation:
+  - `.venv/bin/pytest tests/test_rule_engine.py tests/test_api.py -q` -> `26 passed`
+  - `.venv/bin/pytest tests/test_rule_engine.py -q` -> `2 passed`
+- Decisions:
+  - 这一步只替换 RSI 指标，不顺手把 SMA 和完整 trigger diagnostics 一起做掉，避免把 `#24-#26` 的范围提前揉进来。
+  - 没有做真实 HTTP 的 `/ops/evaluate-triggers` 触发演练，因为那会进入订单提交路径；当前按仓库 side-effect 边界，用 API/engine 测试完成完整验证。
+- Remaining focus for next session:
+  - feature #24：把 smart order 的 SMA 条件改成真实指标计算，而不是 `price * 0.95`。
