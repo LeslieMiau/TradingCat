@@ -138,3 +138,19 @@
   - 这里先把 symbol 级统计落到 run 记录本身，下一步 repair-plan 就可以直接拿这些字段做优先级排序，不必再重新拼 sync/coverage 两份结果。
 - Remaining focus for next session:
   - feature #17：让 repair-plan 按缺口严重程度排序，优先修最影响研究主链路的 symbol 与窗口。
+
+## Session update — 2026-03-29
+- Completed feature #17: `/data/history/repair-plan` 现在会按研究优先级和缺口严重度排序，优先修最影响主链路的 symbol。
+- Code changes:
+  - `HistorySyncService.repair_plan()` 现在支持 `priority_symbols`，每个 repair 项新增 `coverage_ratio`、`priority_bucket`、`priority_rank`、`priority_reason`，并按优先级后再按缺口严重度排序。
+  - `TradingCatApplication.history_sync_repair_plan()` 现在会从当前研究/候选策略信号里推导 `priority_symbols`，把 option 底层 symbol 也纳入优先级计算。
+  - 新增 service 与 API 测试，锁定 repair-plan 的优先级排序和新字段。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py tests/test_api.py -q` -> `29 passed`
+  - 在临时空数据目录上运行 `curl -sS "http://127.0.0.1:8016/data/history/repair-plan?symbols=SPY,0700&start=2026-03-02&end=2026-03-06"` -> 返回 `priority_symbols=[\"SPY\",\"0700\"]`，且 `repairs[0].symbol=\"SPY\"`
+  - 同一临时环境下 `curl -sS "http://127.0.0.1:8016/data/history/coverage?symbols=SPY,0700&start=2026-03-02&end=2026-03-06"` -> 返回 `blocked=true`，证明 repair-plan 是基于真实 coverage 缺口排序
+- Decisions:
+  - 排序优先级先看研究主链路相关性，再看 `missing_count / coverage_ratio`；这样更符合“先修最影响研究的窗口”，而不是纯按缺口数量机械排序。
+  - 用临时空数据目录做真实 HTTP 验证，避免被当前本地已有历史缓存掩盖 repair-plan 的排序效果。
+- Remaining focus for next session:
+  - feature #18：让 `/data/history/repair` 执行后自动返回 repair 前后 coverage 对比与复检结果，形成发现缺口 -> 修复 -> 复检闭环。

@@ -231,3 +231,36 @@ def test_history_sync_service_records_symbol_level_failures(tmp_path):
     assert run.failed_symbol_count == 1
     assert run.missing_symbol_count == 1
     assert any(item["symbol"] == "QQQ" and item["status"] == "failed" for item in run.symbol_stats)
+
+
+def test_history_sync_service_repair_plan_prioritizes_research_symbols(tmp_path):
+    history_sync = HistorySyncService(HistorySyncRunRepository(tmp_path))
+    coverage = {
+        "start": date(2026, 3, 2),
+        "end": date(2026, 3, 6),
+        "reports": [
+            {
+                "symbol": "0700",
+                "market": "HK",
+                "coverage_ratio": 0.2,
+                "missing_count": 4,
+                "missing_preview": ["2026-03-02", "2026-03-03"],
+            },
+            {
+                "symbol": "SPY",
+                "market": "US",
+                "coverage_ratio": 0.6,
+                "missing_count": 2,
+                "missing_preview": ["2026-03-04", "2026-03-05"],
+            },
+        ],
+    }
+
+    repair = history_sync.repair_plan(coverage, priority_symbols=["SPY", "0700"])
+
+    assert repair["repair_count"] == 2
+    assert repair["priority_symbols"] == ["SPY", "0700"]
+    assert repair["repairs"][0]["symbol"] == "SPY"
+    assert repair["repairs"][0]["priority_bucket"] == "high"
+    assert repair["repairs"][0]["priority_rank"] == 1
+    assert "highest-priority symbol first: SPY" in repair["next_actions"][0]

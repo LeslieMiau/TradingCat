@@ -97,6 +97,44 @@ def test_data_history_sync_runs_expose_symbol_level_stats():
     assert "symbol_stats" in latest
 
 
+def test_data_history_repair_plan_endpoint_exposes_priority_order():
+    original_coverage = app_state.market_history.summarize_history_coverage
+    original_priority = app_state._repair_priority_symbols
+    try:
+        app_state.market_history.summarize_history_coverage = lambda symbols=None, start=None, end=None: {
+            "start": date(2026, 3, 2),
+            "end": date(2026, 3, 6),
+            "reports": [
+                {
+                    "symbol": "0700",
+                    "market": "HK",
+                    "coverage_ratio": 0.2,
+                    "missing_count": 4,
+                    "missing_preview": ["2026-03-02", "2026-03-03"],
+                },
+                {
+                    "symbol": "SPY",
+                    "market": "US",
+                    "coverage_ratio": 0.6,
+                    "missing_count": 2,
+                    "missing_preview": ["2026-03-04", "2026-03-05"],
+                },
+            ],
+        }
+        app_state._repair_priority_symbols = lambda symbols=None, as_of=None: ["SPY", "0700"]
+
+        repair = client.get("/data/history/repair-plan")
+        assert repair.status_code == 200
+        payload = repair.json()
+        assert payload["priority_symbols"] == ["SPY", "0700"]
+        assert payload["repairs"][0]["symbol"] == "SPY"
+        assert payload["repairs"][0]["priority_bucket"] == "high"
+        assert payload["repairs"][0]["priority_rank"] == 1
+    finally:
+        app_state.market_history.summarize_history_coverage = original_coverage
+        app_state._repair_priority_symbols = original_priority
+
+
 def test_scheduler_and_market_session_endpoints():
     sessions = client.get("/market-sessions")
     assert sessions.status_code == 200

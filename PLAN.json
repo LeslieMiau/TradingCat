@@ -184,7 +184,7 @@
       "高优先级缺口与研究主 universe/主策略高度相关。",
       "repair-plan 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 18,

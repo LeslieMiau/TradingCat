@@ -67,29 +67,56 @@ class HistorySyncService:
             "stale": self._is_stale(latest),
         }
 
-    def repair_plan(self, coverage_result: dict[str, object]) -> dict[str, object]:
+    def repair_plan(self, coverage_result: dict[str, object], priority_symbols: list[str] | None = None) -> dict[str, object]:
         reports = coverage_result.get("reports", []) if isinstance(coverage_result, dict) else []
+        priority_order = {
+            str(symbol): index
+            for index, symbol in enumerate(priority_symbols or [])
+        }
         repairs = []
         for report in reports:
             if float(report.get("coverage_ratio", 0.0)) >= 0.95:
                 continue
+            symbol = str(report["symbol"])
+            priority_rank = priority_order.get(symbol)
+            priority_bucket = "high" if priority_rank is not None else "normal"
             repairs.append(
                 {
-                    "symbol": report["symbol"],
+                    "symbol": symbol,
                     "market": report["market"],
+                    "coverage_ratio": round(float(report.get("coverage_ratio", 0.0)), 4),
                     "missing_count": report["missing_count"],
                     "missing_preview": report["missing_preview"],
                     "suggested_start": report["missing_preview"][0] if report["missing_preview"] else coverage_result.get("start"),
                     "suggested_end": report["missing_preview"][-1] if report["missing_preview"] else coverage_result.get("end"),
+                    "priority_bucket": priority_bucket,
+                    "priority_rank": priority_rank + 1 if priority_rank is not None else None,
+                    "priority_reason": (
+                        "Research target symbol appears in the current strategy universe."
+                        if priority_rank is not None
+                        else "Coverage gap severity only."
+                    ),
                 }
             )
+        repairs.sort(
+            key=lambda item: (
+                item["priority_bucket"] != "high",
+                item["priority_rank"] if item["priority_rank"] is not None else 9999,
+                -int(item["missing_count"]),
+                float(item["coverage_ratio"]),
+                str(item["symbol"]),
+            )
+        )
         return {
             "start": coverage_result.get("start"),
             "end": coverage_result.get("end"),
             "repair_count": len(repairs),
+            "priority_symbols": [symbol for symbol in (priority_symbols or []) if symbol in {item["symbol"] for item in repairs}],
             "repairs": repairs,
             "next_actions": [
-                "Run POST /data/history/sync for the missing symbols and date window.",
+                f"Run POST /data/history/sync for the highest-priority symbol first: {repairs[0]['symbol']}."
+                if repairs
+                else "No repair sync is needed for the current history window.",
                 "Recheck GET /data/history/coverage after the repair sync completes.",
             ]
             if repairs

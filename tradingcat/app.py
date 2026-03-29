@@ -628,7 +628,7 @@ class TradingCatApplication:
 
     def history_sync_repair_plan(self, symbols: list[str] | None = None, start: date | None = None, end: date | None = None) -> dict[str, object]:
         coverage = self.market_history.summarize_history_coverage(symbols=symbols, start=start, end=end)
-        return self.history_sync.repair_plan(coverage)
+        return self.history_sync.repair_plan(coverage, priority_symbols=self._repair_priority_symbols(symbols))
 
     def repair_market_history_gaps(self, *, symbols: list[str] | None = None, start: date | None = None, end: date | None = None, include_corporate_actions: bool = True) -> dict[str, object]:
         return self.market_history.repair_history_gaps(symbols=symbols, start=start, end=end, include_corporate_actions=include_corporate_actions)
@@ -644,6 +644,23 @@ class TradingCatApplication:
                 pending += int(counts.get("pending", 0))
                 blocked += int(counts.get("blocked", 0))
         return {"pending_count": pending, "blocked_count": blocked}
+
+    def _repair_priority_symbols(self, symbols: list[str] | None = None, as_of: date | None = None) -> list[str]:
+        requested = [str(symbol) for symbol in (symbols or [])]
+        evaluation_date = as_of or date.today()
+        strategy_signals = self._strategy_signal_map(evaluation_date, include_candidates=True)
+        explicit_ids = set(self.explicit_execution_strategy_ids())
+        symbol_weights: dict[str, int] = {}
+        for strategy_id, signal_list in strategy_signals.items():
+            boost = 3 if strategy_id in explicit_ids else 1
+            for signal in signal_list:
+                if signal.instrument.asset_class.value == "option":
+                    symbol = str(signal.metadata.get("underlying_symbol") or signal.instrument.symbol)
+                else:
+                    symbol = signal.instrument.symbol
+                symbol_weights[symbol] = symbol_weights.get(symbol, 0) + boost
+        targets = requested or list(symbol_weights.keys())
+        return sorted(targets, key=lambda symbol: (-symbol_weights.get(symbol, 0), symbol))
 
     def execution_gate_summary(self, as_of: date | None = None) -> dict[str, object]:
         evaluation_date = as_of or date.today()
