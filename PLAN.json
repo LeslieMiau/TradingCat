@@ -19,7 +19,7 @@
       "reset_state 或服务重启后，不会因为旧方法引用或旧缓存导致 gate 结果不一致。",
       "相关 API / readiness 回归测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 3,

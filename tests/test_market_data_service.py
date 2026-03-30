@@ -120,6 +120,45 @@ def test_market_data_service_research_universe_prefers_custom_symbols_over_boots
     assert {instrument.symbol for instrument in research_universe} == {"IVV", "VOO"}
 
 
+def test_market_data_service_refreshes_catalog_after_external_repo_update(tmp_path):
+    repository = InstrumentCatalogRepository(tmp_path)
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=repository,
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    repository.save(
+        {
+            f"{instrument.market.value}:{instrument.symbol}": instrument
+            for instrument in [
+                Instrument(
+                    symbol="IVV",
+                    market=Market.US,
+                    asset_class=AssetClass.ETF,
+                    currency="USD",
+                    name="iShares Core S&P 500 ETF",
+                    liquidity_bucket="high",
+                    avg_daily_dollar_volume_m=6200,
+                ),
+                Instrument(
+                    symbol="VOO",
+                    market=Market.US,
+                    asset_class=AssetClass.ETF,
+                    currency="USD",
+                    name="Vanguard S&P 500 ETF",
+                    liquidity_bucket="high",
+                    avg_daily_dollar_volume_m=5400,
+                ),
+            ]
+        }
+    )
+
+    research_universe = service.research_universe(asset_classes=[AssetClass.ETF.value], markets=["US"])
+
+    assert {instrument.symbol for instrument in research_universe} == {"IVV", "VOO"}
+
+
 def test_market_data_service_diagnostic_targets_reuse_catalog_before_sample_fallback(tmp_path):
     service = MarketDataService(
         adapter=StaticMarketDataAdapter(),

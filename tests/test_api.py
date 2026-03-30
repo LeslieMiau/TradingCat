@@ -989,6 +989,68 @@ def test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers():
         app_state.reset_state()
 
 
+def test_reset_state_refreshes_readiness_and_rollout_callables():
+    original_validation = app_state._base_validation_snapshot
+    original_data_quality = app_state.data_quality_summary
+    original_rollout = app_state.operations_rollout
+    try:
+        app_state.reset_state()
+        app_state._base_validation_snapshot = lambda as_of: {
+            "preflight": {"healthy": True, "research_readiness": {"ready": True, "blocking_reasons": []}},
+            "broker_validation": {},
+            "market_data": {},
+            "diagnostics": {"ready": True, "findings": [], "next_actions": []},
+        }
+        app_state.data_quality_summary = lambda: {"ready": True, "blockers": [], "scope": "history"}
+        app_state.operations_rollout = lambda: {"ready_for_rollout": True, "blockers": [], "current_recommendation": "simulate"}
+
+        readiness_initial = client.get("/ops/readiness")
+        gate_initial = client.get("/execution/gate")
+        go_live_initial = client.get("/ops/go-live")
+
+        assert readiness_initial.status_code == 200
+        assert gate_initial.status_code == 200
+        assert go_live_initial.status_code == 200
+        assert readiness_initial.json()["ready"] is True
+        assert gate_initial.json()["recommended_stage"] == "simulate"
+        assert go_live_initial.json()["rollout"]["current_recommendation"] == "simulate"
+
+        app_state.data_quality_summary = lambda: {
+            "ready": False,
+            "blockers": ["Fresh cache-cleared data blocker."],
+            "scope": "history",
+        }
+        app_state.operations_rollout = lambda: {
+            "ready_for_rollout": False,
+            "blockers": ["Fresh cache-cleared rollout blocker."],
+            "current_recommendation": "hold",
+        }
+        app_state.reset_state()
+
+        readiness = client.get("/ops/readiness")
+        gate = client.get("/execution/gate")
+        go_live = client.get("/ops/go-live")
+
+        assert readiness.status_code == 200
+        assert gate.status_code == 200
+        assert go_live.status_code == 200
+        readiness_payload = readiness.json()
+        gate_payload = gate.json()
+        go_live_payload = go_live.json()
+        assert readiness_payload["ready"] is False
+        assert "Fresh cache-cleared data blocker." in readiness_payload["blockers"]
+        assert gate_payload["ready"] is False
+        assert gate_payload["recommended_stage"] == "hold"
+        assert "Fresh cache-cleared rollout blocker." in gate_payload["reasons"]
+        assert go_live_payload["rollout"]["current_recommendation"] == "hold"
+        assert "Fresh cache-cleared rollout blocker." in go_live_payload["blockers"]
+    finally:
+        app_state._base_validation_snapshot = original_validation
+        app_state.data_quality_summary = original_data_quality
+        app_state.operations_rollout = original_rollout
+        app_state.reset_state()
+
+
 def test_acceptance_endpoints_expose_daily_evidence_tags():
     original_operations_readiness = app_state.operations_readiness
     try:

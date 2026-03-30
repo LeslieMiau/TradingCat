@@ -388,9 +388,17 @@ class OperationsFacade:
                 .model_dump(mode="json")
             )
         if isinstance(preflight_payload, dict):
+            normalized_preflight = dict(preflight_payload)
+            nested_research_payload = normalized_preflight.get("research_readiness")
+            if isinstance(nested_research_payload, dict):
+                normalized_preflight["research_readiness"] = (
+                    _default_research_readiness_response()
+                    .model_copy(update=nested_research_payload)
+                    .model_dump(mode="json")
+                )
             payload["preflight"] = (
                 _default_startup_preflight_response()
-                .model_copy(update=preflight_payload)
+                .model_copy(update=normalized_preflight)
                 .model_dump(mode="json")
             )
         if isinstance(payload.get("diagnostics"), dict):

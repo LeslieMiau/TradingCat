@@ -33,6 +33,7 @@ class MarketDataService:
         self._instruments = instruments
         self._history = history
         self._catalog = instruments.load()
+        self._catalog_version = instruments.version_token()
         self._local_history_only_depth = 0
         if not self._catalog:
             self.seed_catalog(sample_instruments())
@@ -46,11 +47,13 @@ class MarketDataService:
                 changed = True
         if changed:
             self._instruments.save(self._catalog)
+            self._catalog_version = self._instruments.version_token()
 
     def reset_cache(self) -> None:
         self._history.clear()
         self._instruments.clear()
         self._catalog = {}
+        self._catalog_version = self._instruments.version_token()
         self.seed_catalog(sample_instruments())
 
     @contextmanager
@@ -62,6 +65,7 @@ class MarketDataService:
             self._local_history_only_depth = max(0, self._local_history_only_depth - 1)
 
     def upsert_instruments(self, instruments: list[Instrument]) -> dict[str, object]:
+        self._refresh_catalog_if_needed()
         changed = False
         for instrument in instruments:
             key = self._key(instrument)
@@ -70,6 +74,7 @@ class MarketDataService:
                 changed = True
         if changed:
             self._instruments.save(self._catalog)
+            self._catalog_version = self._instruments.version_token()
         return {
             "instrument_count": len(self._catalog),
             "updated_symbols": sorted(instrument.symbol for instrument in instruments),
@@ -86,6 +91,7 @@ class MarketDataService:
         liquid_only: bool = False,
         minimum_liquidity_bucket: str = "medium",
     ) -> list[Instrument]:
+        self._refresh_catalog_if_needed()
         market_filter = {item.upper() for item in (markets or [])}
         asset_class_filter = {item.lower() for item in (asset_classes or [])}
         minimum_rank = self._liquidity_rank(minimum_liquidity_bucket)
@@ -152,6 +158,7 @@ class MarketDataService:
         return await asyncio.to_thread(self.fetch_quotes, instruments_or_symbols)
 
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: str | None = None):
+        self._refresh_catalog_if_needed()
         normalized_market = None
         if market:
             normalized_market = next((item.market for item in self._catalog.values() if item.market.value == market.upper()), None)
@@ -648,12 +655,22 @@ class MarketDataService:
         return dict(coverage.get("rates_by_pair", {}))
 
     def _resolve_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
+        self._refresh_catalog_if_needed()
         matches = [instrument for instrument in self._catalog.values() if instrument.symbol == symbol]
         if not matches:
             if strict:
                 raise KeyError(f"Unknown instrument symbol: {symbol}")
             return None
         return matches[0]
+
+    def _refresh_catalog_if_needed(self) -> None:
+        current_version = self._instruments.version_token()
+        if current_version == self._catalog_version:
+            return
+        self._catalog = self._instruments.load()
+        self._catalog_version = current_version
+        if not self._catalog:
+            self.seed_catalog(sample_instruments())
 
     def _resolve_instruments(self, instruments_or_symbols: list[Instrument] | list[str]) -> list[Instrument]:
         resolved: list[Instrument] = []

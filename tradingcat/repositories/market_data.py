@@ -16,10 +16,12 @@ class InstrumentCatalogRepository:
         if isinstance(config_or_data_dir, AppConfig) and config_or_data_dir.duckdb.enabled:
             self._store = DuckDbMarketDataStore(config_or_data_dir.duckdb.path, config_or_data_dir.duckdb.parquet_dir)
             self._bucket = "duckdb"
+            self._version_path = config_or_data_dir.duckdb.path
         else:
             data_dir = config_or_data_dir.data_dir if isinstance(config_or_data_dir, AppConfig) else config_or_data_dir
             self._store = JsonStore(data_dir / "instruments.json")
             self._bucket = None
+            self._version_path = data_dir / "instruments.json"
 
     def load(self) -> dict[str, Instrument]:
         records = self._store.load_instruments() if self._bucket == "duckdb" else self._store.load([])
@@ -37,6 +39,12 @@ class InstrumentCatalogRepository:
             self._store.clear_all()
         else:
             self._store.save([])
+
+    def version_token(self) -> tuple[int, int] | None:
+        if not self._version_path.exists():
+            return None
+        stat = self._version_path.stat()
+        return stat.st_mtime_ns, stat.st_size
 
     def _key(self, instrument: Instrument) -> str:
         return f"{instrument.market.value}:{instrument.symbol}"

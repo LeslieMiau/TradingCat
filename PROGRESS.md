@@ -245,6 +245,23 @@
 - Remaining focus for next session:
   - feature #2：resident 与 fresh 进程 blocker 结果对齐，确认当前 7 个 blocked strategy 是真实阻塞还是候选策略/公司行为检查放大出来的回归。
 
+## Session update — 2026-03-30
+- Completed feature #2: resident 与 fresh 进程的 blocker 语义现在可对齐，长生命周期服务不会继续吃旧 instrument catalog；对已经运行的非 reload resident，受控重启后四个核心 gate 与 fresh 进程完全一致。
+- Code changes:
+  - `InstrumentCatalogRepository` 新增 `version_token()`；`MarketDataService` 现在会在 `list_instruments()`、`fetch_option_chain()`、`_resolve_instrument()` 等 catalog 读取路径前按版本戳轻量刷新 `_catalog`，避免别的 session/进程更新 `instruments.json` 后，resident 继续沿用旧 universe。
+  - `OperationsFacade.readiness()` 现在也会 deep-normalize `preflight.research_readiness`，最小嵌套快照不再把 `/ops/readiness` 压成 400，补齐 `#1` 里 typed-contract 的剩余薄弱点。
+  - 新增 `test_reset_state_refreshes_readiness_and_rollout_callables()`，锁定 `reset_state()` 清缓存后 `/ops/readiness`、`/execution/gate`、`/ops/go-live` 会读取最新 data-quality / rollout getter，而不是继续吃旧绑定引用。
+  - 新增 `test_market_data_service_refreshes_catalog_after_external_repo_update()`，直接覆盖“另一个进程改写 catalog 文件后，长生命周期 service 也会刷新 universe”这条 resident/fresh 一致性回归。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py::test_market_data_service_refreshes_catalog_after_external_repo_update tests/test_api.py::test_reset_state_refreshes_readiness_and_rollout_callables tests/test_api.py::test_ops_readiness_typed_contract_accepts_minimal_nested_snapshots tests/test_api.py::test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_service_health.py -q` -> `7 passed`
+  - `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5` -> `healthy=true`
+  - 先对旧 resident 做结构化 diff，确认 mismatch 真因来自非 reload 常驻进程保留旧 catalog / 旧 blocker 语义；随后受控重启 `:8000`，再次对比 resident `:8000` vs fresh `:8048` 的 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` -> `SUMMARY {"mismatches": []}`
+- Decisions:
+  - 这一步把“代码已修好”和“常驻进程还没重启”明确区分开：对已经在跑的非 reload resident，需要一次受控重启才能吃到当前代码；重启后 resident/fresh 已经对齐。
+  - 没有在这一步提前清理 7 个 blocked strategies；目前只是证明 resident/fresh 看的 blocker 集一致，下一步再进入 blocker 本体分类与 scope 收缩。
+- Remaining focus for next session:
+  - feature #3：逐个分类 7 个 blocked strategies，拆清哪些是研究真实阻塞，哪些是 candidate strategy / corporate-action / FX scope 被放大的回归。
+
 ## Session update — 2026-03-29
 - Completed feature: 架构治理 Feature 1，修复 persistent-universe 回归，确保研究详情/报告不会被 bootstrap sample 和研究长窗口缓存污染。
 - Code changes:
