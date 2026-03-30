@@ -213,3 +213,118 @@ def test_dashboard_facade_build_summary_delegates_dashboard_reads_to_query_servi
         app_state.active_execution_strategy_ids = original_active_execution_strategy_ids
         app_state.selection.summary = original_selection_summary
         app_state.allocations.summary = original_allocation_summary
+
+
+def test_dashboard_facade_strategies_derives_mixed_statuses_and_counts():
+    facade = app_state.dashboard_facade
+
+    strategy_report = {
+        "rows": [
+            {
+                "strategy_id": "strategy_c_option_overlay",
+                "action": "paper_only",
+                "promotion_blocked": True,
+                "blocking_reasons": ["history incomplete"],
+            },
+            {
+                "strategy_id": "strategy_b_equity_momentum",
+                "action": "keep",
+                "promotion_blocked": False,
+                "blocking_reasons": [],
+            },
+            {
+                "strategy_id": "strategy_a_etf_rotation",
+                "action": "keep",
+                "promotion_blocked": False,
+                "blocking_reasons": [],
+            },
+        ],
+        "next_actions": [],
+        "accepted_strategy_ids": ["strategy_a_etf_rotation"],
+        "portfolio_metrics": {"annualized_return": 0.1},
+        "portfolio_passed": False,
+    }
+    dashboard_context = {
+        "active_strategy_ids": [
+            "strategy_c_option_overlay",
+            "strategy_b_equity_momentum",
+            "strategy_a_etf_rotation",
+        ],
+        "selection_summary": {"active": ["strategy_a_etf_rotation"], "paper_only": ["strategy_b_equity_momentum"]},
+        "allocation_summary": {"active": [], "paper_only": []},
+    }
+
+    payload = facade._strategies(strategy_report, dashboard_context)
+    rows = {row["strategy_id"]: row for row in payload["rows"]}
+
+    assert rows["strategy_c_option_overlay"]["display_status"] == "blocked_by_data"
+    assert rows["strategy_c_option_overlay"]["status_reason"] == "history incomplete"
+    assert rows["strategy_b_equity_momentum"]["display_status"] == "paper_only"
+    assert rows["strategy_b_equity_momentum"]["status_reason"] == "Selection/allocation keeps this strategy in paper-only mode."
+    assert rows["strategy_a_etf_rotation"]["display_status"] == "active"
+    assert rows["strategy_a_etf_rotation"]["status_reason"] == "Current execution set includes this strategy."
+    assert payload["blocked_by_data_count"] == 1
+    assert payload["paper_only_count"] == 1
+
+
+def test_dashboard_facade_strategies_uses_blocked_reason_fallback_and_all_paper_only_paths():
+    facade = app_state.dashboard_facade
+
+    strategy_report = {
+        "rows": [
+            {
+                "strategy_id": "strategy_c_option_overlay",
+                "action": "paper_only",
+                "promotion_blocked": True,
+                "blocking_reasons": [
+                    "Research data is blocked, but no specific blocker was recorded."
+                ],
+            },
+            {
+                "strategy_id": "strategy_b_equity_momentum",
+                "action": "keep",
+                "promotion_blocked": False,
+                "blocking_reasons": [],
+            },
+            {
+                "strategy_id": "strategy_a_etf_rotation",
+                "action": "keep",
+                "promotion_blocked": False,
+                "blocking_reasons": [],
+            },
+            {
+                "strategy_id": "strategy_g_jianfang_3l",
+                "action": "paper_only",
+                "promotion_blocked": False,
+                "blocking_reasons": [],
+            },
+        ],
+        "next_actions": [],
+        "accepted_strategy_ids": [],
+        "portfolio_metrics": {},
+        "portfolio_passed": False,
+    }
+    dashboard_context = {
+        "active_strategy_ids": [
+            "strategy_c_option_overlay",
+            "strategy_b_equity_momentum",
+            "strategy_a_etf_rotation",
+            "strategy_g_jianfang_3l",
+        ],
+        "selection_summary": {"active": [], "paper_only": ["strategy_b_equity_momentum"]},
+        "allocation_summary": {
+            "active": [],
+            "paper_only": [{"strategy_id": "strategy_a_etf_rotation", "target_weight": 0.0}],
+        },
+    }
+
+    payload = facade._strategies(strategy_report, dashboard_context)
+    rows = {row["strategy_id"]: row for row in payload["rows"]}
+
+    assert rows["strategy_c_option_overlay"]["display_status"] == "blocked_by_data"
+    assert rows["strategy_c_option_overlay"]["status_reason"]
+    assert rows["strategy_b_equity_momentum"]["display_status"] == "paper_only"
+    assert rows["strategy_a_etf_rotation"]["display_status"] == "paper_only"
+    assert rows["strategy_g_jianfang_3l"]["display_status"] == "paper_only"
+    assert payload["blocked_by_data_count"] == 1
+    assert payload["paper_only_count"] == 3

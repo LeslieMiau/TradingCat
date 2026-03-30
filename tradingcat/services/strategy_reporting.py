@@ -7,6 +7,8 @@ from tradingcat.strategies.simple import strategy_metadata
 
 
 class StrategyReportingService:
+    _DEFAULT_BLOCKING_REASON = "Research data is blocked, but no specific blocker was recorded."
+
     def __init__(self, analysis: object) -> None:
         self._analysis = analysis
 
@@ -78,7 +80,7 @@ class StrategyReportingService:
             history_coverage = self._analysis._strategy_history_coverage(signals, experiment.sample_start, as_of)
             data_ready = bool(experiment.assumptions.get("data_ready", False))
             threshold_validation_passed = bool(experiment.assumptions.get("threshold_validation_passed", experiment.passed_validation))
-            blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
+            blocking_reasons = self._blocking_reasons(experiment.assumptions, data_ready)
             missing_history_symbol_list = [str(item) for item in experiment.assumptions.get("missing_history_symbol_list", [])]
             missing_corporate_action_symbols = [str(item) for item in experiment.assumptions.get("missing_corporate_action_symbols", [])]
             missing_fx_pairs = [str(item) for item in experiment.assumptions.get("missing_fx_pairs", [])]
@@ -343,7 +345,8 @@ class StrategyReportingService:
         split_metrics = self._analysis._sample_split_metrics(monthly_returns, signals)
         coverage = self._analysis._strategy_history_coverage(signals, experiment.sample_start, as_of)
         coverage_threshold = self._analysis._history_coverage_threshold()
-        blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
+        data_ready = bool(experiment.assumptions.get("data_ready", False))
+        blocking_reasons = self._blocking_reasons(experiment.assumptions, data_ready)
         missing_coverage_symbols = [
             str(item) for item in experiment.assumptions.get("missing_history_symbol_list", [])
         ] or self._analysis._missing_coverage_symbols(coverage, coverage_threshold)
@@ -354,8 +357,8 @@ class StrategyReportingService:
             "strategy_id": strategy_id,
             "signal_count": len(signals),
             "data_source": experiment.assumptions.get("data_source"),
-            "data_ready": bool(experiment.assumptions.get("data_ready", False)),
-            "promotion_blocked": not bool(experiment.assumptions.get("data_ready", False)),
+            "data_ready": data_ready,
+            "promotion_blocked": not data_ready,
             "blocking_reasons": blocking_reasons,
             "minimum_coverage_ratio": round(float(coverage.get("minimum_coverage_ratio", 0.0)), 4),
             "history_coverage_threshold": coverage_threshold,
@@ -424,3 +427,9 @@ class StrategyReportingService:
                 "total_cost_bps": experiment.assumptions.get("total_cost_bps"),
             },
         }
+
+    def _blocking_reasons(self, assumptions: dict[str, object], data_ready: bool) -> list[str]:
+        blocking_reasons = [str(item) for item in assumptions.get("data_blockers", [])]
+        if not data_ready and not blocking_reasons:
+            return [self._DEFAULT_BLOCKING_REASON]
+        return blocking_reasons

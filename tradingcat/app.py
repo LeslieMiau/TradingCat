@@ -82,6 +82,10 @@ logger = logging.getLogger(__name__)
 
 
 class TradingCatApplication:
+    # Cache heavy read aggregations briefly so one UI refresh does not recompute
+    # the same summary chain several times. A 60s TTL means state transitions may
+    # be reflected with a short delay. reset_state() clears the cache explicitly,
+    # and daily cache keys rotate naturally because evaluation_date is part of the key.
     _SUMMARY_CACHE_TTL_SECONDS = 60.0
 
     def __init__(self, config: AppConfig | None = None) -> None:

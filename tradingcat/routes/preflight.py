@@ -4,6 +4,10 @@ from fastapi import APIRouter, Request
 
 from tradingcat.api.view_models import OperationsReadinessResponse, StartupPreflightResponse
 from tradingcat.routes.common import get_app_state
+
+# /preflight/startup is the narrower startup/config/dependency view.
+# /diagnostics/summary and /ops/readiness intentionally expose broader
+# operational blocker context, including research and execution state.
 router = APIRouter()
 
 
