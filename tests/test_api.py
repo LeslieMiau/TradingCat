@@ -1224,6 +1224,7 @@ def test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers():
     original_execution_gate_summary = app_state.execution_gate_summary
     original_operations_execution_metrics = app_state.operations_execution_metrics
     original_operations_readiness = app_state.operations_readiness
+    original_rollout_policy_summary = app_state.rollout_policy_summary
     reset_runtime_state(app_state)
     try:
         app_state.operations.clear()
@@ -1235,14 +1236,18 @@ def test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers():
             "as_of": as_of or date.today(),
             "ready": True,
             "should_block": False,
-            "reasons": ["Research history still incomplete."],
+            "reasons": ["Market data smoke test returned 1 successful symbols.", "Research history still incomplete."],
             "next_actions": ["Repair missing research history."],
             "policy_stage": "10%",
             "recommended_stage": "10%",
             "preflight": {"healthy": True},
             "broker_validation": {},
             "market_data": {},
-            "diagnostics": {"ready": True, "findings": [], "next_actions": []},
+            "diagnostics": {
+                "ready": True,
+                "findings": ["Market data smoke test returned 1 successful symbols."],
+                "next_actions": ["Run the broker smoke test again."],
+            },
             "execution": {"ready": True, "blockers": []},
         }
         app_state.operations_execution_metrics = lambda: {
@@ -1254,32 +1259,54 @@ def test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers():
             "diagnostics": {"next_actions": []},
             "blockers": [],
         }
+        app_state.rollout_policy_summary = lambda: {
+            "stage": "100%",
+            "allocation_ratio": 1.0,
+            "source": "default",
+            "reason": "test",
+            "recommended_stage": "hold",
+            "policy_matches_recommendation": False,
+            "blocking_reasons": ["Active rollout policy 100% does not match recommended stage hold."],
+        }
 
+        policy = client.get("/ops/rollout-policy")
         rollout = client.get("/ops/rollout")
         live_acceptance = client.get("/ops/live-acceptance")
         go_live = client.get("/ops/go-live")
 
+        assert policy.status_code == 200
         assert rollout.status_code == 200
         assert live_acceptance.status_code == 200
         assert go_live.status_code == 200
+        policy_payload = policy.json()
         rollout_payload = rollout.json()
         live_acceptance_payload = live_acceptance.json()
         go_live_payload = go_live.json()
+        assert policy_payload["recommended_stage"] == "hold"
+        assert policy_payload["policy_matches_recommendation"] is False
+        assert "does not match recommended stage hold" in policy_payload["blocking_reasons"][0]
         assert rollout_payload["evidence"]["counts"]["incident_day"] == 1
         assert any("incident day" in blocker.lower() for blocker in rollout_payload["blockers"])
         assert any("clean week" in blocker.lower() for blocker in rollout_payload["blockers"])
         assert live_acceptance_payload["ready_for_live"] is False
         assert live_acceptance_payload["acceptance_evidence"]["current_clean_week_streak"] == 0
+        assert live_acceptance_payload["next_requirement"]["remaining_clean_days"] >= 0
         assert any("clean week" in blocker.lower() for blocker in live_acceptance_payload["blockers"])
         assert any("incident day" in blocker.lower() for blocker in live_acceptance_payload["blockers"])
+        assert any("does not match recommended stage hold" in blocker for blocker in live_acceptance_payload["blockers"])
         assert "Research history still incomplete." in go_live_payload["blockers"]
+        assert "Market data smoke test returned 1 successful symbols." not in go_live_payload["blockers"]
+        assert go_live_payload["engineering_blockers"] == ["Research history still incomplete."]
+        assert any("does not match recommended stage hold" in blocker for blocker in go_live_payload["policy_blockers"])
         assert any("Resolve rollout blocker:" in item for item in go_live_payload["next_actions"])
         assert "Repair missing research history." in go_live_payload["next_actions"]
+        assert "Apply the rollout recommendation or manually align /ops/rollout-policy before promotion." in go_live_payload["next_actions"]
         assert go_live_payload["acceptance"]["evidence"]["counts"]["incident_day"] == 1
     finally:
         app_state.execution_gate_summary = original_execution_gate_summary
         app_state.operations_execution_metrics = original_operations_execution_metrics
         app_state.operations_readiness = original_operations_readiness
+        app_state.rollout_policy_summary = original_rollout_policy_summary
         reset_runtime_state(app_state)
 
 
@@ -1765,6 +1792,93 @@ def test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recom
         assert payload["strategies"]["snapshot_status"] == "missing"
     finally:
         app_state.strategy_analysis.build_profit_scorecard = original_build_profit_scorecard
+
+
+def test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing():
+    original_dashboard_queries = app_state.dashboard_queries
+    try:
+        class _StubDashboardQueries:
+            def summary_context(self, evaluation_date: date) -> dict[str, object]:
+                return {
+                    "gate": {
+                        "as_of": evaluation_date,
+                        "ready": False,
+                        "should_block": True,
+                        "reasons": [],
+                        "next_actions": [],
+                        "policy_stage": "hold",
+                        "recommended_stage": "hold",
+                        "diagnostics": {"ready": True, "findings": [], "next_actions": []},
+                    },
+                    "daily_report": {"highlights": ["daily"]},
+                    "weekly_report": {"highlights": ["weekly"]},
+                    "live_acceptance": {
+                        "ready_for_live": False,
+                        "blockers": ["Need 4 more clean week(s) before the next rollout gate."],
+                        "acceptance_evidence": {"current_clean_day_streak": 0, "current_clean_week_streak": 0},
+                        "next_requirement": {"remaining_clean_days": 28, "remaining_clean_weeks": 4},
+                    },
+                    "rollout": {"current_recommendation": "hold", "blockers": ["Need 4 more clean week(s) before the next rollout gate."]},
+                    "operations": {
+                        "ready": False,
+                        "blockers": [],
+                        "diagnostics": {},
+                        "research_readiness": {
+                            "ready": False,
+                            "strategies": [
+                                {
+                                    "strategy_id": "strategy_a_etf_rotation",
+                                    "promotion_blocked": True,
+                                    "blocking_reasons": ["Corporate action coverage is unavailable for: QQQ, SPY, VTI."],
+                                    "data_source": "synthetic",
+                                    "data_ready": False,
+                                    "minimum_coverage_ratio": 1.0,
+                                    "validation_status": "blocked",
+                                },
+                                {
+                                    "strategy_id": "strategy_b_equity_momentum",
+                                    "promotion_blocked": False,
+                                    "blocking_reasons": [],
+                                    "data_source": "historical",
+                                    "data_ready": True,
+                                    "minimum_coverage_ratio": 1.0,
+                                    "validation_status": "ready",
+                                },
+                            ],
+                        },
+                    },
+                    "data_quality": {"ready": True, "blockers": []},
+                    "recent_orders": [],
+                    "candidate_scorecard": {
+                        "snapshot_status": "missing",
+                        "snapshot_reason": "No persisted dashboard snapshot is available yet.",
+                        "snapshot_as_of": None,
+                        "snapshot_generated_at": None,
+                        "rows": [],
+                        "next_actions": [],
+                        "accepted_strategy_ids": [],
+                        "portfolio_metrics": {},
+                        "portfolio_passed": False,
+                    },
+                    "active_strategy_ids": ["strategy_a_etf_rotation", "strategy_b_equity_momentum"],
+                    "selection_summary": {"active": ["strategy_b_equity_momentum"], "paper_only": [], "rejected": []},
+                    "allocation_summary": {"active": [], "paper_only": [], "rejected": []},
+                }
+
+        app_state.dashboard_queries = _StubDashboardQueries()
+
+        response = client.get("/dashboard/summary", params={"as_of": "2026-03-08"})
+        assert response.status_code == 200
+        payload = response.json()
+        rows = {row["strategy_id"]: row for row in payload["strategies"]["rows"]}
+        assert payload["strategies"]["snapshot_status"] == "missing"
+        assert payload["strategies"]["blocked_by_data_count"] == 1
+        assert rows["strategy_a_etf_rotation"]["display_status"] == "blocked_by_data"
+        assert rows["strategy_a_etf_rotation"]["status_reason"] == "Corporate action coverage is unavailable for: QQQ, SPY, VTI."
+        assert rows["strategy_b_equity_momentum"]["display_status"] == "active"
+        assert rows["strategy_b_equity_momentum"]["status_reason"] == "Current execution set includes this strategy."
+    finally:
+        app_state.dashboard_queries = original_dashboard_queries
 
 
 def test_research_candidate_scorecard_persists_dashboard_snapshot():

@@ -849,7 +849,14 @@ class TradingCatApplication:
 
     def rollout_policy_summary(self) -> dict[str, object]:
         summary = self.rollout_policy.summary()
-        summary["policy_matches_recommendation"] = summary["stage"] == self.operations_rollout()["current_recommendation"]
+        recommended_stage = self.operations_rollout()["current_recommendation"]
+        summary["recommended_stage"] = recommended_stage
+        summary["policy_matches_recommendation"] = summary["stage"] == recommended_stage
+        summary["blocking_reasons"] = (
+            []
+            if summary["policy_matches_recommendation"]
+            else [f"Active rollout policy {summary['stage']} does not match recommended stage {recommended_stage}."]
+        )
         return summary
 
     def record_operations_journal(self) -> dict[str, object]:
@@ -891,12 +898,22 @@ class TradingCatApplication:
         milestones = self.operations.rollout_milestones()
         policy = self.rollout_policy_summary()
         acceptance = self.operations.acceptance_summary()
-        blockers = list(dict.fromkeys(
-            [str(reason) for reason in gate.get("reasons", [])]
-            + [str(blocker) for blocker in rollout.get("blockers", [])]
-        ))
+        diagnostic_findings = {str(item) for item in gate.get("diagnostics", {}).get("findings", [])}
+        engineering_blockers = [
+            str(reason)
+            for reason in gate.get("reasons", [])
+            if str(reason) not in diagnostic_findings
+        ]
+        rollout_blockers = [str(blocker) for blocker in rollout.get("blockers", [])]
+        policy_blockers = [str(blocker) for blocker in policy.get("blocking_reasons", [])]
+        blockers = list(dict.fromkeys(engineering_blockers + rollout_blockers + policy_blockers))
         next_actions = list(dict.fromkeys(
             list(gate.get("next_actions", []))
+            + (
+                ["Apply the rollout recommendation or manually align /ops/rollout-policy before promotion."]
+                if policy_blockers
+                else []
+            )
             + [f"Resolve rollout blocker: {blocker}" for blocker in rollout.get("blockers", [])[:3]]
         ))
         return {
@@ -908,6 +925,9 @@ class TradingCatApplication:
             "milestones": milestones,
             "policy": policy,
             "promotion_history": self.rollout_promotions.summary(),
+            "engineering_blockers": engineering_blockers,
+            "rollout_blockers": rollout_blockers,
+            "policy_blockers": policy_blockers,
             "blockers": blockers,
             "next_actions": next_actions,
         }
@@ -925,9 +945,11 @@ class TradingCatApplication:
         alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=incident_window_days)
         acceptance = self.operations.acceptance_summary()
         evidence = acceptance.get("evidence", {}) if isinstance(acceptance, dict) else {}
+        next_requirement = self.operations.acceptance_timeline(window_days=max(30, incident_window_days)).get("next_requirement", {})
         blockers = []
         if not go_live["promotion_allowed"]:
             blockers.append("Go-live promotion is currently blocked.")
+        blockers.extend(str(blocker) for blocker in go_live.get("policy_blockers", []))
         auth_ok = metrics.get("authorization_ok", False)
         slip_ok = metrics.get("slippage_within_limits", False)
         if not auth_ok:
@@ -949,6 +971,7 @@ class TradingCatApplication:
             "authorization_ok": auth_ok,
             "slippage_within_limits": slip_ok,
             "acceptance_evidence": evidence,
+            "next_requirement": next_requirement,
         }
 
     def operations_period_report(self, window_days: int, label: str) -> dict[str, object]:

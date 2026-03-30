@@ -224,8 +224,25 @@ class DashboardFacade:
             for item in allocation_summary.get("paper_only", [])
             if item.get("strategy_id") is not None
         }
+        rows_source = list(strategy_report.get("rows", []))
+        if not rows_source:
+            readiness = dashboard_context.get("operations", {}).get("research_readiness", {})
+            rows_source = [
+                {
+                    "strategy_id": item.get("strategy_id"),
+                    "action": "paper_only" if item.get("promotion_blocked") else "keep",
+                    "promotion_blocked": item.get("promotion_blocked", not item.get("data_ready", True)),
+                    "blocking_reasons": list(item.get("blocking_reasons", [])),
+                    "data_source": item.get("data_source"),
+                    "data_ready": item.get("data_ready"),
+                    "minimum_coverage_ratio": item.get("minimum_coverage_ratio"),
+                    "validation_status": item.get("validation_status"),
+                }
+                for item in readiness.get("strategies", [])
+                if item.get("strategy_id") is not None
+            ]
         rows = []
-        for row in strategy_report.get("rows", []):
+        for row in rows_source:
             if row.get("strategy_id") not in active_ids:
                 continue
             meta = strategy_metadata(str(row.get("strategy_id")))

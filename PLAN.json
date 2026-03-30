@@ -63,7 +63,7 @@
       "blocked 策略不会进入 keep/active，也不会把无关 blocker 混入 synthetic 提示。",
       "research / selection / allocation 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 7,
@@ -74,7 +74,7 @@
       "`/ops/readiness` 顶层 blocker 不会把 `data/quality` 与 `research_readiness` 混成同一层误导语义。",
       "相关 API 测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 8,
@@ -85,7 +85,7 @@
       "工程 blocker 会被保留，但不会在多个层次重复堆叠成难以理解的噪音。",
       "rollout / live-acceptance 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 9,
@@ -96,7 +96,7 @@
       "不会出现 policy 实际不匹配但 gate 看起来中性的情况。",
       "rollout policy 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 10,
@@ -107,7 +107,7 @@
       "resident 与 fresh 进程对 dashboard blocker 摘要不再出现分叉。",
       "dashboard facade / summary 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 11,
@@ -118,7 +118,7 @@
       "query service 或 facade 重构后，这条防线仍然成立。",
       "selection / allocation 回归测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 12,
@@ -129,6 +129,6 @@
       "本轮 handoff 明确保留 OpenD/权限、compliance、paper-trading weeks 这些外部 gate。",
       "下一 session 恢复时只需读 `PROGRESS.md` 与新的 `PLAN.json`。"
     ],
-    "passes": false
+    "passes": true
   }
 ]

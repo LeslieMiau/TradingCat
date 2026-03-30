@@ -982,3 +982,32 @@
   - resident `:8000` 需要受控重启才能反映这次语义收紧；重启后 live payload 已从 7 个 blocked strategies 收敛为 3 个真实 execution blockers。
 - Remaining focus for next session:
   - feature #6/#7/#8/#9/#10/#11：继续把 synthetic honesty、go-live/live-acceptance、rollout policy、dashboard summary 与 selection/allocation 的控制面语义彻底对齐。
+
+## Session update — 2026-03-31
+- Completed features #6/#7/#8/#9/#10/#11/#12: synthetic honesty、data-quality vs research-ready 语义、go-live/live-acceptance、rollout policy、dashboard summary、selection/allocation 防线和 fresh-port handoff 全部收尾。
+- Code changes:
+  - `tradingcat/app.py` 的 `rollout_policy_summary()` 现在会显式返回 `recommended_stage`、`policy_matches_recommendation` 与 `blocking_reasons`，把 `100%` policy vs `hold` recommendation 的错位抬升成控制面 hard blocker。
+  - `tradingcat/app.py` 的 `go_live_summary()` 现在把 diagnostics finding 从顶层 blocker 中剥离，只保留真实 engineering/rollout/policy blockers，并额外返回 `engineering_blockers`、`rollout_blockers`、`policy_blockers`。
+  - `tradingcat/app.py` 的 `live_acceptance_summary()` 现在补上 `next_requirement`，同时把 rollout policy mismatch 继续抬升进 acceptance blockers，dashboard 不再只能看到空的 clean-day/week 进度。
+  - `tradingcat/facades.py` 的 dashboard strategy panel 在 snapshot 缺失时会回退到当前 `research_readiness.strategies`，因此仍能展示 `strategy_a/b/c` 的 `display_status`、`status_reason` 与 `blocked_by_data_count`，不再空表。
+  - `tests/test_api.py` 新增/更新了 rollout policy mismatch、go-live blocker 去噪、live acceptance `next_requirement`、以及 dashboard snapshot-missing fallback rows 的回归。
+- Validation:
+  - `.venv/bin/pytest tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_dashboard_facade.py tests/test_runtime_recovery.py::test_research_readiness_limits_gate_to_default_execution_strategies -q` -> `8 passed`
+  - `.venv/bin/pytest tests/test_runtime_recovery.py tests/test_dashboard_facade.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_rollout_policy.py tests/test_service_health.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute -q` -> `35 passed`
+  - `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5` -> resident 4 个核心 gate 全部 `200`
+  - `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8053 --timeout 5` -> fresh port 4 个核心 gate 全部 `200`
+  - resident `:8000` vs fresh `:8053` 结构化对照：`/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance`、`/dashboard/summary?as_of=2026-03-31` -> `mismatches: []`
+  - live resident 验证：
+    - `/ops/readiness` -> `data_quality.ready=true` 且 `research_readiness.blocked_strategy_ids=["strategy_a_etf_rotation","strategy_b_equity_momentum","strategy_c_option_overlay"]`
+    - `/ops/go-live` -> 顶层 `blockers` 不再混入 diagnostics finding，并显式返回 `policy_blockers=["Active rollout policy 100% does not match recommended stage hold."]`
+    - `/ops/live-acceptance` -> 返回 `next_requirement.remaining_clean_days=28`
+    - `/dashboard/summary?as_of=2026-03-31` -> `strategies.rows` 展示 3 个 execution strategies，`blocked_by_data_count=3`，`acceptance_progress.blockers` 与 `/ops/live-acceptance` 对齐
+- Decisions:
+  - 这轮没有自动修改 rollout policy 到 `hold` 或 `10%`；系统现在会诚实地把 policy mismatch 暴露成 blocker，但保留操作员显式执行 `/ops/rollout-policy` 或 `/ops/rollout-policy/apply-recommendation` 的权力。
+  - dashboard 在 snapshot 缺失时只回退最小 strategy status，而不偷偷触发 live scorecard / report 重算，继续保持“快读路径只做快读”的约束。
+  - selection/allocation 继续保持空 `active`，没有伪造任何 rollout evidence、operations journal、strategy selection 或 allocation 数据。
+- Remaining external gates:
+  - OpenD / broker validation 仍未完成，当前仍是 simulated fallback。
+  - compliance checklist 仍有 pending 项。
+  - paper-trading clean weeks / CN manual weeks 仍为 0，`go-live` 与 `live-acceptance` 继续因此 blocked。
+  - research 本身仍被真实 blocker 阻断：当前 execution strategies 还缺公司行为 / FX 完整性，所以这轮完成的是“工程阻塞清理与语义对齐”，不是“真钱可用”。
