@@ -2,529 +2,133 @@
   {
     "id": 1,
     "category": "setup",
-    "description": "研究/推荐/筛选链路对 synthetic 数据源返回显式阻塞或降级状态，禁止策略在 synthetic 条件下进入 keep/active。",
+    "description": "resident :8000 core gate 超时问题被稳定复现、缩小根因，并由 init/core-health 路径自动识别。",
     "steps": [
-      "调用 /research/report/run 时，synthetic 数据源策略显示明确阻塞原因，且不会被标记为 passed_validation。",
-      "调用 /research/recommendations/run 与 /research/selections/review 时，synthetic 数据源策略最多进入 paper_only，不会进入 keep/active。",
-      "运行 .venv/bin/pytest 覆盖 research、selection、allocation 相关测试并通过。"
+      "运行 `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5` 时，能对 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` 给出稳定健康判定。",
+      "在 resident 进程异常或旧进程场景下，`init.sh` 不会再把“只活端口”的 8000 误判成健康服务。",
+      "运行 `.venv/bin/pytest tests/test_service_health.py tests/test_api.py::test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers -q` 通过。"
     ],
     "passes": true
   },
   {
     "id": 2,
-    "category": "api",
-    "description": "研究 scorecard 与策略详情接口暴露 synthetic / historical 状态、阻塞原因与推广限制说明。",
+    "category": "integration",
+    "description": "resident 与 fresh 进程对 blocker 结果保持一致，不再出现 resident 假死或旧引用污染。",
     "steps": [
-      "调用 /research/scorecard/run 可看到每个策略的 data_source、阻塞标记与原因字段。",
-      "调用 /research/strategies/{strategy_id} 可看到该策略是否被数据就绪性阻塞以及对应原因。",
-      "前端或 API 测试能校验新增字段存在且语义一致。"
+      "fresh 端口与 resident `:8000` 对 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` 返回同类 blocker 语义。",
+      "reset_state 或服务重启后，不会因为旧方法引用或旧缓存导致 gate 结果不一致。",
+      "相关 API / readiness 回归测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 3,
-    "category": "data",
-    "description": "建立持久化真实可交易 universe，支持基础市场、资产类别与启用状态管理。",
+    "category": "functional",
+    "description": "research readiness 中 7 个 blocked 策略被逐个分类，区分真实 blocker 与放大回归。",
     "steps": [
-      "调用 /data/instruments 能返回持久化 universe，而不是仅样例标的。",
-      "重启服务后 universe 配置仍然保留并可再次查询。",
-      "运行相关 pytest 后，instrument catalog 与 market-data 测试保持通过。"
+      "调用 `/preflight/startup` 或 `/ops/readiness` 时，7 个策略的 blocker 原因可逐个解释。",
+      "不存在“只是候选策略新增或检查范围放大，结果却被误记为真实数据缺失”的模糊 blocker。",
+      "研究 readiness 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 4,
     "category": "data",
-    "description": "universe 增加基础流动性与可交易性过滤，默认排除不适合个人交易者的标的。",
+    "description": "base strategies 的 corporate-action blocker 只针对真实依赖 symbol 生效。",
     "steps": [
-      "查询 universe 或研究入口时，可见流动性过滤后的可交易标的集合。",
-      "不满足基础流动性条件的标的不会进入研究推荐与执行候选。",
-      "相关接口与测试可证明过滤逻辑稳定生效。"
+      "调用 `/preflight/startup` 与 `/ops/readiness` 时，`strategy_a/b/c` 只会报告自己真实依赖的公司行为缺失。",
+      "不存在把无关 symbol 缺失扩散到 base strategy blocker 的情况。",
+      "company-action / readiness 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 5,
-    "category": "functional",
-    "description": "策略、研究、分配与 dashboard 统一使用持久化 universe，不再依赖 sample_instruments 风格样例池。",
+    "category": "data",
+    "description": "candidate strategies d/e/f/g 的 blocker 契约与 a/b/c 对齐，不再产生放大型 synthetic 阻塞。",
     "steps": [
-      "生成研究报告时使用的是持久化 universe 中的标的而不是硬编码样例。",
-      "dashboard/research 页面摘要中的策略与候选标的来自同一 universe 来源。",
-      "相关 pytest 与接口检查能证明 sample-only 路径不再是主链路。"
+      "调用 `/preflight/startup` 或 `/ops/readiness` 时，candidate strategy 的 blocker 与其真实输入依赖一致。",
+      "候选策略不会因为 fallback helper 或候选池默认值而被误判成更大范围 blocker。",
+      "候选策略 readiness 回归测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 6,
-    "category": "docs",
-    "description": "记录 universe 维护与筛选规则的 operator runbook，便于个人交易者持续维护。",
+    "category": "functional",
+    "description": "synthetic fallback 路径继续诚实暴露，但不会被包装成可推广或夸大阻塞。",
     "steps": [
-      "README 或 docs 中可找到 universe 的维护入口、默认规则与验证方法。",
-      "按文档执行一次 universe 维护后，可通过 API 验证生效。",
-      "脚本存在性或文档相关测试保持通过。"
+      "调用 `/preflight/startup`、`/research/report/run`、`/ops/readiness` 时，synthetic fallback 仍然显式暴露。",
+      "blocked 策略不会进入 keep/active，也不会把无关 blocker 混入 synthetic 提示。",
+      "research / selection / allocation 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 7,
-    "category": "functional",
-    "description": "ETF 轮动策略改为使用真实历史数据与最小真实指标链路生成信号。",
+    "category": "api",
+    "description": "`/preflight/startup` 与 `/ops/readiness` 的语义边界保持清晰：data-quality 绿不等于 research-ready 绿。",
     "steps": [
-      "调用研究报告时，ETF 轮动策略的信号来自历史价格与指标计算，而非固定权重模板。",
-      "策略详情中能看到用于生成信号的关键指标快照。",
-      "相关策略与研究测试通过。"
+      "当历史覆盖足够但研究输入仍缺失时，`/data/quality.ready=true` 且 `research_ready=false` 的差异会被清楚表达。",
+      "`/ops/readiness` 顶层 blocker 不会把 `data/quality` 与 `research_readiness` 混成同一层误导语义。",
+      "相关 API 测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 8,
-    "category": "functional",
-    "description": "股票动量策略改为使用真实历史数据、趋势与基础黑窗/过滤条件生成信号。",
+    "category": "api",
+    "description": "`/ops/go-live` 与 `/ops/live-acceptance` 保留时间 gate，但不重复或夸大工程 blocker。",
     "steps": [
-      "调用研究报告时，股票动量策略的信号不再是固定样例，而是基于历史数据计算。",
-      "策略详情能展示该策略的关键过滤条件与结果摘要。",
-      "相关策略与研究测试通过。"
+      "调用 `/ops/go-live` 与 `/ops/live-acceptance` 时，仍然会因为 clean-week evidence / compliance / broker gate 保持 blocked。",
+      "工程 blocker 会被保留，但不会在多个层次重复堆叠成难以理解的噪音。",
+      "rollout / live-acceptance 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 9,
-    "category": "functional",
-    "description": "期权覆盖策略改为使用真实底仓/防御窗口/预算条件生成最小真实研究信号。",
+    "category": "integration",
+    "description": "rollout policy `100%` vs `recommended_stage=hold` 的控制面错位被显式修复或显式硬阻塞。",
     "steps": [
-      "调用研究报告时，期权覆盖策略的触发条件来自真实数据与预算规则，而不是日历样例。",
-      "策略详情中能看到期权策略的预算与触发上下文。",
-      "相关期权研究测试通过。"
+      "调用 `/ops/rollout-policy`、`/ops/go-live`、`/ops/live-acceptance` 时，policy 与 recommendation 的错位会被稳定暴露。",
+      "不会出现 policy 实际不匹配但 gate 看起来中性的情况。",
+      "rollout policy 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 10,
-    "category": "api",
-    "description": "策略信号输出记录指标快照与信号来源，便于个人交易者复核。",
+    "category": "integration",
+    "description": "dashboard summary / readiness / query service 对同一 blocker 给出一致解释。",
     "steps": [
-      "研究报告或策略详情可查看用于生成信号的指标快照。",
-      "信号中可区分历史驱动、预算驱动和风险降级等来源说明。",
-      "相关 API / view-model 测试通过。"
+      "调用 `/dashboard/summary` 与 `/ops/readiness` 时，blocked strategy 数量、status reason 与 acceptance blocker 语义保持一致。",
+      "resident 与 fresh 进程对 dashboard blocker 摘要不再出现分叉。",
+      "dashboard facade / summary 相关测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 11,
-    "category": "functional",
-    "description": "研究报告对历史数据覆盖不足返回硬阻塞，不允许看起来“通过验证”。",
+    "category": "integration",
+    "description": "selection / allocation 在 blocked 情况下继续保持防线，不会被 runtime/query 回归冲开。",
     "steps": [
-      "调用 /research/report/run 时，历史覆盖不足的策略被标为 blocked 或 paper_only，而不是 passed_validation。",
-      "报告响应中包含明确覆盖率与阻塞原因。",
-      "research 相关 pytest 覆盖该路径并通过。"
+      "调用 `/research/selections/summary` 与 `/research/allocations/summary` 时，blocked 策略不会进入 `active`。",
+      "query service 或 facade 重构后，这条防线仍然成立。",
+      "selection / allocation 回归测试通过。"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": 12,
-    "category": "api",
-    "description": "策略详情展示历史覆盖率、最小覆盖阈值与缺失 symbol 清单。",
+    "category": "docs",
+    "description": "fresh-port E2E 验证证据与 handoff 报告落盘，下一 session 可直接续做 feature #2。",
     "steps": [
-      "调用 /research/strategies/{strategy_id} 可见 history_coverage、minimum_coverage_ratio 与缺失项。",
-      "当历史不足时，策略详情明确提示不可推广。",
-      "相关研究详情测试通过。"
+      "PROGRESS.md 记录 fresh vs resident 验证结论、剩余 blocker 与下一 feature。",
+      "本轮 handoff 明确保留 OpenD/权限、compliance、paper-trading weeks 这些外部 gate。",
+      "下一 session 恢复时只需读 `PROGRESS.md` 与新的 `PLAN.json`。"
     ],
-    "passes": true
-  },
-  {
-    "id": 13,
-    "category": "integration",
-    "description": "研究筛选 review 在历史不完整时强制降级到 paper_only，不允许进入 active。",
-    "steps": [
-      "调用 /research/selections/review 后，历史不完整策略的 decision 为 paper_only 或 rejected。",
-      "调用 /research/selections/summary 时，历史不足策略不会出现在 active 列表中。",
-      "selection 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 14,
-    "category": "integration",
-    "description": "策略 allocation review 在数据不完整时不分配 live target_weight，只保留 shadow/paper-only 权重。",
-    "steps": [
-      "调用 /research/allocations/review 后，数据阻塞策略不会拿到 active target_weight。",
-      "调用 /research/allocations/summary 时，paper_only 策略只出现在 paper_only / shadow 相关字段中。",
-      "allocation 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 15,
-    "category": "data",
-    "description": "历史覆盖汇总返回最小覆盖率、缺失窗口与可直接修复的 blockers。",
-    "steps": [
-      "调用 /data/history/coverage 能看到 symbol 级覆盖率和整体最小覆盖率。",
-      "覆盖不足时，返回结果包含可执行的 blocker 描述。",
-      "market-data 覆盖测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 16,
-    "category": "data",
-    "description": "history sync run 保存 symbol 级成功/失败/缺失统计，便于追踪长期数据质量。",
-    "steps": [
-      "调用 /data/history/sync 与 /data/history/sync-runs 后，可查看 symbol 级统计信息。",
-      "sync-status 能反映最近一次同步的健康状态与缺口数量。",
-      "history sync 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 17,
-    "category": "data",
-    "description": "repair-plan 按缺口严重程度输出优先级，便于个人交易者先修最影响研究的窗口。",
-    "steps": [
-      "调用 /data/history/repair-plan 能看到优先级排序后的修复列表。",
-      "高优先级缺口与研究主 universe/主策略高度相关。",
-      "repair-plan 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 18,
-    "category": "integration",
-    "description": "repair 执行后自动复核覆盖状态，形成发现缺口 -> 修复 -> 复检闭环。",
-    "steps": [
-      "执行 /data/history/repair 后，再查 /data/history/coverage 能看到覆盖状态改善或明确剩余问题。",
-      "repair 响应中包含修复数量、失败数量与复检结果。",
-      "repair 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 19,
-    "category": "integration",
-    "description": "data-quality summary 将研究可推广性所需的数据就绪性纳入 blocker。",
-    "steps": [
-      "调用 /data/quality 与 /ops/readiness 时，数据不足会出现在 blocker 或 readiness 原因中。",
-      "研究主 universe 缺口会抬升数据质量风险等级。",
-      "data-quality / readiness 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 20,
-    "category": "data",
-    "description": "公司行为覆盖率与缺失状态进入研究输出，避免个股/ETF 回测静默失真。",
-    "steps": [
-      "调用 /data/history/corporate-actions 与研究详情时，可见公司行为覆盖状态。",
-      "存在公司行为缺失时，研究报告中有显式提醒。",
-      "相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 21,
-    "category": "data",
-    "description": "FX 覆盖率与缺失状态进入研究输出，避免跨市场收益换算静默失真。",
-    "steps": [
-      "调用 /data/fx/rates 与研究详情时，可见 FX 可用性或缺失状态。",
-      "缺失 FX 时，跨市场策略不会静默当成 fully validated。",
-      "相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 22,
-    "category": "setup",
-    "description": "为主 universe 提供最小可复现的历史回填基线，降低长期依赖样例数据的概率。",
-    "steps": [
-      "初始化或同步后，主 universe 的关键标的能拿到最小研究所需的历史数据。",
-      "无历史时系统给出明确缺口，不会回退成默认可推广状态。",
-      "相关 data/research 测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 23,
-    "category": "functional",
-    "description": "smart order 的 RSI 条件改用真实指标计算结果，而不是 mock 常量。",
-    "steps": [
-      "注册并评估带 RSI 条件的 smart order 时，触发结果随真实价格序列变化。",
-      "未满足 RSI 条件时，可通过接口或日志看见真实计算值。",
-      "rule engine 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 24,
-    "category": "functional",
-    "description": "smart order 的 SMA 条件改用真实指标计算结果，而不是 price * 0.95 mock。",
-    "steps": [
-      "注册并评估带 SMA 条件的 smart order 时，触发结果与真实均线值一致。",
-      "接口或日志能展示均线值与目标值比较结果。",
-      "rule engine 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 25,
-    "category": "integration",
-    "description": "trigger 评估记录指标快照与执行上下文，便于复盘为什么触发或未触发。",
-    "steps": [
-      "评估 smart order 后，可查看每个条件的比较值、阈值和最终结论。",
-      "触发后的订单带上来自 trigger 的上下文信息。",
-      "trigger / execution 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 26,
-    "category": "api",
-    "description": "trigger 评估接口/结果显式给出未触发原因，避免个人交易者靠猜测排错。",
-    "steps": [
-      "未触发的 smart order 返回明确原因列表，而不是仅显示 evaluated 计数。",
-      "结果里可区分价格未到、指标未满足和数据缺失。",
-      "相关 API 测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 27,
-    "category": "integration",
-    "description": "执行记录持久化 expected price、realized price 与参考来源，支持个人可用的成交偏差追踪。",
-    "steps": [
-      "执行后查询 execution quality 或订单详情，可看到 expected vs realized price。",
-      "不同来源的参考价在输出中有明确说明。",
-      "execution / reconciliation 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 28,
-    "category": "functional",
-    "description": "execution quality 按资产类别给出偏差等级与样本数，帮助个人识别实现拖累。",
-    "steps": [
-      "调用 /execution/quality 时，可看到股票/ETF/期权的偏差分层与样本数。",
-      "数据不足时，返回明确说明而不是空洞统计。",
-      "execution quality 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 29,
-    "category": "api",
-    "description": "ops TCA 输出样本拆解，至少覆盖预期价、成交价、偏差、方向与样本量。",
-    "steps": [
-      "调用 /ops/tca 时，可查看样本明细与聚合摘要。",
-      "不同资产类别或方向的成交偏差可被区分。",
-      "TCA 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 30,
-    "category": "integration",
-    "description": "日报/周报/运营摘要高亮主要成交拖累与主要异常来源，支持快速复盘。",
-    "steps": [
-      "调用 /ops/daily-report 与 /ops/weekly-report 时，可见主要拖累来源摘要。",
-      "dashboard/summary 或 reports/latest/dashboard 中能看到对应关键信息。",
-      "reporting 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 31,
-    "category": "integration",
-    "description": "authorization summary 关联 approval request、manual fill external source 与最终授权模式。",
-    "steps": [
-      "调用 /execution/authorization 时，可看到每笔订单的 approval_request_id、approval_status 与 authorization_mode。",
-      "手工回填与自动路径都能被区分。",
-      "authorization 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 32,
-    "category": "integration",
-    "description": "reconciliation 输出关联订单、成交、组合快照影响，形成可追责闭环。",
-    "steps": [
-      "执行 /execution/reconcile 或 /reconcile/manual-fill 后，可查看组合快照变化与订单关联。",
-      "手工回填和 live reconcile 都能追到最终状态。",
-      "reconciliation / portfolio 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 33,
-    "category": "functional",
-    "description": "审计日志记录每笔订单的授权上下文、对账来源与关键状态迁移。",
-    "steps": [
-      "调用 /audit/logs 与 /audit/summary 时，可见授权与对账上下文。",
-      "关键状态迁移在审计中顺序可追踪。",
-      "audit 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 34,
-    "category": "integration",
-    "description": "手工成交回填后组合快照必须一致更新，并可通过接口直接验证影响结果。",
-    "steps": [
-      "提交 manual fill 后再查 /portfolio，可看到仓位或现金变化。",
-      "订单、组合和审计三处的状态一致。",
-      "manual fill 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 35,
-    "category": "integration",
-    "description": "订单状态、对账状态与 broker/portfolio mismatch 进入 readiness/blocker，避免带病运行。",
-    "steps": [
-      "存在 mismatch 时，/ops/readiness 与 /execution/gate 会显示 blocker。",
-      "修复 mismatch 后 blocker 可消失或降级。",
-      "相关 operations/execution 测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 36,
-    "category": "integration",
-    "description": "每日 acceptance 证据持久化 clean day、manual day、incident day 等关键标签。",
-    "steps": [
-      "记录或生成日报后，可在 acceptance 相关接口看到当天证据标签。",
-      "多天连续记录后，标签会被累计用于后续判断。",
-      "operations journal 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 37,
-    "category": "integration",
-    "description": "周报聚合过去 7 天 acceptance 证据，帮助个人交易者判断是否维持 paper-trading 纪律。",
-    "steps": [
-      "调用 /ops/weekly-report 时，可见过去一周的 clean days、incidents 与关键 blocker。",
-      "周报与 acceptance timeline 中的统计保持一致。",
-      "weekly report / operations 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 38,
-    "category": "api",
-    "description": "acceptance timeline 展示连续 clean days / clean weeks，直接支持小资金实盘前判断。",
-    "steps": [
-      "调用 /ops/acceptance/timeline 时，可见连续 clean days / clean weeks 的时间线。",
-      "时间线能解释为什么还未达到 4 周或 6 周门槛。",
-      "timeline 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 39,
-    "category": "integration",
-    "description": "rollout summary 消费 acceptance 证据并输出更直观的当前阶段与下一步门槛。",
-    "steps": [
-      "调用 /ops/rollout 时，可见当前 recommendation 基于哪些 acceptance 证据。",
-      "数据不足、incident 或授权异常会成为 rollout blocker。",
-      "rollout 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 40,
-    "category": "integration",
-    "description": "live acceptance 在证据不足时明确阻塞，不允许界面看起来 ready_for_live。",
-    "steps": [
-      "调用 /ops/live-acceptance 时，证据不足会返回 ready_for_live=false 与具体 blocker。",
-      "满足连续 clean 周数前不会出现误导性的 ready 状态。",
-      "live acceptance 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 41,
-    "category": "integration",
-    "description": "go-live summary 汇总研究、执行、验收与 rollout blocker，告诉个人交易者下一步该补什么。",
-    "steps": [
-      "调用 /ops/go-live 时，可见统一的 blocker 列表与推荐下一步。",
-      "研究未就绪、执行异常或验收不足都会进入同一判断面板。",
-      "go-live / reporting 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 42,
-    "category": "integration",
-    "description": "归档报告包含研究 readiness、selection、allocation 与 acceptance 快照，便于按周回看。",
-    "steps": [
-      "生成报告归档后，可在 reports/latest 或归档目录看到 readiness / selection / allocation / acceptance 快照。",
-      "dashboard report 视图能消费这些归档字段。",
-      "reports helper / reporting 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 43,
-    "category": "api",
-    "description": "diagnostics summary 暴露 synthetic / history blockers，减少个人交易者在研究失败时的排错成本。",
-    "steps": [
-      "调用 /diagnostics/summary 时，可看到与研究数据不足相关的诊断项。",
-      "返回结果能区分 synthetic fallback、history incomplete 和其他执行类问题。",
-      "diagnostics 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 44,
-    "category": "api",
-    "description": "preflight / readiness 反馈与研究 readiness 互相对齐，避免一个接口说健康、另一个接口才说 blocked。",
-    "steps": [
-      "调用 /preflight/startup、/ops/readiness、/research/report/run 时，对同一类数据阻塞给出一致结论。",
-      "响应中能定位是数据、执行还是验收问题。",
-      "preflight / readiness 相关 pytest 通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 45,
-    "category": "ui",
-    "description": "dashboard 策略卡片显示 blocked-by-data / paper-only 状态，避免看起来像已可上线。",
-    "steps": [
-      "调用 /dashboard/summary 时，策略条目带有 blocked 或 paper_only 相关状态字段。",
-      "前端页面能通过现有 API 展示这些状态而不误导用户。",
-      "dashboard 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 46,
-    "category": "ui",
-    "description": "dashboard operations 区域展示 acceptance 进度与当前距离小资金实盘的剩余门槛。",
-    "steps": [
-      "调用 /dashboard/summary 时，可见 acceptance / rollout 进度字段。",
-      "页面中能看到距离 4 周/6 周门槛还有多少 clean days 或 blocker。",
-      "dashboard / operations 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 47,
-    "category": "testing",
-    "description": "补齐 research gating 回归测试，覆盖 synthetic、partial history、paper_only 与 blocked 语义。",
-    "steps": [
-      "运行 .venv/bin/pytest tests/test_research_reporting.py 能覆盖并通过 synthetic/partial history 回归测试。",
-      "相关 selection/allocation 联动测试也保持通过。",
-      "回归测试能证明策略不会因为 synthetic 数据被静默升为 active。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 48,
-    "category": "testing",
-    "description": "补齐 acceptance / rollout / reporting 回归测试，确保个人交易者关键判断链路稳定。",
-    "steps": [
-      "运行与 operations、reporting、API 相关的 pytest 通过。",
-      "关键接口在 evidence 不足时返回一致 blocker 与未就绪状态。",
-      "归档与 dashboard 摘要链路能消费新增字段且不回归。"
-    ],
-    "passes": true
+    "passes": false
   }
 ]

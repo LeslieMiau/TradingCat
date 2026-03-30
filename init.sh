@@ -5,6 +5,34 @@
 
 cd "$(dirname "$0")"
 ERRORS=0
+BASE_URL="http://127.0.0.1:8000"
+HEALTH_TIMEOUT_SECONDS="${TRADINGCAT_CORE_HEALTH_TIMEOUT_SECONDS:-5}"
+HEALTH_LOG="/tmp/tradingcat-core-health.log"
+
+check_core_health() {
+  .venv/bin/python -m tradingcat.services.service_health --base-url "$BASE_URL" --timeout "$HEALTH_TIMEOUT_SECONDS"
+}
+
+find_tradingcat_server_pid() {
+  local repo_root
+  local pid
+  local cmd
+  local cwd
+  repo_root="$(pwd)"
+  for pid in $(lsof -tiTCP:8000 -sTCP:LISTEN 2>/dev/null); do
+    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n1)"
+    if echo "$cmd" | grep -q "uvicorn tradingcat.main:app"; then
+      echo "$pid"
+      return 0
+    fi
+    if [ "$cwd" = "$repo_root" ] && echo "$cmd" | grep -qi "python"; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
 
 echo "=== 1. 环境检查 ==="
 if [ ! -d .venv ]; then
@@ -31,20 +59,30 @@ if [ "$TEST_EXIT" -ne 0 ]; then
 fi
 
 echo "=== 3. 启动服务 ==="
-if curl -sS -o /dev/null -w '' http://127.0.0.1:8000/preflight 2>/dev/null; then
-  echo "服务已在运行"
+if check_core_health >"$HEALTH_LOG" 2>&1; then
+  echo "服务已在运行且 core health 正常"
 else
-  echo "启动 dev server..."
-  TRADINGCAT_RELOAD=true ./scripts/run_local.sh &
-  sleep 3
+  if PID="$(find_tradingcat_server_pid)"; then
+    echo "检测到 8000 端口上的 TradingCat 进程 core health 异常，准备重启 (pid=$PID)..."
+    kill "$PID" 2>/dev/null || true
+    sleep 2
+  elif lsof -tiTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "⚠️  8000 端口被非 TradingCat 进程占用，无法自动重启"
+    ERRORS=$((ERRORS+1))
+  fi
+  if ! lsof -tiTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "启动 dev server..."
+    TRADINGCAT_RELOAD=true ./scripts/run_local.sh &
+    sleep 5
+  fi
 fi
 
 echo "=== 4. 健康检查 ==="
-HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/preflight 2>/dev/null || echo "000")
-if [ "$HEALTH" = "200" ]; then
-  echo "✅ 服务正常 (HTTP $HEALTH)"
+if check_core_health >"$HEALTH_LOG" 2>&1; then
+  echo "✅ 服务正常 (core endpoints healthy)"
 else
-  echo "⚠️  服务异常 (HTTP $HEALTH)"
+  echo "⚠️  服务异常 (core endpoints unhealthy)"
+  cat "$HEALTH_LOG"
   ERRORS=$((ERRORS+1))
 fi
 

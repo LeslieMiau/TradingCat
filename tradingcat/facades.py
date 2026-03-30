@@ -6,11 +6,17 @@ from typing import TYPE_CHECKING, Any
 
 from tradingcat.api.view_models import (
     AccountSummaryView,
+    AlertsSummaryView,
+    ComplianceSummaryView,
+    DataQualityResponse,
+    DiagnosticsSummaryView,
     DashboardSummaryResponse,
     OperationsReadinessResponse,
     PlanItemView,
     PositionView,
     ResearchScorecardResponse,
+    _default_research_readiness_response,
+    _default_startup_preflight_response,
 )
 from tradingcat.domain.models import ApprovalRequest, DailyTradingPlanNote, DailyTradingSummaryNote, Market, PortfolioSnapshot
 from tradingcat.strategies.simple import strategy_metadata
@@ -371,7 +377,43 @@ class OperationsFacade:
         self._app = app
 
     def readiness(self) -> OperationsReadinessResponse:
-        return OperationsReadinessResponse.model_validate(self._app.operations_readiness())
+        payload = self._app.operations_readiness()
+        preflight_payload = payload.get("preflight", {})
+        research_payload = payload.get("research_readiness", {})
+
+        if isinstance(research_payload, dict):
+            payload["research_readiness"] = (
+                _default_research_readiness_response()
+                .model_copy(update=research_payload)
+                .model_dump(mode="json")
+            )
+        if isinstance(preflight_payload, dict):
+            payload["preflight"] = (
+                _default_startup_preflight_response()
+                .model_copy(update=preflight_payload)
+                .model_dump(mode="json")
+            )
+        if isinstance(payload.get("diagnostics"), dict):
+            payload["diagnostics"] = DiagnosticsSummaryView.model_validate(payload["diagnostics"]).model_dump(mode="json")
+        if isinstance(payload.get("data_quality"), dict):
+            payload["data_quality"] = (
+                DataQualityResponse(ready=True, scope="unknown")
+                .model_copy(update=payload["data_quality"])
+                .model_dump(mode="json")
+            )
+        if isinstance(payload.get("alerts"), dict):
+            normalized_alerts = dict(payload["alerts"])
+            latest_alert = normalized_alerts.get("latest")
+            if hasattr(latest_alert, "model_dump"):
+                normalized_alerts["latest"] = latest_alert.model_dump(mode="json")
+            normalized_alerts["active"] = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in normalized_alerts.get("active", [])
+            ]
+            payload["alerts"] = AlertsSummaryView.model_validate(normalized_alerts).model_dump(mode="json")
+        if isinstance(payload.get("compliance"), dict):
+            payload["compliance"] = ComplianceSummaryView.model_validate(payload["compliance"]).model_dump(mode="json")
+        return OperationsReadinessResponse.model_validate(payload)
 
     def risk_config(self) -> dict[str, object]:
         return self._app.risk.config_snapshot()

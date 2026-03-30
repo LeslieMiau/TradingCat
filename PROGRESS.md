@@ -219,6 +219,32 @@
 - Decisions:
   - 这一步把 FX 缺失 blocker 放在 research assumptions 层统一生成，而不是只在 route 层拼文案，这样 report/detail/scorecard 后续都能复用同一套语义。
 
+## Harness cycle reset — 2026-03-30
+- New cycle goal: 清理 resident/fresh 不一致与控制面工程阻塞，不把这轮扩展到真实券商权限、compliance 审批关闭或 4-8 周 paper-trading 证据累积。
+- Existing work kept as history:
+  - 上一轮 48 项 feature 已完成并留在 git 历史中，当前不再沿用旧 `PLAN.json`。
+  - 这轮只围绕新的 12 项 blocker 计划推进，每个 session 继续只做一个 feature。
+- Key decisions:
+  - `data/quality=green` 与 `research_ready=false` 被视为允许存在的语义差异，前提是 blocker 解释清楚且各控制面一致。
+  - 当前最优先修的是 resident `:8000` 与 fresh 进程不一致，因为它会污染后续所有 blocker 判断。
+
+## Session update — 2026-03-30
+- Completed feature #1: resident `:8000` core gate 健康检查现在可被稳定探测，旧引用/response 正规化问题不会再把 readiness 链路误判成坏服务。
+- Code changes:
+  - 新增 `tradingcat/services/service_health.py`，用 `http.client` 探测 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` 四个核心端点，输出 JSON 健康摘要并以 exit code 表达健康状态。
+  - `init.sh` 现在用 core-health 代替单一 `/preflight` 探测；若 8000 上存在 repo 内的异常 TradingCat 进程，会优先识别并尝试重启，而不是把“只活端口”的服务当成正常。
+  - `OperationsFacade.readiness()` 现在会把 `preflight / research_readiness / diagnostics / data_quality / alerts / compliance` 做默认壳层正规化，避免部分 stub、域模型对象或旧状态结构直接把 `/ops/readiness` 压成 400。
+  - `TradingCatApplication` 初始化 `ReadinessQueryService` 时改为使用动态 getter，而不是绑定初始化时的方法引用，避免 `reset_state()`、monkeypatch 或长生命周期 resident 进程继续读取旧 rollout/data-quality 方法。
+- Validation:
+  - `.venv/bin/pytest tests/test_service_health.py tests/test_api.py::test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers -q` -> `5 passed`
+  - 在持久 `run_local.sh` 会话上运行 `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5` -> `healthy=true`，四个核心端点全部 `status_code=200`
+  - 同一 resident `:8000` 上运行 `curl -m 8 -sS http://127.0.0.1:8000/ops/readiness` -> 返回 `200 OK` 与当前 blocker JSON，不再出现 `Remote end closed connection without response`
+- Decisions:
+  - 把 probe 底层从 `urllib` 改成 `http.client`，因为前者在当前 uvicorn/reload 场景下会误报 `Remote end closed connection without response`，而 `curl` 与 `http.client` 都能稳定拿到 200。
+  - 这一步没有尝试清掉任何 research blocker、本地公司行为缺失或 rollout 时间 gate；只把“控制面判断是否可信”的基础设施先修稳。
+- Remaining focus for next session:
+  - feature #2：resident 与 fresh 进程 blocker 结果对齐，确认当前 7 个 blocked strategy 是真实阻塞还是候选策略/公司行为检查放大出来的回归。
+
 ## Session update — 2026-03-29
 - Completed feature: 架构治理 Feature 1，修复 persistent-universe 回归，确保研究详情/报告不会被 bootstrap sample 和研究长窗口缓存污染。
 - Code changes:
