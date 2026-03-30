@@ -30,7 +30,7 @@
       "不存在“只是候选策略新增或检查范围放大，结果却被误记为真实数据缺失”的模糊 blocker。",
       "研究 readiness 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 4,
@@ -41,7 +41,7 @@
       "不存在把无关 symbol 缺失扩散到 base strategy blocker 的情况。",
       "company-action / readiness 相关测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 5,
@@ -52,7 +52,7 @@
       "候选策略不会因为 fallback helper 或候选池默认值而被误判成更大范围 blocker。",
       "候选策略 readiness 回归测试通过。"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": 6,

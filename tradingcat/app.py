@@ -153,6 +153,7 @@ class TradingCatApplication:
             strategy_signal_provider_getter=lambda: self._require_runtime().strategy_signal_provider,
             strategy_registry_getter=lambda: self._require_runtime().strategy_registry,
             strategy_experiment_getter=lambda: self.research.experiment_service,
+            default_execution_strategy_ids_getter=lambda: list(self._default_execution_strategy_ids),
             broker_validation=self.broker_validation,
             broker_status=self.broker_status,
             run_market_data_smoke_test=self.run_market_data_smoke_test,

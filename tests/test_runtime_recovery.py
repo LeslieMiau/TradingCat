@@ -161,6 +161,49 @@ def test_research_readiness_uses_experiment_inspection_instead_of_full_reporting
         app.strategy_analysis.summarize_strategy_report = original
 
 
+def test_research_readiness_limits_gate_to_default_execution_strategies(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    provider = app.strategy_signal_provider
+    original_map = provider.strategy_signal_map
+    original_inspect = app.research.experiment_service.inspect_strategy_readiness
+    captured: dict[str, object] = {}
+    try:
+        def fake_signal_map(as_of: date, *, strategy_ids=None, local_history_only: bool = False):
+            captured["strategy_ids"] = list(strategy_ids or [])
+            captured["local_history_only"] = local_history_only
+            return {strategy_id: [] for strategy_id in list(strategy_ids or [])}
+
+        provider.strategy_signal_map = fake_signal_map  # type: ignore[method-assign]
+        app.research.experiment_service.inspect_strategy_readiness = lambda strategy_id, as_of, signals, strategy=None: {
+            "strategy_id": strategy_id,
+            "data_source": "historical",
+            "data_ready": True,
+            "promotion_blocked": False,
+            "blocking_reasons": [],
+            "minimum_coverage_ratio": 1.0,
+            "validation_status": "ready",
+        }  # type: ignore[method-assign]
+
+        summary = app.research_readiness_summary(date(2026, 3, 8))
+
+        assert captured["strategy_ids"] == [
+            "strategy_a_etf_rotation",
+            "strategy_b_equity_momentum",
+            "strategy_c_option_overlay",
+        ]
+        assert captured["local_history_only"] is True
+        assert summary["blocked_count"] == 0
+        assert len(summary["strategies"]) == 3
+    finally:
+        provider.strategy_signal_map = original_map  # type: ignore[method-assign]
+        app.research.experiment_service.inspect_strategy_readiness = original_inspect  # type: ignore[method-assign]
+
+
 def test_research_readiness_avoids_remote_market_data_fetches(tmp_path):
     app = TradingCatApplication(
         config=AppConfig(

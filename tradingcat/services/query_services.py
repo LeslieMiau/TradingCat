@@ -103,6 +103,7 @@ class ReadinessQueryService:
         strategy_signal_provider_getter: Callable[[], Any],
         strategy_registry_getter: Callable[[], Any],
         strategy_experiment_getter: Callable[[], Any],
+        default_execution_strategy_ids_getter: Callable[[], list[str]],
         broker_validation: Callable[[], dict[str, object]],
         broker_status: Callable[[], dict[str, object]],
         run_market_data_smoke_test: Callable[..., dict[str, object]],
@@ -119,6 +120,7 @@ class ReadinessQueryService:
         self._strategy_signal_provider_getter = strategy_signal_provider_getter
         self._strategy_registry_getter = strategy_registry_getter
         self._strategy_experiment_getter = strategy_experiment_getter
+        self._default_execution_strategy_ids_getter = default_execution_strategy_ids_getter
         self._broker_validation = broker_validation
         self._broker_status = broker_status
         self._run_market_data_smoke_test = run_market_data_smoke_test
@@ -165,8 +167,10 @@ class ReadinessQueryService:
         }
 
     def research_readiness_summary(self, evaluation_date: date) -> dict[str, object]:
+        strategy_ids = self._default_execution_strategy_ids_getter()
         signal_map = self._strategy_signal_provider_getter().strategy_signal_map(
             evaluation_date,
+            strategy_ids=strategy_ids,
             local_history_only=True,
         )
         registry = self._strategy_registry_getter()

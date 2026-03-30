@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
-from tradingcat.domain.models import AssetClass, Bar, Instrument, Market
+from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OrderSide, Signal
 from tradingcat.app import TradingCatApplication
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
@@ -168,6 +168,92 @@ def test_research_experiment_prefers_historical_market_data(tmp_path):
     assert experiment.assumptions["data_source"] == "historical"
     assert experiment.assumptions["history_symbols"] >= 1
     assert experiment.assumptions["ledger_entries"] >= 1
+
+
+def test_strategy_readiness_limits_blockers_to_current_signal_symbols(tmp_path):
+    class ScopeAwareMarketData:
+        def __init__(self) -> None:
+            self.history_symbols: list[str] = []
+            self.corporate_action_symbols: list[str] = []
+            self.fx_quote_currencies: list[str] = []
+
+        def local_history_snapshot(self, symbols, start, end):
+            self.history_symbols = list(symbols)
+            return {}
+
+        def summarize_history_coverage(self, symbols, start, end):
+            return {
+                "ready": True,
+                "reports": [
+                    {"symbol": symbol, "coverage_ratio": 1.0}
+                    for symbol in symbols
+                ],
+                "minimum_coverage_ratio": 1.0,
+                "minimum_required_ratio": 0.95,
+            }
+
+        def summarize_corporate_actions_coverage(self, symbols, start, end, *, fetch_missing=False):
+            self.corporate_action_symbols = list(symbols)
+            joined = ", ".join(symbols)
+            return {
+                "ready": False,
+                "missing_symbols": list(symbols),
+                "blockers": [f"Corporate action coverage is unavailable for: {joined}."],
+                "reports": [],
+                "actions_by_symbol": {},
+            }
+
+        def summarize_fx_coverage(self, base_currency, quote_currencies, start, end, *, fetch_missing=False):
+            self.fx_quote_currencies = list(quote_currencies)
+            joined = ", ".join(quote_currencies)
+            return {
+                "ready": False,
+                "missing_quote_currencies": list(quote_currencies),
+                "blockers": [f"FX coverage into {base_currency} is unavailable for: {joined}."],
+                "reports": [],
+                "rates_by_pair": {},
+            }
+
+    market_data = ScopeAwareMarketData()
+    service = ResearchService(
+        BacktestExperimentRepository(tmp_path),
+        market_data=market_data,  # type: ignore[arg-type]
+    )
+    as_of = date(2026, 3, 8)
+    signals = [
+        Signal(
+            strategy_id="strategy_a_etf_rotation",
+            generated_at=datetime(2026, 3, 8, tzinfo=timezone.utc),
+            instrument=Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="SPY"),
+            side=OrderSide.BUY,
+            target_weight=0.18,
+            reason="SPY",
+        ),
+        Signal(
+            strategy_id="strategy_a_etf_rotation",
+            generated_at=datetime(2026, 3, 8, tzinfo=timezone.utc),
+            instrument=Instrument(symbol="QQQ", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="QQQ"),
+            side=OrderSide.BUY,
+            target_weight=0.15,
+            reason="QQQ",
+        ),
+        Signal(
+            strategy_id="strategy_a_etf_rotation",
+            generated_at=datetime(2026, 3, 8, tzinfo=timezone.utc),
+            instrument=Instrument(symbol="VTI", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="VTI"),
+            side=OrderSide.BUY,
+            target_weight=0.12,
+            reason="VTI",
+        ),
+    ]
+
+    readiness = service.experiment_service.inspect_strategy_readiness("strategy_a_etf_rotation", as_of, signals)
+
+    assert market_data.history_symbols == ["QQQ", "SPY", "VTI"]
+    assert market_data.corporate_action_symbols == ["QQQ", "SPY", "VTI"]
+    assert market_data.fx_quote_currencies == ["USD"]
+    assert any("QQQ, SPY, VTI" in reason for reason in readiness["blocking_reasons"])
+    assert any("USD" in reason for reason in readiness["blocking_reasons"])
 
 
 def test_research_report_does_not_pollute_short_window_stock_signals(tmp_path):

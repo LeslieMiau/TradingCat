@@ -963,3 +963,22 @@
   - 这一步没有继续把 `/dashboard/summary` 里其他 readiness/ops 聚合全部做成 snapshot，因为最重的 candidate scorecard 已经被切出主请求链路，当前真实耗时已经降到可接受范围。
 - Remaining focus for next session:
   - 如果继续收尾 architecture harness，下一步更像是优化 `operations/readiness` 等剩余读模型的尾延迟，以及把 `app.py` 最后几段 orchestration 再往 service 层下沉。
+
+## Session update — 2026-03-31
+- Completed features #3/#4/#5: research readiness 只再对默认 execution strategies 建 gate，base/candidate strategy 的 blocker 范围都收紧到真实输入依赖。
+- Code changes:
+  - `tradingcat/services/query_services.py` 的 `ReadinessQueryService.research_readiness_summary()` 现在只请求默认 execution strategy ids，不再把 `strategy_d/e/f/g` 候选策略混入 production readiness gate。
+  - `tradingcat/app.py` 把默认 execution strategy ids 作为显式依赖传给 readiness query service，resident 与 fresh 进程都会按同一 execution universe 生成 blocker。
+  - `tests/test_runtime_recovery.py` 新增回归，锁定 readiness 只会向 signal provider 请求 `strategy_a_etf_rotation`、`strategy_b_equity_momentum`、`strategy_c_option_overlay`，并继续坚持 `local_history_only=true`。
+  - `tests/test_research_reporting.py` 新增 blocker scope 回归，锁定 corporate-action / FX blocker 只针对当前 signal symbols 生效；`strategy_a_etf_rotation` 只会看到 `QQQ, SPY, VTI` 与 `USD` 的真实依赖。
+- Validation:
+  - `.venv/bin/pytest tests/test_market_data_service.py::test_market_data_service_refreshes_catalog_after_external_repo_update tests/test_api.py::test_reset_state_refreshes_readiness_and_rollout_callables tests/test_api.py::test_ops_readiness_typed_contract_accepts_minimal_nested_snapshots tests/test_api.py::test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_service_health.py -q` -> `7 passed`
+  - `.venv/bin/pytest tests/test_runtime_recovery.py::test_research_readiness_limits_gate_to_default_execution_strategies tests/test_research_reporting.py::test_strategy_readiness_limits_blockers_to_current_signal_symbols tests/test_runtime_recovery.py::test_research_readiness_uses_experiment_inspection_instead_of_full_reporting tests/test_runtime_recovery.py::test_research_readiness_avoids_remote_market_data_fetches tests/test_api.py::test_preflight_and_readiness_align_research_blockers -q` -> `5 passed`
+  - `.venv/bin/pytest tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_facade.py tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers -q` -> `16 passed`
+  - `curl -sS --max-time 5 http://127.0.0.1:8000/preflight/startup` -> `research_readiness.blocked_count=3`，`blocked_strategy_ids=["strategy_a_etf_rotation","strategy_b_equity_momentum","strategy_c_option_overlay"]`
+  - `curl -sS --max-time 5 http://127.0.0.1:8000/ops/readiness` -> `research_readiness.blocked_strategy_ids` 与 `/preflight/startup` 对齐，同时 `data_quality.ready=true`
+- Decisions:
+  - 顶层 readiness gate 现在代表“默认 execution set 是否可推广”，而不是“整个 research candidate 池是否完全无 blocker”；候选策略的 blocker 继续保留在各自研究输出里。
+  - resident `:8000` 需要受控重启才能反映这次语义收紧；重启后 live payload 已从 7 个 blocked strategies 收敛为 3 个真实 execution blockers。
+- Remaining focus for next session:
+  - feature #6/#7/#8/#9/#10/#11：继续把 synthetic honesty、go-live/live-acceptance、rollout policy、dashboard summary 与 selection/allocation 的控制面语义彻底对齐。
