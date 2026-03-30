@@ -405,6 +405,27 @@ class BacktestExperiment(BaseModel):
         return self.id
 
 
+class DashboardScorecardSnapshot(BaseModel):
+    as_of: date
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    snapshot_status: str = "ready"
+    snapshot_reason: str | None = None
+    portfolio_passed: bool = False
+    portfolio_metrics: dict[str, object] = Field(default_factory=dict)
+    accepted_strategy_ids: list[str] = Field(default_factory=list)
+    blocked_strategy_ids: list[str] = Field(default_factory=list)
+    blocked_count: int = 0
+    deploy_candidate_count: int = 0
+    paper_only_count: int = 0
+    rejected_count: int = 0
+    rows: list[dict[str, object]] = Field(default_factory=list)
+    top_candidates: list[dict[str, object]] = Field(default_factory=list)
+    correlation_matrix: dict[str, object] = Field(default_factory=dict)
+    reject_summary: list[dict[str, object]] = Field(default_factory=list)
+    verdict_groups: list[dict[str, object]] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Existing classes (kept exactly as-is)
 # ---------------------------------------------------------------------------

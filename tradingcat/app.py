@@ -25,7 +25,7 @@ from tradingcat.domain.models import (
 )
 from tradingcat.facades import AlertsFacade, DashboardFacade, JournalFacade, OperationsFacade, ResearchFacade
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
-from tradingcat.repositories.research import BacktestExperimentRepository
+from tradingcat.repositories.research import BacktestExperimentRepository, DashboardSnapshotRepository
 from tradingcat.repositories.state import (
     AlertRepository,
     ApprovalRepository,
@@ -52,6 +52,7 @@ from tradingcat.services.approval import ApprovalService
 from tradingcat.services.audit import AuditService
 from tradingcat.services.compliance import ComplianceService
 from tradingcat.services.data_sync import HistorySyncService
+from tradingcat.services.dashboard_snapshots import DashboardSnapshotService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
@@ -94,6 +95,7 @@ class TradingCatApplication:
         self.instrument_catalog_repository = InstrumentCatalogRepository(self.config)
         self.market_history_repository = HistoricalMarketDataRepository(self.config)
         self.backtest_repository = BacktestExperimentRepository(self.config)
+        self.dashboard_snapshot_repository = DashboardSnapshotRepository(self.config)
         self.order_repository = OrderRepository(self.config)
         self.execution_state_repository = ExecutionStateRepository(self.config)
 
@@ -128,6 +130,12 @@ class TradingCatApplication:
         self.portfolio_projections = PortfolioProjectionService(
             available_cash_by_market=self.available_cash_by_market,
             nav_history=self.portfolio.nav_history,
+        )
+        self.dashboard_snapshot_service = DashboardSnapshotService(
+            self.dashboard_snapshot_repository,
+            strategy_signal_provider_getter=lambda: self._require_runtime().strategy_signal_provider,
+            strategy_analysis_getter=lambda: self.strategy_analysis,
+            experiments_getter=lambda: self.research.list_experiments(),
         )
         self.data_quality_queries = DataQualityQueryService(
             config=self.config,
@@ -172,7 +180,7 @@ class TradingCatApplication:
             active_execution_strategy_ids_getter=self.active_execution_strategy_ids,
             selection_summary=self.selection.summary,
             allocation_summary=self.allocations.summary,
-            candidate_scorecard_getter=lambda as_of: self.research_queries.scorecard(as_of, include_candidates=True),
+            dashboard_snapshot_getter=lambda as_of: self.dashboard_snapshot_service.load(as_of),
             list_orders=lambda: self.execution.list_orders(),
             resolve_intent_context=lambda intent_id: self.execution.resolve_intent_context(intent_id),
             resolve_price_context=lambda intent_id: self.execution.resolve_price_context(intent_id),
@@ -279,6 +287,7 @@ class TradingCatApplication:
         self.market_history.reset_cache()
         self.risk.set_kill_switch(False, reason="reset_state")
         self.research.clear()
+        self.dashboard_snapshot_service.clear()
 
     def _clear_summary_cache(self) -> None:
         self._summary_cache.clear()

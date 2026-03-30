@@ -25,6 +25,9 @@
     }
 
     const strategies = state.summary?.strategies ?? {};
+    const snapshotNote = strategies.snapshot_status && strategies.snapshot_status !== "ready"
+      ? `研究快照状态: ${strategies.snapshot_status} ${strategies.snapshot_reason ?? ""}`.trim()
+      : null;
     const metrics = strategies.portfolio_metrics ?? {};
     if (metricsEl) {
       metricsEl.innerHTML = [
@@ -105,7 +108,8 @@
     }
     const nextActions = state.summary?.strategies?.next_actions ?? [];
     if (document.getElementById("research-group-summary-list")) {
-      setList("research-group-summary-list", nextActions.length ? nextActions : ["暂无研究分组总览。"], "暂无研究分组总览。");
+      const items = snapshotNote ? [snapshotNote, ...nextActions] : nextActions;
+      setList("research-group-summary-list", items.length ? items : ["暂无研究分组总览。"], "暂无研究分组总览。");
     }
 
     const planItems = state.summary?.trading_plan?.items ?? [];
@@ -278,6 +282,10 @@
     }
 
     const candidates = state.summary?.candidates ?? {};
+    const snapshotStatus = candidates.snapshot_status;
+    const snapshotNote = snapshotStatus && snapshotStatus !== "ready"
+      ? `研究快照状态: ${snapshotStatus} ${candidates.snapshot_reason ?? ""}`.trim()
+      : null;
     if (metricsEl) {
       metricsEl.innerHTML = [
         metricTile("可继续研究", fmt(candidates.deploy_candidate_count), "deploy_candidate", candidates.deploy_candidate_count ? "ok" : "warning"),
@@ -297,7 +305,8 @@
       );
     }
     if (document.getElementById("candidate-actions-list")) {
-      setList("candidate-actions-list", candidates.next_actions ?? [], "当前没有额外研究动作。");
+      const actions = snapshotNote ? [snapshotNote, ...(candidates.next_actions ?? [])] : (candidates.next_actions ?? []);
+      setList("candidate-actions-list", actions, "当前没有额外研究动作。");
     }
     if (table) {
       table.innerHTML = rows.length

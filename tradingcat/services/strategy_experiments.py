@@ -102,6 +102,7 @@ class StrategyExperimentService:
             and all(bool(window["passed"]) for window in windows)
         )
         missing_history_symbols = int(snapshot["missing_history_symbols"])
+        missing_history_symbol_list = [str(item) for item in snapshot["missing_history_symbol_list"]]
         corporate_actions_ready = bool(corporate_action_coverage.get("ready", True))
         missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
         corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
@@ -137,6 +138,7 @@ class StrategyExperimentService:
                 "threshold_validation_passed": threshold_validation_passed,
                 "history_symbols": len(history_by_symbol),
                 "missing_history_symbols": missing_history_symbols,
+                "missing_history_symbol_list": missing_history_symbol_list,
                 "history_complete": complete_history,
                 "fx_pairs": len(fx_rates_by_pair),
                 "fx_ready": fx_ready,
@@ -180,6 +182,7 @@ class StrategyExperimentService:
         fx_coverage = self._load_signal_fx_coverage(all_signals or signals, sample_start, as_of, base_currency="CNY", fetch_missing=fetch_missing)
         data_source = "historical" if complete_history else "synthetic"
         missing_history_symbols = len(signal_symbols - set(history_by_symbol))
+        missing_history_symbol_list = sorted(signal_symbols - set(history_by_symbol))
         missing_corporate_action_symbols = [str(item) for item in corporate_action_coverage.get("missing_symbols", [])]
         corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
         missing_fx_pairs = [str(item) for item in fx_coverage.get("missing_quote_currencies", [])]
@@ -211,6 +214,7 @@ class StrategyExperimentService:
             "fx_coverage": fx_coverage,
             "data_source": data_source,
             "missing_history_symbols": missing_history_symbols,
+            "missing_history_symbol_list": missing_history_symbol_list,
             "data_ready": data_ready,
             "data_blockers": data_blockers,
         }

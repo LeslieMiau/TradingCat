@@ -11,7 +11,59 @@ class StrategyReportingService:
         self._analysis = analysis
 
     def summarize_strategy_report(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        experiments = [self._analysis._run_experiment(strategy_id, as_of, signals) for strategy_id, signals in strategy_signals.items()]
+        experiments = [
+            self._analysis._run_experiment(strategy_id, as_of, signals)
+            for strategy_id, signals in strategy_signals.items()
+        ]
+        return self._report_from_experiments(as_of, strategy_signals, experiments)
+
+    def summarize_strategy_stability(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
+        report = self.summarize_strategy_report(as_of, strategy_signals)
+        stable = [item for item in report["strategy_reports"] if item["stability_bucket"] == "stable"]
+        unstable = [item for item in report["strategy_reports"] if item["stability_bucket"] == "unstable"]
+        constrained = [item for item in report["strategy_reports"] if item["capacity_tier"] == "limited"]
+        return {
+            "as_of": as_of,
+            "stable_count": len(stable),
+            "unstable_count": len(unstable),
+            "capacity_constrained_count": len(constrained),
+            "average_validation_pass_rate": round(sum(float(item["validation_pass_rate"]) for item in report["strategy_reports"]) / len(report["strategy_reports"]), 4)
+            if report["strategy_reports"]
+            else 0.0,
+            "strategy_stability": [
+                {
+                    "strategy_id": item["strategy_id"],
+                    "validation_pass_rate": item["validation_pass_rate"],
+                    "stability_score": item["stability_score"],
+                    "stability_bucket": item["stability_bucket"],
+                    "capacity_tier": item["capacity_tier"],
+                    "capacity_score": item["capacity_score"],
+                }
+                for item in report["strategy_reports"]
+            ],
+            "next_actions": self._analysis._stability_next_actions(stable, unstable, constrained),
+        }
+
+    def recommend_strategy_actions(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
+        report = self.summarize_strategy_report(as_of, strategy_signals)
+        return self._recommendations_from_report(report)
+
+    def build_profit_scorecard_from_experiments(
+        self,
+        as_of: date,
+        strategy_signals: dict[str, list[Signal]],
+        experiments_by_strategy: dict[str, object],
+    ) -> dict[str, object]:
+        experiments = [
+            experiments_by_strategy[strategy_id]
+            for strategy_id in strategy_signals
+            if strategy_id in experiments_by_strategy
+        ]
+        report = self._report_from_experiments(as_of, strategy_signals, experiments)
+        recommendation_report = self._recommendations_from_report(report)
+        return self._scorecard_from_recommendation_report(recommendation_report)
+
+    def _report_from_experiments(self, as_of: date, strategy_signals: dict[str, list[Signal]], experiments: list[object]) -> dict[str, object]:
         correlations = self._analysis._pairwise_correlations(experiments)
         strategy_reports = []
 
@@ -27,6 +79,18 @@ class StrategyReportingService:
             data_ready = bool(experiment.assumptions.get("data_ready", False))
             threshold_validation_passed = bool(experiment.assumptions.get("threshold_validation_passed", experiment.passed_validation))
             blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
+            missing_history_symbol_list = [str(item) for item in experiment.assumptions.get("missing_history_symbol_list", [])]
+            missing_corporate_action_symbols = [str(item) for item in experiment.assumptions.get("missing_corporate_action_symbols", [])]
+            missing_fx_pairs = [str(item) for item in experiment.assumptions.get("missing_fx_pairs", [])]
+            if missing_history_symbol_list:
+                blocking_reasons.append(f"History coverage is incomplete for: {', '.join(missing_history_symbol_list)}.")
+            if missing_corporate_action_symbols:
+                blocking_reasons.append(
+                    f"Corporate action coverage is incomplete for: {', '.join(missing_corporate_action_symbols)}."
+                )
+            if missing_fx_pairs:
+                blocking_reasons.append(f"FX coverage is incomplete for: {', '.join(missing_fx_pairs)}.")
+            blocking_reasons = list(dict.fromkeys(blocking_reasons))
             research_passed = bool(experiment.passed_validation)
             minimum_coverage_ratio = round(float(history_coverage.get("minimum_coverage_ratio", 0.0)), 4)
             corporate_action_coverage = experiment.assumptions.get("corporate_action_coverage", {})
@@ -59,12 +123,13 @@ class StrategyReportingService:
                 "history_complete": bool(experiment.assumptions.get("history_complete", False)),
                 "history_symbols": int(experiment.assumptions.get("history_symbols", 0)),
                 "missing_history_symbols": int(experiment.assumptions.get("missing_history_symbols", 0)),
+                "missing_history_symbol_list": missing_history_symbol_list,
                 "fx_ready": bool(experiment.assumptions.get("fx_ready", True)),
-                "missing_fx_pairs": list(experiment.assumptions.get("missing_fx_pairs", [])),
+                "missing_fx_pairs": missing_fx_pairs,
                 "fx_blockers": list(experiment.assumptions.get("fx_blockers", [])),
                 "fx_coverage": experiment.assumptions.get("fx_coverage", {}),
                 "corporate_actions_ready": bool(experiment.assumptions.get("corporate_actions_ready", True)),
-                "missing_corporate_action_symbols": list(experiment.assumptions.get("missing_corporate_action_symbols", [])),
+                "missing_corporate_action_symbols": missing_corporate_action_symbols,
                 "corporate_action_blockers": list(experiment.assumptions.get("corporate_action_blockers", [])),
                 "corporate_action_coverage": corporate_action_coverage,
                 "signal_insights": [
@@ -117,35 +182,7 @@ class StrategyReportingService:
             "portfolio_passed": portfolio_passed,
         }
 
-    def summarize_strategy_stability(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        report = self.summarize_strategy_report(as_of, strategy_signals)
-        stable = [item for item in report["strategy_reports"] if item["stability_bucket"] == "stable"]
-        unstable = [item for item in report["strategy_reports"] if item["stability_bucket"] == "unstable"]
-        constrained = [item for item in report["strategy_reports"] if item["capacity_tier"] == "limited"]
-        return {
-            "as_of": as_of,
-            "stable_count": len(stable),
-            "unstable_count": len(unstable),
-            "capacity_constrained_count": len(constrained),
-            "average_validation_pass_rate": round(sum(float(item["validation_pass_rate"]) for item in report["strategy_reports"]) / len(report["strategy_reports"]), 4)
-            if report["strategy_reports"]
-            else 0.0,
-            "strategy_stability": [
-                {
-                    "strategy_id": item["strategy_id"],
-                    "validation_pass_rate": item["validation_pass_rate"],
-                    "stability_score": item["stability_score"],
-                    "stability_bucket": item["stability_bucket"],
-                    "capacity_tier": item["capacity_tier"],
-                    "capacity_score": item["capacity_score"],
-                }
-                for item in report["strategy_reports"]
-            ],
-            "next_actions": self._analysis._stability_next_actions(stable, unstable, constrained),
-        }
-
-    def recommend_strategy_actions(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
-        report = self.summarize_strategy_report(as_of, strategy_signals)
+    def _recommendations_from_report(self, report: dict[str, object]) -> dict[str, object]:
         recommendations = []
         accepted = set(report["accepted_strategy_ids"])
 
@@ -221,6 +258,10 @@ class StrategyReportingService:
 
     def build_profit_scorecard(self, as_of: date, strategy_signals: dict[str, list[Signal]]) -> dict[str, object]:
         recommendation_report = self.recommend_strategy_actions(as_of, strategy_signals)
+        return self._scorecard_from_recommendation_report(recommendation_report)
+
+    def _scorecard_from_recommendation_report(self, recommendation_report: dict[str, object]) -> dict[str, object]:
+        as_of = recommendation_report["as_of"]
         rows: list[dict[str, object]] = []
         deployable = 0
         paper_only = 0
@@ -303,7 +344,9 @@ class StrategyReportingService:
         coverage = self._analysis._strategy_history_coverage(signals, experiment.sample_start, as_of)
         coverage_threshold = self._analysis._history_coverage_threshold()
         blocking_reasons = [str(item) for item in experiment.assumptions.get("data_blockers", [])]
-        missing_coverage_symbols = self._analysis._missing_coverage_symbols(coverage, coverage_threshold)
+        missing_coverage_symbols = [
+            str(item) for item in experiment.assumptions.get("missing_history_symbol_list", [])
+        ] or self._analysis._missing_coverage_symbols(coverage, coverage_threshold)
         benchmark = self._analysis._benchmark_comparison(signals, experiment.sample_start, as_of, nav_curve)
         yearly_performance = self._analysis._yearly_performance(monthly_returns, benchmark.get("monthly_returns", []), experiment.sample_start)
         return {

@@ -1599,8 +1599,7 @@ def test_dashboard_summary_endpoint():
 
 
 def test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress():
-    original_build_profit_scorecard = app_state.strategy_analysis.build_profit_scorecard
-    original_summarize_strategy_report = app_state.strategy_analysis.summarize_strategy_report
+    original_dashboard_snapshot_load = app_state.dashboard_snapshot_service.load
     original_active_execution_strategy_ids = app_state.active_execution_strategy_ids
     original_selection_summary = app_state.selection.summary
     original_allocation_summary = app_state.allocations.summary
@@ -1608,7 +1607,12 @@ def test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress():
     original_operations_readiness = app_state.operations_readiness
     original_execution_gate_summary = app_state.execution_gate_summary
     try:
-        app_state.strategy_analysis.build_profit_scorecard = lambda as_of, strategy_signals: {
+        app_state.dashboard_snapshot_service.load = lambda as_of: {
+            "as_of": as_of,
+            "snapshot_status": "ready",
+            "snapshot_reason": None,
+            "snapshot_as_of": as_of,
+            "snapshot_generated_at": f"{as_of.isoformat()}T09:30:00+00:00",
             "rows": [
                 {
                     "strategy_id": "strategy_a_etf_rotation",
@@ -1646,8 +1650,6 @@ def test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress():
             "deploy_candidate_count": 0,
             "paper_only_count": 2,
             "rejected_count": 0,
-        }
-        app_state.strategy_analysis.summarize_strategy_report = lambda as_of, strategy_signals: {
             "accepted_strategy_ids": [],
             "portfolio_metrics": {"annualized_return": 0.0, "strategy_count": 0, "max_drawdown": 0.0, "calmar": 0.0},
             "portfolio_passed": False,
@@ -1678,14 +1680,56 @@ def test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress():
         assert payload["details"]["acceptance_progress"]["remaining_clean_days"] == 25
         assert payload["details"]["acceptance_progress"]["current_clean_week_streak"] == 0
     finally:
-        app_state.strategy_analysis.build_profit_scorecard = original_build_profit_scorecard
-        app_state.strategy_analysis.summarize_strategy_report = original_summarize_strategy_report
+        app_state.dashboard_snapshot_service.load = original_dashboard_snapshot_load
         app_state.active_execution_strategy_ids = original_active_execution_strategy_ids
         app_state.selection.summary = original_selection_summary
         app_state.allocations.summary = original_allocation_summary
         app_state.live_acceptance_summary = original_live_acceptance_summary
         app_state.operations_readiness = original_operations_readiness
         app_state.execution_gate_summary = original_execution_gate_summary
+
+
+def test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute():
+    reset_runtime_state(app_state)
+    original_build_profit_scorecard = app_state.strategy_analysis.build_profit_scorecard
+    try:
+        app_state.strategy_analysis.build_profit_scorecard = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("dashboard summary should not trigger live scorecard recomputation")
+        )
+        response = client.get("/dashboard/summary", params={"as_of": "2026-03-08"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["candidates"]["snapshot_status"] == "missing"
+        assert payload["strategies"]["snapshot_status"] == "missing"
+    finally:
+        app_state.strategy_analysis.build_profit_scorecard = original_build_profit_scorecard
+
+
+def test_research_candidate_scorecard_persists_dashboard_snapshot():
+    reset_runtime_state(app_state)
+    candidate_scorecard = client.post("/research/candidates/scorecard", params={"as_of": "2026-03-08"})
+    assert candidate_scorecard.status_code == 200
+
+    dashboard = client.get("/dashboard/summary", params={"as_of": "2026-03-08"})
+    assert dashboard.status_code == 200
+    payload = dashboard.json()
+    assert payload["candidates"]["snapshot_status"] == "ready"
+    assert payload["candidates"]["snapshot_generated_at"] is not None
+    assert payload["candidates"]["snapshot_as_of"] == "2026-03-08"
+    assert payload["candidates"]["rows"]
+
+
+def test_research_report_run_refreshes_dashboard_snapshot_from_persisted_experiments():
+    reset_runtime_state(app_state)
+    report = client.post("/research/report/run", params={"as_of": "2026-03-08"})
+    assert report.status_code == 200
+
+    dashboard = client.get("/dashboard/summary", params={"as_of": "2026-03-08"})
+    assert dashboard.status_code == 200
+    payload = dashboard.json()
+    assert payload["candidates"]["snapshot_status"] in {"ready", "stale"}
+    assert payload["candidates"]["snapshot_generated_at"] is not None
+    assert payload["candidates"]["snapshot_as_of"] == "2026-03-08"
 
 
 def test_ops_period_reports_highlight_execution_drags_and_anomalies():

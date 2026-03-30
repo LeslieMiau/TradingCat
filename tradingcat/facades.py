@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,8 @@ _ACCOUNT_LABELS = {
     Market.HK.value: "港股账户",
     Market.US.value: "美股账户",
 }
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardFacade:
@@ -253,6 +256,10 @@ class DashboardFacade:
             "allocations": allocation_summary,
             "rows": rows,
             "next_actions": strategy_report.get("next_actions", []),
+            "snapshot_status": strategy_report.get("snapshot_status"),
+            "snapshot_reason": strategy_report.get("snapshot_reason"),
+            "snapshot_as_of": strategy_report.get("snapshot_as_of"),
+            "snapshot_generated_at": strategy_report.get("snapshot_generated_at"),
             "active_count": len(rows),
             "blocked_by_data_count": sum(1 for row in rows if row.get("display_status") == "blocked_by_data"),
             "paper_only_count": sum(1 for row in rows if row.get("display_status") == "paper_only"),
@@ -310,10 +317,21 @@ class ResearchFacade:
 
     def scorecard(self, as_of: date, *, include_candidates: bool) -> ResearchScorecardResponse:
         payload = self._app.research_queries.scorecard(as_of, include_candidates=include_candidates)
+        if include_candidates:
+            self._app.dashboard_snapshot_service.save_scorecard(
+                as_of,
+                payload,
+                snapshot_reason="Persisted from the latest research candidate scorecard.",
+            )
         return ResearchScorecardResponse.model_validate(payload)
 
     def report(self, as_of: date) -> dict[str, object]:
-        return self._app.research_queries.report(as_of)
+        payload = self._app.research_queries.report(as_of)
+        try:
+            self._app.dashboard_snapshot_service.refresh(as_of)
+        except Exception:
+            logger.exception("Failed to refresh dashboard scorecard snapshot", extra={"as_of": as_of.isoformat()})
+        return payload
 
     def stability(self, as_of: date) -> dict[str, object]:
         return self._app.research_queries.stability(as_of)
@@ -325,7 +343,12 @@ class ResearchFacade:
         return self._app.research_queries.ideas(as_of)
 
     def run_backtests(self, as_of: date) -> dict[str, object]:
-        return self._app.research_queries.run_backtests(as_of)
+        payload = self._app.research_queries.run_backtests(as_of)
+        try:
+            self._app.dashboard_snapshot_service.refresh(as_of)
+        except Exception:
+            logger.exception("Failed to refresh dashboard snapshot after backtests", extra={"as_of": as_of.isoformat()})
+        return payload
 
     def strategy_detail(self, strategy_id: str, as_of: date) -> dict[str, object]:
         return self._app.research_queries.strategy_detail(strategy_id, as_of)

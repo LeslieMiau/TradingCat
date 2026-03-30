@@ -895,3 +895,28 @@
   - 因为真实 `/dashboard/summary` 仍然慢，所以这一步的 E2E 以真实本地 server 探活 + API/TestClient 回归双轨记录：结构抽取已经生效，但性能尾项依然存在，不能假装已经解决。
 - Remaining focus for next session:
   - `/dashboard/summary` 现在剩下的主要热点大概率在 candidate scorecard / report 生成与 operations analytics 组合链路，需要继续做 dashboard-specific caching 或 query service 级轻量快照。
+
+## Session update — 2026-03-30
+- Completed architecture harness feature: `/dashboard/summary` 改为消费 persisted dashboard scorecard snapshot，不再在请求链路里同步触发 research/report/backtest 级重计算。
+- Code changes:
+  - `tradingcat/domain/models.py`、`tradingcat/repositories/research.py` 新增 `DashboardScorecardSnapshot` 与 `DashboardSnapshotRepository`，把 dashboard 所需的 scorecard read-model 持久化到独立 snapshot 存储。
+  - `tradingcat/services/dashboard_snapshots.py` 新增 `DashboardSnapshotService`，提供三条稳定路径：缺快照时快速返回 `snapshot_status="missing"`、从 persisted experiments 重建 snapshot、以及直接持久化 live candidate scorecard。
+  - `tradingcat/services/strategy_reporting.py` 抽出“从 experiments 组装 report/recommendations/scorecard”的可复用 helper，让 research 端继续保留 live compute，而 dashboard 可以只读持久化结果；`tradingcat/services/strategy_experiments.py` 也补存了 `missing_history_symbol_list`，避免 detail/dashboard 再用不稳定的 coverage 推断缺失 symbol。
+  - `tradingcat/app.py`、`tradingcat/services/query_services.py`、`tradingcat/facades.py` 改成把 dashboard scorecard 读路径收口到 `dashboard_snapshot_service.load()`；`/research/candidates/scorecard` 会直接持久化 ready snapshot，`/research/report/run` 与 `/research/backtests/run` 会基于最新 persisted experiments 刷新 snapshot。
+  - `static/dashboard_strategy.js` 增加最小前端跟随：当 dashboard 使用 `missing/stale` snapshot 时，会在研究动作区域提示当前快照状态和原因。
+  - 新增 `tests/test_dashboard_snapshots.py`，并扩展 `tests/test_api.py`，锁定 snapshot 缺失快速返回、candidate scorecard 持久化 snapshot、report-run 刷新 snapshot、以及 dashboard 不再触发 live scorecard 重算。
+- Validation:
+  - `.venv/bin/pytest tests/test_dashboard_snapshots.py tests/test_dashboard_facade.py tests/test_architecture_boundaries.py tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute tests/test_api.py::test_research_candidate_scorecard_persists_dashboard_snapshot tests/test_api.py::test_research_report_run_refreshes_dashboard_snapshot_from_persisted_experiments -q` -> `17 passed`
+  - `TRADINGCAT_FUTU_ENABLED=false .venv/bin/pytest tests/test_runtime_recovery.py tests/test_research_reporting.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_snapshots.py tests/test_dashboard_facade.py tests/test_architecture_boundaries.py tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute tests/test_api.py::test_research_candidate_scorecard_persists_dashboard_snapshot tests/test_api.py::test_research_report_run_refreshes_dashboard_snapshot_from_persisted_experiments -q` -> `62 passed, 1 warning`
+  - `python3 -m py_compile tradingcat/services/dashboard_snapshots.py tradingcat/services/strategy_reporting.py tradingcat/services/strategy_experiments.py tradingcat/app.py tradingcat/facades.py tradingcat/repositories/research.py tests/test_dashboard_snapshots.py tests/test_api.py`
+  - 真实 HTTP（隔离 `TRADINGCAT_DATA_DIR`, `TRADINGCAT_FUTU_ENABLED=false`, fresh `uvicorn :8042`）：
+    - `GET /broker/status` -> `200`, `~0.004s`
+    - 首次 `GET /dashboard/summary?as_of=2026-03-08` -> `200`, `~1.574s`, `snapshot_status="missing"`
+    - `POST /research/candidates/scorecard?as_of=2026-03-08` -> `200`, `~12.195s`
+    - 再次 `GET /dashboard/summary?as_of=2026-03-08` -> `200`, `~0.524s`, `snapshot_status="ready"`, `snapshot_generated_at` 已存在
+- Decisions:
+  - dashboard 现在默认只读最近一次 persisted snapshot；没有 snapshot 时显式返回 `missing`，不再偷偷触发 live scorecard。
+  - candidate scorecard 仍然保留重计算能力，但那条慢路径只在 research 端点上发生；dashboard 请求本身只做快照读取和现有 readiness/ops 聚合。
+  - 这一步没有继续把 `/dashboard/summary` 里其他 readiness/ops 聚合全部做成 snapshot，因为最重的 candidate scorecard 已经被切出主请求链路，当前真实耗时已经降到可接受范围。
+- Remaining focus for next session:
+  - 如果继续收尾 architecture harness，下一步更像是优化 `operations/readiness` 等剩余读模型的尾延迟，以及把 `app.py` 最后几段 orchestration 再往 service 层下沉。

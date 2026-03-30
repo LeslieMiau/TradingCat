@@ -420,7 +420,7 @@ class DashboardQueryService:
         active_execution_strategy_ids_getter: Callable[[], list[str]],
         selection_summary: Callable[[], dict[str, object]],
         allocation_summary: Callable[[], dict[str, object]],
-        candidate_scorecard_getter: Callable[[date], dict[str, object]],
+        dashboard_snapshot_getter: Callable[[date], dict[str, object]],
         list_orders: Callable[[], list[object]],
         resolve_intent_context: Callable[[str | None], dict[str, object] | None],
         resolve_price_context: Callable[[str | None], dict[str, object]],
@@ -434,7 +434,7 @@ class DashboardQueryService:
         self._active_execution_strategy_ids_getter = active_execution_strategy_ids_getter
         self._selection_summary = selection_summary
         self._allocation_summary = allocation_summary
-        self._candidate_scorecard_getter = candidate_scorecard_getter
+        self._dashboard_snapshot_getter = dashboard_snapshot_getter
         self._list_orders = list_orders
         self._resolve_intent_context = resolve_intent_context
         self._resolve_price_context = resolve_price_context
@@ -449,7 +449,7 @@ class DashboardQueryService:
             "operations": self._operations_readiness(),
             "data_quality": self._data_quality_summary(),
             "recent_orders": self.recent_orders(),
-            "candidate_scorecard": self._candidate_scorecard_getter(evaluation_date),
+            "candidate_scorecard": self._dashboard_snapshot_getter(evaluation_date),
             "active_strategy_ids": self._active_execution_strategy_ids_getter(),
             "selection_summary": self._selection_summary(),
             "allocation_summary": self._allocation_summary(),

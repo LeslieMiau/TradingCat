@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tradingcat.config import AppConfig
+from tradingcat.domain.models import BacktestExperiment, DashboardScorecardSnapshot
 from tradingcat.repositories.duckdb_store import DuckDbResearchStore
-from tradingcat.domain.models import BacktestExperiment
 from tradingcat.repositories.json_store import JsonStore
 from tradingcat.repositories.postgres_store import PostgresStore
 
@@ -37,3 +37,29 @@ class BacktestExperimentRepository:
             self._store.save(self._bucket, payload)
         else:
             self._store.save(payload)
+
+
+class DashboardSnapshotRepository:
+    def __init__(self, config_or_data_dir: AppConfig | Path) -> None:
+        data_dir = config_or_data_dir.data_dir if isinstance(config_or_data_dir, AppConfig) else config_or_data_dir
+        self._store = JsonStore(data_dir / "dashboard_snapshots.json")
+
+    def load(self) -> dict[str, DashboardScorecardSnapshot]:
+        records = self._store.load({})
+        if not isinstance(records, dict):
+            return {}
+        return {
+            key: DashboardScorecardSnapshot.model_validate(record)
+            for key, record in records.items()
+            if isinstance(record, dict)
+        }
+
+    def save(self, snapshots: dict[str, DashboardScorecardSnapshot]) -> None:
+        payload = {
+            key: snapshot.model_dump(mode="json")
+            for key, snapshot in snapshots.items()
+        }
+        self._store.save(payload)
+
+    def clear(self) -> None:
+        self._store.save({})
