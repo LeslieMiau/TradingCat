@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OptionContract
+from tradingcat.domain.models import AssetClass, Bar, FxRate, Instrument, Market, OptionContract
 
 
 class StaticMarketDataAdapter:
@@ -81,6 +81,9 @@ class StaticMarketDataAdapter:
         ]
 
     def fetch_corporate_actions(self, instrument: Instrument, start: date, end: date) -> list[dict]:
+        return []
+
+    def fetch_fx_rates(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
         return []
 
 

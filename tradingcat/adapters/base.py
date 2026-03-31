@@ -6,6 +6,7 @@ from typing import Protocol
 from tradingcat.domain.models import (
     Bar,
     ExecutionReport,
+    FxRate,
     Instrument,
     Market,
     OptionContract,
@@ -22,6 +23,10 @@ class MarketDataAdapter(Protocol):
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]: ...
 
     def fetch_corporate_actions(self, instrument: Instrument, start: date, end: date) -> list[dict]: ...
+
+    def fetch_fx_rates(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
+        """Fetch historical FX rates for a currency pair. Returns empty list if unsupported."""
+        return []
 
 
 class BrokerAdapter(Protocol):

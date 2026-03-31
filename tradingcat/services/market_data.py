@@ -504,14 +504,26 @@ class MarketDataService:
         )
         if quote_currencies:
             currencies = [currency.upper() for currency in quote_currencies if currency.upper() != base_currency.upper()]
-        generated: list[FxRate] = []
+        collected: list[FxRate] = []
+        source = "synthetic"
         for quote_currency in currencies:
-            generated.extend(self._generate_fx_series(base_currency.upper(), quote_currency, start_date, end_date))
-        self._history.save_fx_rates(generated)
+            adapter_rates: list[FxRate] = []
+            if hasattr(self._adapter, "fetch_fx_rates"):
+                try:
+                    adapter_rates = self._adapter.fetch_fx_rates(base_currency.upper(), quote_currency, start_date, end_date)
+                except Exception:
+                    logger.exception("Adapter fetch_fx_rates failed for %s/%s, falling back to synthetic", base_currency, quote_currency)
+            if adapter_rates:
+                collected.extend(adapter_rates)
+                source = "adapter"
+            else:
+                collected.extend(self._generate_fx_series(base_currency.upper(), quote_currency, start_date, end_date))
+        self._history.save_fx_rates(collected)
         return {
             "base_currency": base_currency.upper(),
             "quote_currencies": currencies,
-            "rate_count": len(generated),
+            "rate_count": len(collected),
+            "source": source,
             "start": start_date,
             "end": end_date,
         }

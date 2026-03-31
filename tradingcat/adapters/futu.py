@@ -12,6 +12,7 @@ from tradingcat.domain.models import (
     AssetClass,
     Bar,
     ExecutionReport,
+    FxRate,
     Instrument,
     Market,
     OptionContract,
@@ -207,6 +208,11 @@ class FutuMarketDataAdapter:
             if start <= row_date <= end:
                 actions.append(row)
         return actions
+
+    def fetch_fx_rates(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
+        # Futu OpenD does not support forex quote codes (Forex.USDCNH etc.)
+        # FX rates should be fetched via a dedicated FX data source.
+        return []
 
 
 class FutuBrokerAdapter:

@@ -165,3 +165,6 @@ class YFinanceMarketDataAdapter:
         except Exception:
             logger.warning("YFinance fetch_corporate_actions failed for %s", ticker, exc_info=True)
             return []
+
+    def fetch_fx_rates(self, base_currency: str, quote_currency: str, start: date, end: date) -> list:
+        return []
