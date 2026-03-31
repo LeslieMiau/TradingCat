@@ -188,7 +188,7 @@ function renderImpactEmpty(elements) {
 }
 
 function buildImpactContext(detail) {
-  const dashboardSummary = window.__researchDashboardSummary || {};
+  const dashboardSummary = state.dashboardSummary || {};
   const signals = detail.signals || [];
   const planItems = dashboardSummary.trading_plan?.items || [];
   const pendingApprovals = dashboardSummary.trading_plan?.pending_approvals || [];
@@ -491,7 +491,7 @@ function renderResearch(payload) {
 async function refreshResearch() {
   try {
     const payload = await loadPayloads();
-    window.__researchDashboardSummary = payload.dashboard;
+    state.dashboardSummary = payload.dashboard;
     renderResearch(payload);
     if (!state.selectedStrategyId) {
       const defaultStrategyId = filteredRows(payload.candidates?.rows ?? [])[0]?.strategy_id || null;

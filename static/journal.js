@@ -181,24 +181,32 @@ document.getElementById("refresh-journal")?.addEventListener("click", () => {
 });
 
 document.getElementById("btn-view-daily")?.addEventListener("click", async () => {
-  const response = await fetch(API.journalDaily(journalState.account), { headers: { Accept: "application/json" } });
-  if (response.ok) {
-    const data = await response.json();
-    alert(JSON.stringify(data, null, 2));
+  const result = await apiFetch(API.journalDaily(journalState.account));
+  if (result.ok) {
+    alert(JSON.stringify(result.data, null, 2));
+  } else {
+    showToast(result.error || "日报加载失败", "error");
   }
 });
 
 document.getElementById("btn-export-markdown")?.addEventListener("click", async () => {
-  const response = await fetch(API.journalMarkdownLatest(journalState.account));
-  if (response.ok) {
-    const text = await response.text();
-    const blob = new Blob([text], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `journal_${journalState.account}_${new Date().toISOString().slice(0, 10)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Markdown endpoint returns text/plain, not JSON — use fetch directly for file download
+  try {
+    const response = await fetch(API.journalMarkdownLatest(journalState.account));
+    if (response.ok) {
+      const text = await response.text();
+      const blob = new Blob([text], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `journal_${journalState.account}_${new Date().toISOString().slice(0, 10)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      showToast(`Markdown 导出失败: ${response.status}`, "error");
+    }
+  } catch (err) {
+    showToast(err.message || "Markdown 导出失败", "error");
   }
 });
 
