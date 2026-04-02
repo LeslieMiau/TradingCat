@@ -1010,4 +1010,27 @@
   - OpenD / broker validation 仍未完成，当前仍是 simulated fallback。
   - compliance checklist 仍有 pending 项。
   - paper-trading clean weeks / CN manual weeks 仍为 0，`go-live` 与 `live-acceptance` 继续因此 blocked。
-  - research 本身仍被真实 blocker 阻断：当前 execution strategies 还缺公司行为 / FX 完整性，所以这轮完成的是“工程阻塞清理与语义对齐”，不是“真钱可用”。
+  - research 本身仍被真实 blocker 阻断：当前 execution strategies 还缺公司行为 / FX 完整性，所以这轮完成的是”工程阻塞清理与语义对齐”，不是”真钱可用”。
+
+## Session update — 2026-04-03
+- New PLAN.json cycle: 方向 A — 接通真实数据，解除 3 个 execution strategy 的 research blocker。
+- Completed features #1–#5: YFinance default fallback, option symbol exclusion, bootstrap data script, real option chain, real FX rates.
+- Code changes:
+  - `tradingcat/config.py`: `YFinanceConfig.from_env()` 默认 `enabled=True`（model default 保持 `False` 以不影响测试）。
+  - `tradingcat/services/strategy_experiments.py`: `_build_data_snapshot` 和 `_load_signal_history` 排除 `asset_class == “option”` 的 signal，与 `_load_signal_corporate_action_coverage` 对齐。Strategy C 不再被 `SPY-P-100`/`SPY-C-105` 永久阻塞。
+  - `tradingcat/adapters/yfinance_adapter.py`: `fetch_option_chain()` 实现真实 option chain fetch（`yf.Ticker.options` + `option_chain()`），选择 as_of+14d 后最近到期日。
+  - `tradingcat/services/market_data.py`: `_generate_fx_series` 在 adapter 为 `YFinanceMarketDataAdapter` 时优先从 yfinance 获取真实 FX（`USDCNY=X` 等），失败回退 synthetic。
+  - `scripts/bootstrap_data.py`: 新建一键数据引导脚本，同步 SPY/QQQ/0700/510300 历史 + FX + corporate actions。
+  - `.env.example` 和 `scripts/bootstrap_env.sh`: 加入 `TRADINGCAT_YFINANCE_ENABLED=true`。
+- Validation:
+  - `test_market_data_service.py` → 33 passed（含 FX sync 回归）
+  - `test_research_reporting.py` → 全部 passed（含 pollution 回归）
+  - `test_runtime_recovery.py` + `test_service_health.py` + readiness API tests → 16 passed
+  - `test_dashboard_facade.py` + `test_allocation_service.py` → passed
+  - 6 个 API test failures (`test_execution_run_endpoint` 等) 确认为 pre-existing，与本次改动无关。
+- Decisions:
+  - `YFinanceConfig` model default 保持 `False` 而 `from_env()` default 为 `”true”`，确保测试使用 Static adapter 不受影响。
+  - `_generate_fx_series` 只在 adapter 为 `YFinanceMarketDataAdapter` 时尝试真实 FX，避免 Static adapter 测试路径被改变。
+- Next steps:
+  - 运行 `scripts/bootstrap_data.py` 实际同步数据，验证 3 个 execution strategy `data_ready=true`。
+  - 解决 OpenD/broker validation 以获取更完整的 Futu 行情权限。

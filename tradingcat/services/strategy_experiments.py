@@ -175,11 +175,12 @@ class StrategyExperimentService:
             strategy = self._strategy_registry.get(strategy_id)
         sample_start = date(2018, 1, 1)
         all_signals = self._probe_signals(strategy_id, as_of, signals, strategy=strategy) if include_probes else list(signals)
-        signal_symbols = {signal.instrument.symbol for signal in all_signals} if all_signals else {signal.instrument.symbol for signal in signals}
-        history_by_symbol = self._load_signal_history(all_signals or signals, sample_start, as_of, fetch_missing=fetch_missing)
+        source_signals = all_signals if all_signals else signals
+        signal_symbols = {signal.instrument.symbol for signal in source_signals if signal.instrument.asset_class.value != "option"}
+        history_by_symbol = self._load_signal_history(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
         complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
-        corporate_action_coverage = self._load_signal_corporate_action_coverage(all_signals or signals, sample_start, as_of, fetch_missing=fetch_missing)
-        fx_coverage = self._load_signal_fx_coverage(all_signals or signals, sample_start, as_of, base_currency="CNY", fetch_missing=fetch_missing)
+        corporate_action_coverage = self._load_signal_corporate_action_coverage(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
+        fx_coverage = self._load_signal_fx_coverage(source_signals, sample_start, as_of, base_currency="CNY", fetch_missing=fetch_missing)
         data_source = "historical" if complete_history else "synthetic"
         missing_history_symbols = len(signal_symbols - set(history_by_symbol))
         missing_history_symbol_list = sorted(signal_symbols - set(history_by_symbol))
@@ -282,7 +283,7 @@ class StrategyExperimentService:
     def _load_signal_history(self, signals: list[Signal], start: date, end: date, *, fetch_missing: bool):
         if self._market_data is None or not signals:
             return {}
-        symbols = sorted({signal.instrument.symbol for signal in signals})
+        symbols = sorted({signal.instrument.symbol for signal in signals if signal.instrument.asset_class.value != "option"})
         if fetch_missing:
             # Long walk-forward reads should not overwrite the short-window cache used by live signal generation.
             return self._market_data.history_snapshot(symbols, start, end)

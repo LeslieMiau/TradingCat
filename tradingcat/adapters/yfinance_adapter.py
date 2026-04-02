@@ -98,8 +98,52 @@ class YFinanceMarketDataAdapter:
         return quotes
 
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
-        logger.info("YFinance option chain not implemented; returning empty list for %s", underlying)
-        return []
+        ticker = underlying
+        if market == Market.HK:
+            ticker = f"{underlying}.HK"
+        try:
+            t = yf.Ticker(ticker)
+            expiry_strings = t.options
+            if not expiry_strings:
+                logger.info("No option expiries found for %s", ticker)
+                return []
+            # Pick the nearest expiry at least 14 days out.
+            target = as_of + timedelta(days=14)
+            chosen_expiry: str | None = None
+            for exp in expiry_strings:
+                exp_date = date.fromisoformat(exp)
+                if exp_date >= target:
+                    chosen_expiry = exp
+                    break
+            if chosen_expiry is None:
+                chosen_expiry = expiry_strings[-1]
+            chain = t.option_chain(chosen_expiry)
+            expiry_date = date.fromisoformat(chosen_expiry)
+            mkt = market or Market.US
+            contracts: list[OptionContract] = []
+            for _, row in chain.calls.iterrows():
+                contracts.append(OptionContract(
+                    symbol=str(row.get("contractSymbol", f"{underlying}-C-{row['strike']}")),
+                    underlying=underlying,
+                    strike=float(row["strike"]),
+                    expiry=expiry_date,
+                    option_type="call",
+                    market=mkt,
+                ))
+            for _, row in chain.puts.iterrows():
+                contracts.append(OptionContract(
+                    symbol=str(row.get("contractSymbol", f"{underlying}-P-{row['strike']}")),
+                    underlying=underlying,
+                    strike=float(row["strike"]),
+                    expiry=expiry_date,
+                    option_type="put",
+                    market=mkt,
+                ))
+            logger.info("Fetched %d option contracts for %s expiry %s", len(contracts), ticker, chosen_expiry)
+            return contracts
+        except Exception:
+            logger.warning("YFinance fetch_option_chain failed for %s", ticker, exc_info=True)
+            return []
 
     def fetch_corporate_actions(self, instrument: Instrument, start: date, end: date) -> list[dict]:
         ticker = _to_yahoo_ticker(instrument)

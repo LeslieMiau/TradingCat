@@ -1,133 +1,56 @@
 [
   {
     "id": 1,
-    "category": "setup",
-    "description": "resident :8000 core gate 超时问题被稳定复现、缩小根因，并由 init/core-health 路径自动识别。",
+    "category": "data",
+    "description": "YFinance 作为默认 fallback adapter，Futu 不可达时自动走 yfinance 而非 synthetic。",
     "steps": [
-      "运行 `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5` 时，能对 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` 给出稳定健康判定。",
-      "在 resident 进程异常或旧进程场景下，`init.sh` 不会再把“只活端口”的 8000 误判成健康服务。",
-      "运行 `.venv/bin/pytest tests/test_service_health.py tests/test_api.py::test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers -q` 通过。"
+      "`YFinanceConfig.from_env()` 默认返回 `enabled=True`，`.env.example` 和 `bootstrap_env.sh` 同步更新。",
+      "Futu 不可达时 `AdapterFactory.create_market_data_adapter()` 返回 `YFinanceMarketDataAdapter` 而非 `StaticMarketDataAdapter`。",
+      "现有测试通过（测试直接构造 `AppConfig()` 时 model default 仍为 `False`，不影响 Static adapter 测试路径）。"
     ],
     "passes": true
   },
   {
     "id": 2,
-    "category": "integration",
-    "description": "resident 与 fresh 进程对 blocker 结果保持一致，不再出现 resident 假死或旧引用污染。",
+    "category": "data",
+    "description": "Option symbols 不参与 history 完整性判定，Strategy C 不再被 SPY-P-100 永久阻塞。",
     "steps": [
-      "fresh 端口与 resident `:8000` 对 `/preflight/startup`、`/ops/readiness`、`/ops/go-live`、`/ops/live-acceptance` 返回同类 blocker 语义。",
-      "reset_state 或服务重启后，不会因为旧方法引用或旧缓存导致 gate 结果不一致。",
-      "相关 API / readiness 回归测试通过。"
+      "`_build_data_snapshot` 的 `signal_symbols` 和 `complete_history` 排除 `asset_class == option` 的 signal。",
+      "`_load_signal_history` 同样排除 option symbols，与 `_load_signal_corporate_action_coverage` 对齐。",
+      "Strategy C 在 SPY 有 real bars 时 `complete_history=True`，回归测试通过。"
     ],
     "passes": true
   },
   {
     "id": 3,
-    "category": "functional",
-    "description": "research readiness 中 7 个 blocked 策略被逐个分类，区分真实 blocker 与放大回归。",
+    "category": "data",
+    "description": "数据引导脚本 `scripts/bootstrap_data.py` 一键同步 execution strategy 所需历史。",
     "steps": [
-      "调用 `/preflight/startup` 或 `/ops/readiness` 时，7 个策略的 blocker 原因可逐个解释。",
-      "不存在“只是候选策略新增或检查范围放大，结果却被误记为真实数据缺失”的模糊 blocker。",
-      "研究 readiness 相关测试通过。"
+      "脚本同步 SPY/QQQ/0700/510300 的 2018~ 历史 + corporate actions + FX rates。",
+      "脚本最后调用 `research_readiness_summary` 汇报 3 个 execution strategy 的 readiness 状态。",
+      "脚本可直接用 `.venv/bin/python scripts/bootstrap_data.py` 运行，不依赖 web server。"
     ],
     "passes": true
   },
   {
     "id": 4,
     "category": "data",
-    "description": "base strategies 的 corporate-action blocker 只针对真实依赖 symbol 生效。",
+    "description": "YFinance adapter 实现真实 option chain fetch，Strategy C 可获取真实合约。",
     "steps": [
-      "调用 `/preflight/startup` 与 `/ops/readiness` 时，`strategy_a/b/c` 只会报告自己真实依赖的公司行为缺失。",
-      "不存在把无关 symbol 缺失扩散到 base strategy blocker 的情况。",
-      "company-action / readiness 相关测试通过。"
+      "`YFinanceMarketDataAdapter.fetch_option_chain()` 用 `yf.Ticker.options` + `option_chain()` 获取真实合约。",
+      "选择 as_of + 14 天后最近的到期日，返回 calls + puts 的 `OptionContract` 列表。",
+      "fetch 失败时静默返回空列表，不影响 readiness。"
     ],
     "passes": true
   },
   {
     "id": 5,
     "category": "data",
-    "description": "candidate strategies d/e/f/g 的 blocker 契约与 a/b/c 对齐，不再产生放大型 synthetic 阻塞。",
+    "description": "FX rate sync 优先从 yfinance 获取真实汇率，失败时 fallback 到 synthetic。",
     "steps": [
-      "调用 `/preflight/startup` 或 `/ops/readiness` 时，candidate strategy 的 blocker 与其真实输入依赖一致。",
-      "候选策略不会因为 fallback helper 或候选池默认值而被误判成更大范围 blocker。",
-      "候选策略 readiness 回归测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 6,
-    "category": "functional",
-    "description": "synthetic fallback 路径继续诚实暴露，但不会被包装成可推广或夸大阻塞。",
-    "steps": [
-      "调用 `/preflight/startup`、`/research/report/run`、`/ops/readiness` 时，synthetic fallback 仍然显式暴露。",
-      "blocked 策略不会进入 keep/active，也不会把无关 blocker 混入 synthetic 提示。",
-      "research / selection / allocation 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 7,
-    "category": "api",
-    "description": "`/preflight/startup` 与 `/ops/readiness` 的语义边界保持清晰：data-quality 绿不等于 research-ready 绿。",
-    "steps": [
-      "当历史覆盖足够但研究输入仍缺失时，`/data/quality.ready=true` 且 `research_ready=false` 的差异会被清楚表达。",
-      "`/ops/readiness` 顶层 blocker 不会把 `data/quality` 与 `research_readiness` 混成同一层误导语义。",
-      "相关 API 测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 8,
-    "category": "api",
-    "description": "`/ops/go-live` 与 `/ops/live-acceptance` 保留时间 gate，但不重复或夸大工程 blocker。",
-    "steps": [
-      "调用 `/ops/go-live` 与 `/ops/live-acceptance` 时，仍然会因为 clean-week evidence / compliance / broker gate 保持 blocked。",
-      "工程 blocker 会被保留，但不会在多个层次重复堆叠成难以理解的噪音。",
-      "rollout / live-acceptance 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 9,
-    "category": "integration",
-    "description": "rollout policy `100%` vs `recommended_stage=hold` 的控制面错位被显式修复或显式硬阻塞。",
-    "steps": [
-      "调用 `/ops/rollout-policy`、`/ops/go-live`、`/ops/live-acceptance` 时，policy 与 recommendation 的错位会被稳定暴露。",
-      "不会出现 policy 实际不匹配但 gate 看起来中性的情况。",
-      "rollout policy 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 10,
-    "category": "integration",
-    "description": "dashboard summary / readiness / query service 对同一 blocker 给出一致解释。",
-    "steps": [
-      "调用 `/dashboard/summary` 与 `/ops/readiness` 时，blocked strategy 数量、status reason 与 acceptance blocker 语义保持一致。",
-      "resident 与 fresh 进程对 dashboard blocker 摘要不再出现分叉。",
-      "dashboard facade / summary 相关测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 11,
-    "category": "integration",
-    "description": "selection / allocation 在 blocked 情况下继续保持防线，不会被 runtime/query 回归冲开。",
-    "steps": [
-      "调用 `/research/selections/summary` 与 `/research/allocations/summary` 时，blocked 策略不会进入 `active`。",
-      "query service 或 facade 重构后，这条防线仍然成立。",
-      "selection / allocation 回归测试通过。"
-    ],
-    "passes": true
-  },
-  {
-    "id": 12,
-    "category": "docs",
-    "description": "fresh-port E2E 验证证据与 handoff 报告落盘，下一 session 可直接续做 feature #2。",
-    "steps": [
-      "PROGRESS.md 记录 fresh vs resident 验证结论、剩余 blocker 与下一 feature。",
-      "本轮 handoff 明确保留 OpenD/权限、compliance、paper-trading weeks 这些外部 gate。",
-      "下一 session 恢复时只需读 `PROGRESS.md` 与新的 `PLAN.json`。"
+      "`_generate_fx_series` 在 adapter 为 `YFinanceMarketDataAdapter` 时先尝试 yfinance `USDCNY=X` 等 ticker。",
+      "yfinance 返回空或失败时回退到原有 synthetic 月度生成。",
+      "Static adapter 场景下行为不变，现有测试通过。"
     ],
     "passes": true
   }

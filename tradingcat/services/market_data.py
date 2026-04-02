@@ -699,6 +699,45 @@ class MarketDataService:
         return days
 
     def _generate_fx_series(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
+        from tradingcat.adapters.yfinance_adapter import YFinanceMarketDataAdapter
+        if isinstance(self._adapter, YFinanceMarketDataAdapter):
+            real = self._fetch_fx_from_yfinance(base_currency, quote_currency, start, end)
+            if real:
+                return real
+        return self._synthetic_fx_series(base_currency, quote_currency, start, end)
+
+    def _fetch_fx_from_yfinance(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
+        try:
+            import yfinance as yf
+        except ImportError:
+            return []
+        ticker = f"{quote_currency.upper()}{base_currency.upper()}=X"
+        try:
+            df = yf.download(ticker, start=start.isoformat(), end=(end + timedelta(days=1)).isoformat(), progress=False)
+            if df.empty:
+                return []
+            if hasattr(df.columns, "levels") and len(df.columns.levels) > 1:
+                df = df.droplevel(level=1, axis=1)
+            rates: list[FxRate] = []
+            for idx, row in df.iterrows():
+                rate_date = idx.date() if hasattr(idx, "date") else idx
+                close = float(row["Close"])
+                if close <= 0 or math.isnan(close):
+                    continue
+                rates.append(FxRate(
+                    base_currency=base_currency.upper(),
+                    quote_currency=quote_currency.upper(),
+                    date=rate_date,
+                    rate=round(close, 6),
+                ))
+            if rates:
+                logger.info("Fetched %d real FX rates for %s from yfinance", len(rates), ticker)
+            return rates
+        except Exception:
+            logger.warning("YFinance FX fetch failed for %s, falling back to synthetic", ticker, exc_info=True)
+            return []
+
+    def _synthetic_fx_series(self, base_currency: str, quote_currency: str, start: date, end: date) -> list[FxRate]:
         anchor_rates = {
             ("CNY", "USD"): 7.10,
             ("CNY", "HKD"): 0.91,

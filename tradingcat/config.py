@@ -147,7 +147,7 @@ class YFinanceConfig(BaseModel):
     @classmethod
     def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "YFinanceConfig":
         env_values = dotenv_values or {}
-        enabled_raw = _getenv("TRADINGCAT_YFINANCE_ENABLED", "false", env_values).strip().lower()
+        enabled_raw = _getenv("TRADINGCAT_YFINANCE_ENABLED", "true", env_values).strip().lower()
         return cls(enabled=enabled_raw in {"1", "true", "yes", "on"})
 
 
