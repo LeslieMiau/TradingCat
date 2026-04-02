@@ -1034,3 +1034,22 @@
 - Next steps:
   - 运行 `scripts/bootstrap_data.py` 实际同步数据，验证 3 个 execution strategy `data_ready=true`。
   - 解决 OpenD/broker validation 以获取更完整的 Futu 行情权限。
+
+## Session update — 2026-04-03 (data sync verification)
+- 运行 `bootstrap_data.py` 实际同步 SPY/QQQ/0700/510300/VTI 历史 + FX + corporate actions。
+- 发现并修复 3 个问题：
+  1. `reset_state()` 会通过 `reset_cache()` → `_history.clear()` 删除已同步的市场数据。改为只调用 `_clear_summary_cache()`。
+  2. 全 option 策略（Strategy C）在 option 排除后 `signal_symbols` 为空，导致 `complete_history=False`。修复：空 signal_symbols 时视为 complete。
+  3. `_research_data_blockers` 在 `signal_symbol_count==0` 时触发 blocker；改为只在 `total_signal_count==0` 时触发。
+  4. VTI 未在同步列表中（Strategy B fallback 信号需要）。
+- Validation:
+  - `bootstrap_data.py` → 5 instruments synced, coverage 1.0, 4296 FX rates
+  - **strategy_a_etf_rotation: READY**
+  - **strategy_b_equity_momentum: READY**
+  - **strategy_c_option_overlay: READY**
+  - 回归测试 48 passed，1 pre-existing failure（date-dependent signal test）
+- Remaining external gates:
+  - OpenD / broker validation 仍未完成
+  - compliance checklist 仍有 pending 项
+  - paper-trading clean weeks 仍为 0
+  - 但 research readiness 已全部解除，可以开始真正的研究实验
