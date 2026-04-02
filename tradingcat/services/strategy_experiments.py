@@ -178,7 +178,7 @@ class StrategyExperimentService:
         source_signals = all_signals if all_signals else signals
         signal_symbols = {signal.instrument.symbol for signal in source_signals if signal.instrument.asset_class.value != "option"}
         history_by_symbol = self._load_signal_history(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
-        complete_history = bool(signal_symbols) and signal_symbols.issubset(set(history_by_symbol))
+        complete_history = (not signal_symbols) or signal_symbols.issubset(set(history_by_symbol))
         corporate_action_coverage = self._load_signal_corporate_action_coverage(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
         fx_coverage = self._load_signal_fx_coverage(source_signals, sample_start, as_of, base_currency="CNY", fetch_missing=fetch_missing)
         data_source = "historical" if complete_history else "synthetic"
@@ -188,16 +188,19 @@ class StrategyExperimentService:
         corporate_action_blockers = [str(item) for item in corporate_action_coverage.get("blockers", [])]
         missing_fx_pairs = [str(item) for item in fx_coverage.get("missing_quote_currencies", [])]
         fx_blockers = [str(item) for item in fx_coverage.get("blockers", [])]
+        has_history_or_all_options = bool(history_by_symbol) or (not signal_symbols and bool(source_signals))
         data_ready = (
             data_source == "historical"
             and complete_history
-            and bool(history_by_symbol)
+            and has_history_or_all_options
             and bool(corporate_action_coverage.get("ready", True))
             and bool(fx_coverage.get("ready", True))
         )
+        total_signal_count = len(source_signals)
         data_blockers = self._research_data_blockers(
             data_source=data_source,
             signal_symbol_count=len(signal_symbols),
+            total_signal_count=total_signal_count,
             history_symbol_count=len(history_by_symbol),
             missing_history_symbols=missing_history_symbols,
             missing_corporate_action_symbols=missing_corporate_action_symbols,
@@ -405,6 +408,7 @@ class StrategyExperimentService:
         *,
         data_source: str,
         signal_symbol_count: int,
+        total_signal_count: int,
         history_symbol_count: int,
         missing_history_symbols: int,
         missing_corporate_action_symbols: list[str],
@@ -415,8 +419,8 @@ class StrategyExperimentService:
         blockers: list[str] = []
         if data_source != "historical":
             blockers.append("Research used synthetic fallback data; keep the strategy out of keep/active until local history is complete.")
-        elif signal_symbol_count == 0:
-            blockers.append("Strategy produced no historical-underlying symbols for validation.")
+        elif signal_symbol_count == 0 and total_signal_count == 0:
+            blockers.append("Strategy produced no signals for validation.")
         elif history_symbol_count < signal_symbol_count:
             blockers.append(
                 f"Historical coverage is incomplete for {missing_history_symbols} symbol(s); repair local history before promoting the strategy."

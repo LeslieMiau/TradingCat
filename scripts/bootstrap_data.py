@@ -26,7 +26,7 @@ def main() -> int:
     print("Initializing application …")
     app = TradingCatApplication()
 
-    strategy_symbols = ["SPY", "QQQ", "0700", "510300"]
+    strategy_symbols = ["SPY", "QQQ", "0700", "510300", "VTI"]
     start = date(2018, 1, 1)
     end = date.today()
 
@@ -51,7 +51,9 @@ def main() -> int:
         print(f"  FX rates: {fx.get('rate_count', 0)} rates for {fx.get('quote_currencies', [])}")
 
     # Clear cached summaries so readiness picks up the new data.
-    app.reset_state()
+    # NOTE: Do NOT call app.reset_state() here — it wipes market history via
+    # reset_cache(). Only clear the summary cache.
+    app._clear_summary_cache()
 
     print("\nChecking research readiness …")
     readiness = app.research_readiness_summary()
