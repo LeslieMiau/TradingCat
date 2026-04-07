@@ -1,0 +1,17 @@
+.venv/
+.git/
+.claude/
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/
+docs/
+.harness/
+PROGRESS.md
+PLAN.json
+AGENTS.md
+handoff-frontend-refactor.md
+scripts/codex_harness/
+tests/
+*.egg-info/
