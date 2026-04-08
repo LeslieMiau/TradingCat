@@ -1526,21 +1526,15 @@ def test_dashboard_page_and_assets():
     assert "账户、策略、计划与总结" in page.text
     assert "账户总览" in page.text
     assert "Alpha Radar" in page.text
-    assert "Macro Calendar" in page.text
+    assert "宏观日历" in page.text
     assert "计划正文" in page.text
     assert "今日计划摘要" in page.text
     assert "待审批与节奏" in page.text
-    assert "今日优先动作" in page.text
     assert "今日交易计划" in page.text
-    assert "每日总结与阻塞项" in page.text
-    assert "今日总结" in page.text
-    assert "本周总结" in page.text
-    assert "阻塞与待处理" in page.text
-    assert "执行与审批队列" in page.text
+    assert "执行动态" in page.text
     assert "待审批" in page.text
     assert "最近订单" in page.text
     assert "最近成交" in page.text
-    assert "最近验证单" in page.text
     assert "/static/dashboard.css" in page.text
     assert "/static/api.js" in page.text
     assert "/static/components.js" in page.text
@@ -1553,7 +1547,8 @@ def test_dashboard_page_and_assets():
     assert js.status_code == 200
     assert "dashboardAccounts?.renderOverview" in js.text
     assert "dashboardStrategy?.renderPlan" in js.text
-    assert "dashboardOperations?.renderSummaries" in js.text
+    assert "dashboardOperations?.renderExecutionQueue" in js.text
+    assert "dashboardOperations?.renderMacroCalendar" in js.text
     assert "API.dashboardSummary" in js.text
     assert "API.portfolioRebalancePlan" in js.text
 
@@ -1574,10 +1569,10 @@ def test_dashboard_page_and_assets():
     operations_js = client.get("/static/dashboard_operations.js")
     assert operations_js.status_code == 200
     assert "DashboardOperations" in operations_js.text
-    assert "function renderSummaries" in operations_js.text
-    assert "function renderPriorityActions" in operations_js.text
-    assert "acceptance_progress" in operations_js.text
-    assert "remaining_clean_days" in operations_js.text
+    assert "function renderExecutionBlockers" in operations_js.text
+    assert "function renderExecutionQueue" in operations_js.text
+    assert "function renderAlphaRadar" in operations_js.text
+    assert "function renderMacroCalendar" in operations_js.text
 
     api_js = client.get("/static/api.js")
     assert api_js.status_code == 200

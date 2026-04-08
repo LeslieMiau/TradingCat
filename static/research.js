@@ -513,4 +513,10 @@ document.querySelectorAll("#research-filter-tabs .tab").forEach((node) => {
   });
 });
 
-refreshResearch();
+refreshResearch().then(() => {
+  initAutoRefresh(() => refreshResearch(), 300);
+  document.querySelectorAll(".table-wrap").forEach((wrap) => {
+    const tbody = wrap.querySelector("tbody[id]");
+    if (tbody) addExportButton(wrap, tbody.id);
+  });
+});

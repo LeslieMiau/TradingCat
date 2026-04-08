@@ -51,14 +51,14 @@
         </section>
 
         <!-- Alpha Radar (Smart Money Flow) -->
-        <section class="panel panel-highlight" style="border-left: 3px solid var(--primary-color);">
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--accent);">
           <div class="panel-header">
-            <h2>Alpha Radar <span style="font-size: 11px; padding: 2px 6px; background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color); border-radius: 4px; vertical-align: middle; margin-left: 8px;">LIVE</span></h2>
+            <h2>Alpha Radar <span style="font-size: 11px; padding: 2px 6px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; vertical-align: middle; margin-left: 8px;">LIVE</span></h2>
             <span class="meta-text">期权大单与暗池资金流入模拟流</span>
           </div>
           <div class="table-wrap" style="max-height: 300px; overflow-y: auto;">
             <table class="data-table compact-table">
-              <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 10;">
+              <thead style="position: sticky; top: 0; background: var(--panel-strong); z-index: 10;">
                 <tr>
                   <th>时间</th>
                   <th>标的</th>
@@ -73,18 +73,17 @@
               </tbody>
             </table>
           </div>
-          </div>
         </section>
 
         <!-- Macro & Earnings Calendar -->
-        <section class="panel panel-highlight" style="border-left: 3px solid var(--warning);">
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--warn);">
           <div class="panel-header">
-            <h2>Macro Calendar <span style="font-size: 11px; padding: 2px 6px; background: rgba(var(--warning-rgb), 0.1); color: var(--warning); border-radius: 4px; vertical-align: middle; margin-left: 8px;">UPCOMING</span></h2>
+            <h2>宏观日历 <span style="font-size: 11px; padding: 2px 6px; background: var(--warn-soft); color: var(--warn); border-radius: 4px; vertical-align: middle; margin-left: 8px;">UPCOMING</span></h2>
             <span class="meta-text">近期高影响力宏观数据与事件</span>
           </div>
           <div class="table-wrap" style="max-height: 300px; overflow-y: auto;">
             <table class="data-table compact-table">
-              <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 10;">
+              <thead style="position: sticky; top: 0; background: var(--panel-strong); z-index: 10;">
                 <tr>
                   <th>时间 (UTC)</th>
                   <th>国家</th>
@@ -151,70 +150,11 @@
           </div>
         </section>
 
-        <!-- 20. 今日优先动作 -->
+        <!-- 执行动态 — 精简版：待审批 + 最近订单 + 最近成交 -->
         <section class="panel">
           <div class="panel-header">
-            <h2>今日优先动作</h2>
-            <span class="meta-text">把阻塞项、待审批、再平衡建议和研究动作排成优先级列表，首页直接看先处理什么</span>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table compact-table">
-              <thead>
-                <tr>
-                  <th>优先级</th>
-                  <th>类型</th>
-                  <th>动作</th>
-                  <th>原因</th>
-                </tr>
-              </thead>
-              <tbody id="priority-actions-table">
-                <tr><td colspan="4" class="table-empty">加载中...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <!-- 21. 每日总结与阻塞项 -->
-        <section class="panel">
-          <div class="panel-header">
-            <h2>每日总结与阻塞项</h2>
-            <span class="meta-text">从日报、周报和 live gate 自动汇总</span>
-          </div>
-          <div class="summary-grid">
-            <article class="detail-card">
-              <h3>今日总结</h3>
-              <p id="journal-summary-headline" class="detail-paragraph">加载中...</p>
-              <ul id="daily-highlights" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-            <article class="detail-card">
-              <h3>本周总结</h3>
-              <ul id="weekly-highlights" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-            <article class="detail-card">
-              <h3>阻塞与待处理</h3>
-              <ul id="blockers-list" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-              <h4 class="detail-sub-header">最近事件</h4>
-              <ul id="global-incidents-list" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-          </div>
-        </section>
-
-        <!-- 24. 执行与审批队列 -->
-        <section class="panel">
-          <div class="panel-header">
-            <h2>执行与审批队列</h2>
-            <span class="meta-text">直接看待审批单和最近订单，快速判断执行链路是否拥堵</span>
-          </div>
-          <div id="queue-metrics" class="cards-grid four compact">
-            <article class="metric-tile loading"><span>加载中...</span></article>
+            <h2>执行动态</h2>
+            <span class="meta-text">待审批、最近订单与成交</span>
           </div>
           <div class="summary-grid">
             <article class="detail-card">
@@ -232,12 +172,6 @@
             <article class="detail-card">
               <h3>最近成交</h3>
               <ul id="filled-orders-list" class="detail-list">
-                <li class="detail-empty">加载中...</li>
-              </ul>
-            </article>
-            <article class="detail-card">
-              <h3>最近验证单</h3>
-              <ul id="probe-orders-list" class="detail-list">
                 <li class="detail-empty">加载中...</li>
               </ul>
             </article>

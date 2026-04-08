@@ -69,13 +69,13 @@ function setList(id, items, emptyText) {
 }
 
 function heatTone(value) {
-  if (value == null) return "rgba(22, 32, 43, 0.05)";
-  if (value >= 0.7) return "rgba(180, 35, 24, 0.34)";
-  if (value >= 0.4) return "rgba(247, 144, 9, 0.22)";
-  if (value >= 0) return "rgba(14, 138, 97, 0.12)";
-  if (value <= -0.7) return "rgba(180, 35, 24, 0.34)";
-  if (value <= -0.4) return "rgba(247, 144, 9, 0.22)";
-  return "rgba(14, 138, 97, 0.18)";
+  if (value == null) return "rgba(13, 16, 22, 0.3)";
+  if (value >= 0.7) return "rgba(208, 64, 64, 0.35)";
+  if (value >= 0.4) return "rgba(200, 162, 78, 0.22)";
+  if (value >= 0) return "rgba(45, 157, 94, 0.14)";
+  if (value <= -0.7) return "rgba(208, 64, 64, 0.35)";
+  if (value <= -0.4) return "rgba(200, 162, 78, 0.22)";
+  return "rgba(45, 157, 94, 0.18)";
 }
 
 /* =========================================================================
@@ -323,4 +323,302 @@ function closeShortcutOverlay() {
 // Automatically init keyboard shortcut listener when script loads
 document.addEventListener("DOMContentLoaded", () => {
   initKeyboardShortcuts();
+
+  // Broker status indicator in sidebar
+  if (typeof API !== "undefined" && API.brokerStatus) {
+    apiFetch(API.brokerStatus).then((res) => {
+      const dot = document.querySelector(".sidebar-status-dot");
+      if (!dot) return;
+      if (res.ok && res.data) {
+        const connected = res.data.connected ?? res.data.status === "ok";
+        dot.className = `sidebar-status-dot ${connected ? "ok" : "blocked"}`;
+        dot.title = connected ? "Broker 已连接" : "Broker 断开";
+      } else {
+        dot.className = "sidebar-status-dot warning";
+        dot.title = "Broker 状态未知";
+      }
+    });
+  }
 });
+
+/* =========================================================================
+   Auto-Refresh Timer
+   ========================================================================= */
+const _autoRefresh = { interval: null, remaining: 0, callback: null, duration: 0 };
+
+function initAutoRefresh(callback, defaultSeconds = 60) {
+  _autoRefresh.callback = callback;
+  _autoRefresh.duration = defaultSeconds;
+
+  let pill = document.getElementById("auto-refresh-pill");
+  if (pill) return; // already initialized
+
+  pill = document.createElement("div");
+  pill.id = "auto-refresh-pill";
+  pill.className = "auto-refresh-pill";
+  pill.innerHTML = `
+    <button class="ar-toggle" type="button" title="自动刷新">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+      <span class="ar-label">自动</span>
+    </button>
+    <span class="ar-countdown" hidden></span>
+    <select class="ar-interval" title="刷新间隔">
+      <option value="30">30s</option>
+      <option value="60" selected>60s</option>
+      <option value="120">2m</option>
+      <option value="300">5m</option>
+      <option value="0">关</option>
+    </select>
+  `;
+
+  // Insert after the first hero-actions or at end of header
+  const anchor = document.querySelector(".hero-actions");
+  if (anchor) anchor.appendChild(pill);
+  else document.querySelector("header")?.appendChild(pill);
+
+  const toggle = pill.querySelector(".ar-toggle");
+  const countdown = pill.querySelector(".ar-countdown");
+  const select = pill.querySelector(".ar-interval");
+
+  toggle.addEventListener("click", () => {
+    if (_autoRefresh.interval) stopAutoRefresh();
+    else startAutoRefresh(Number(select.value));
+  });
+
+  select.addEventListener("change", () => {
+    stopAutoRefresh();
+    const v = Number(select.value);
+    if (v > 0) startAutoRefresh(v);
+  });
+
+  // Start by default
+  startAutoRefresh(defaultSeconds);
+}
+
+function startAutoRefresh(seconds) {
+  if (!seconds || !_autoRefresh.callback) return;
+  stopAutoRefresh();
+  _autoRefresh.duration = seconds;
+  _autoRefresh.remaining = seconds;
+
+  const pill = document.getElementById("auto-refresh-pill");
+  const countdown = pill?.querySelector(".ar-countdown");
+  const toggle = pill?.querySelector(".ar-toggle");
+  if (countdown) { countdown.removeAttribute("hidden"); }
+  if (toggle) toggle.classList.add("ar-active");
+
+  _autoRefresh.interval = setInterval(() => {
+    _autoRefresh.remaining--;
+    if (countdown) countdown.textContent = `${_autoRefresh.remaining}s`;
+    if (_autoRefresh.remaining <= 0) {
+      _autoRefresh.remaining = _autoRefresh.duration;
+      _autoRefresh.callback();
+    }
+  }, 1000);
+  if (countdown) countdown.textContent = `${seconds}s`;
+}
+
+function stopAutoRefresh() {
+  if (_autoRefresh.interval) {
+    clearInterval(_autoRefresh.interval);
+    _autoRefresh.interval = null;
+  }
+  const pill = document.getElementById("auto-refresh-pill");
+  const countdown = pill?.querySelector(".ar-countdown");
+  const toggle = pill?.querySelector(".ar-toggle");
+  if (countdown) { countdown.setAttribute("hidden", ""); countdown.textContent = ""; }
+  if (toggle) toggle.classList.remove("ar-active");
+}
+
+/* =========================================================================
+   CSV Export for Tables
+   ========================================================================= */
+function exportTableCsv(tableId, filename) {
+  const table = document.getElementById(tableId);
+  if (!table) { showToast("找不到表格", "error"); return; }
+
+  const rows = [];
+  table.querySelectorAll("tr").forEach((tr) => {
+    const cells = [];
+    tr.querySelectorAll("th, td").forEach((cell) => {
+      let text = cell.textContent.trim().replace(/"/g, '""');
+      if (text.includes(",") || text.includes('"') || text.includes("\n")) text = `"${text}"`;
+      cells.push(text);
+    });
+    if (cells.length) rows.push(cells.join(","));
+  });
+
+  const blob = new Blob(["\uFEFF" + rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || `${tableId}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("CSV 已导出", "success", 2000);
+}
+
+function addExportButton(tableWrapSelector, tableId, label) {
+  const wrap = typeof tableWrapSelector === "string"
+    ? document.querySelector(tableWrapSelector)
+    : tableWrapSelector;
+  if (!wrap || wrap.querySelector(".csv-export-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.className = "button button-sm csv-export-btn";
+  btn.type = "button";
+  btn.textContent = label || "导出 CSV";
+  btn.style.cssText = "position:absolute;right:8px;top:8px;font-size:11px;padding:3px 10px;opacity:0;transition:opacity 0.2s;";
+  wrap.style.position = "relative";
+  wrap.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
+  wrap.addEventListener("mouseleave", () => { btn.style.opacity = "0"; });
+  btn.addEventListener("click", (e) => { e.stopPropagation(); exportTableCsv(tableId); });
+  wrap.appendChild(btn);
+}
+
+/* =========================================================================
+   Command Palette (Ctrl+K)
+   ========================================================================= */
+const _commandPalette = { entries: [], visible: false };
+
+function registerCommand(label, description, handler, group = "通用") {
+  _commandPalette.entries.push({ label, description, handler, group });
+}
+
+function showCommandPalette() {
+  if (_commandPalette.visible) { closeCommandPalette(); return; }
+  _commandPalette.visible = true;
+
+  const overlay = document.createElement("div");
+  overlay.id = "command-palette";
+  overlay.className = "command-palette-overlay";
+  overlay.innerHTML = `
+    <div class="command-palette">
+      <div class="cp-search-wrap">
+        <svg class="cp-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="cp-input" type="text" placeholder="搜索命令、页面、策略..." autofocus />
+        <kbd class="cp-kbd">Esc</kbd>
+      </div>
+      <div class="cp-results"></div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeCommandPalette(); });
+
+  const input = overlay.querySelector(".cp-input");
+  const results = overlay.querySelector(".cp-results");
+  let selected = 0;
+
+  function render(query) {
+    const q = (query || "").toLowerCase();
+    const filtered = q
+      ? _commandPalette.entries.filter((e) => e.label.toLowerCase().includes(q) || e.description.toLowerCase().includes(q) || e.group.toLowerCase().includes(q))
+      : _commandPalette.entries;
+
+    const grouped = {};
+    filtered.forEach((e) => { (grouped[e.group] = grouped[e.group] || []).push(e); });
+    selected = 0;
+
+    let html = "";
+    let idx = 0;
+    for (const [group, items] of Object.entries(grouped)) {
+      html += `<div class="cp-group">${escapeHtml(group)}</div>`;
+      for (const item of items) {
+        html += `<div class="cp-item${idx === selected ? " cp-selected" : ""}" data-idx="${idx}">
+          <span class="cp-item-label">${escapeHtml(item.label)}</span>
+          <span class="cp-item-desc">${escapeHtml(item.description)}</span>
+        </div>`;
+        idx++;
+      }
+    }
+    results.innerHTML = html || '<div class="cp-empty">没有匹配的命令</div>';
+
+    results.querySelectorAll(".cp-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        const i = Number(el.dataset.idx);
+        const flat = q ? filtered : _commandPalette.entries;
+        if (flat[i]) { closeCommandPalette(); flat[i].handler(); }
+      });
+    });
+  }
+
+  input.addEventListener("input", () => render(input.value));
+
+  input.addEventListener("keydown", (e) => {
+    const items = results.querySelectorAll(".cp-item");
+    if (e.key === "ArrowDown") { e.preventDefault(); selected = Math.min(selected + 1, items.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); selected = Math.max(selected - 1, 0); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const active = results.querySelector(".cp-selected");
+      if (active) active.click();
+      return;
+    } else if (e.key === "Escape") { closeCommandPalette(); return; }
+    items.forEach((el, i) => el.classList.toggle("cp-selected", i === selected));
+    items[selected]?.scrollIntoView({ block: "nearest" });
+  });
+
+  render("");
+  setTimeout(() => input.focus(), 10);
+}
+
+function closeCommandPalette() {
+  _commandPalette.visible = false;
+  document.getElementById("command-palette")?.remove();
+}
+
+/* =========================================================================
+   Approval Action Helpers
+   ========================================================================= */
+async function approveRequest(requestId, reason) {
+  const r = reason || prompt("审批通过原因 (可留空):");
+  if (r === null) return; // cancelled
+  const res = await apiFetch(API.approvalApprove(requestId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: r || "dashboard approved" }),
+  });
+  if (res.ok) showToast("已批准", "success");
+  else showToast(res.error || "审批失败", "error");
+  return res;
+}
+
+async function rejectRequest(requestId, reason) {
+  const r = reason || prompt("拒绝原因:");
+  if (!r) { showToast("需要填写拒绝原因", "warning"); return; }
+  const res = await apiFetch(API.approvalReject(requestId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: r }),
+  });
+  if (res.ok) showToast("已拒绝", "success");
+  else showToast(res.error || "拒绝失败", "error");
+  return res;
+}
+
+function approvalActions(requestId) {
+  return `<span class="approval-actions" data-request-id="${escapeHtml(requestId)}">
+    <button class="btn-approve" title="批准" type="button">✓</button>
+    <button class="btn-reject" title="拒绝" type="button">✗</button>
+  </span>`;
+}
+
+function bindApprovalActions(container, refreshFn) {
+  (container || document).querySelectorAll(".approval-actions").forEach((el) => {
+    const id = el.dataset.requestId;
+    el.querySelector(".btn-approve")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const res = await approveRequest(id);
+      if (res?.ok && refreshFn) refreshFn();
+    });
+    el.querySelector(".btn-reject")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const res = await rejectRequest(id);
+      if (res?.ok && refreshFn) refreshFn();
+    });
+  });
+}

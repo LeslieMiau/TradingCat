@@ -41,22 +41,22 @@ function showQuickTradeModal() {
       <h3 style="margin-bottom: 20px; color: var(--accent);">
         ⚡ 极速下单 (Quick Trade)
       </h3>
-      <div id="quick-trade-error" style="display:none; padding:12px; margin-bottom:16px; background:rgba(224,36,36,0.15); border-left:3px solid var(--panic); color:#ff6b6b; font-size:13px; font-weight:500;"></div>
+      <div id="quick-trade-error" style="display:none; padding:12px; margin-bottom:16px; background:var(--block-soft); border-left:3px solid var(--block); color:#ff6b6b; font-size:13px; font-weight:500;"></div>
       <form id="quick-trade-form" style="display:flex; flex-direction:column; gap:12px;">
         <label>
-          <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">标的代码 (Symbol)</span>
+          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">标的代码 (Symbol)</span>
           <input type="text" id="qt-symbol" required placeholder="例如: SPY" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:var(--font-mono); text-transform:uppercase;">
         </label>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">方向 (Side)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">方向 (Side)</span>
             <select id="qt-side" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
               <option value="buy">买入 (BUY)</option>
               <option value="sell">卖出 (SELL)</option>
             </select>
           </label>
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">市场 (Market)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">市场 (Market)</span>
             <select id="qt-market" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
               <option value="US">行情 (US)</option>
               <option value="HK">港股 (HK)</option>
@@ -65,12 +65,12 @@ function showQuickTradeModal() {
           </label>
         </div>
         <label>
-          <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">数量 (Quantity)</span>
+          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">数量 (Quantity)</span>
           <input type="number" id="qt-qty" required min="1" step="1" value="100" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:var(--font-mono);">
         </label>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">执行算法 (Algo)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">执行算法 (Algo)</span>
             <select id="qt-algo" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
               <option value="NONE">直接成交 (Direct)</option>
               <option value="TWAP">TWAP (时间加权)</option>
@@ -79,7 +79,7 @@ function showQuickTradeModal() {
             </select>
           </label>
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">原因 (Reason / Tag)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">原因 (Reason / Tag)</span>
             <select id="qt-reason" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
               <option value="Manual Plan">计划内执行 (Planned)</option>
               <option value="FOMO">怕错过 (FOMO)</option>
@@ -89,17 +89,17 @@ function showQuickTradeModal() {
           </label>
         </div>
 
-        <div id="qt-ladder-params" style="display:none; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-top:12px; padding:12px; background:rgba(var(--primary-rgb), 0.05); border-radius:4px; border:1px dashed var(--primary-color);">
+        <div id="qt-ladder-params" style="display:none; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-top:12px; padding:12px; background:var(--accent-soft); border-radius:4px; border:1px dashed var(--accent);">
           <label>
-            <span style="display:block; font-size:11px; color:var(--primary-color); margin-bottom:4px;">档位 (Levels)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">档位 (Levels)</span>
             <input type="number" id="qt-ladder-levels" value="5" min="2" max="20" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
           <label>
-            <span style="display:block; font-size:11px; color:var(--primary-color); margin-bottom:4px;">起始价 (Start)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">起始价 (Start)</span>
             <input type="number" id="qt-ladder-start" step="0.01" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
           <label>
-            <span style="display:block; font-size:11px; color:var(--primary-color); margin-bottom:4px;">终止价 (End)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">终止价 (End)</span>
             <input type="number" id="qt-ladder-end" step="0.01" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
         </div>

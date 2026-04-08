@@ -37,8 +37,8 @@ function renderCurve(svgId, points, options = {}) {
 
   const {
     valueKey = "v",
-    stroke = "#5cc4ff",
-    fill = "rgba(92,196,255,0.12)",
+    stroke = "#c8a24e",
+    fill = "rgba(200,162,78,0.12)",
     smooth = false,
     interactive = false,
     overlays = [],
@@ -91,12 +91,12 @@ function renderCurve(svgId, points, options = {}) {
     </defs>
     <path d="${areaPath}" fill="url(#${gradientId})"></path>
     <path d="${linePath}" fill="none" stroke="${stroke}" stroke-width="${smooth ? 2 : 4}" stroke-linecap="round" stroke-linejoin="round"></path>
-    <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#34d399" stroke="#0b0e13" stroke-width="2"></circle>
+    <circle cx="${coords.at(-1)[0].toFixed(2)}" cy="${coords.at(-1)[1].toFixed(2)}" r="4" fill="#ddb85c" stroke="#08090d" stroke-width="2"></circle>
     ${overlayMarkup ? `<g class="curve-overlays">${overlayMarkup}</g>` : ""}
     ${interactive ? `
       <g class="curve-hover-group" style="opacity:0;transition:opacity 0.15s">
-        <line class="curve-xhair" x1="0" y1="${padding}" x2="0" y2="${height - padding}" stroke="rgba(255,255,255,0.18)" stroke-width="1" stroke-dasharray="4 3"></line>
-        <circle class="curve-hover-dot" cx="0" cy="0" r="4" fill="${stroke}" stroke="#0b0e13" stroke-width="2"></circle>
+        <line class="curve-xhair" x1="0" y1="${padding}" x2="0" y2="${height - padding}" stroke="rgba(200,162,78,0.25)" stroke-width="1" stroke-dasharray="4 3"></line>
+        <circle class="curve-hover-dot" cx="0" cy="0" r="4" fill="${stroke}" stroke="#08090d" stroke-width="2"></circle>
       </g>
     ` : ""}
   `;

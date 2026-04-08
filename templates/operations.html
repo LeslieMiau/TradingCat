@@ -27,7 +27,7 @@
         </section>
 
         <!-- TCA Execution Audit -->
-        <section class="panel panel-highlight" style="border-left: 3px solid var(--secondary-color);">
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--accent);">
           <div class="panel-header">
             <h2>执行质量与 TCA 审计</h2>
             <span class="meta-text">Transaction Cost Analysis: 监控滑点、延迟与情绪对执行的影响</span>
@@ -52,7 +52,7 @@
         </section>
 
         <!-- Dynamic Risk Management -->
-        <section class="panel panel-highlight" style="border-left: 3px solid var(--error-color);">
+        <section class="panel panel-highlight" style="border-left: 3px solid var(--block);">
           <div class="panel-header">
             <h2>动态风控中心</h2>
             <span class="meta-text">实时配置 RiskEngine 阈值，无需重启服务器</span>
@@ -70,19 +70,19 @@
                 <h3>风控阈值配置</h3>
                 <form id="risk-config-form" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:8px;">
                     <label>
-                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">日止损限制 (Daily SL %)</span>
+                        <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">日止损限制 (Daily SL %)</span>
                         <input type="number" id="risk-daily-sl" step="0.001" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
                     </label>
                     <label>
-                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">最大单票权重 (Max Weight %)</span>
+                        <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">最大单票权重 (Max Weight %)</span>
                         <input type="number" id="risk-max-weight" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
                     </label>
                     <label>
-                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">半仓风控水位 (Half Risk DD %)</span>
+                        <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">半仓风控水位 (Half Risk DD %)</span>
                         <input type="number" id="risk-half-dd" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
                     </label>
                     <label>
-                        <span style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">锁仓风控水位 (No Risk DD %)</span>
+                        <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">锁仓风控水位 (No Risk DD %)</span>
                         <input type="number" id="risk-no-dd" step="0.01" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
                     </label>
                     <div style="grid-column: span 2; display:flex; justify-content:flex-end;">

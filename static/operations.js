@@ -189,7 +189,7 @@ function renderFillsTable(context) {
           <td>
             ${row.within_threshold 
               ? `<span style="color:var(--ok)">OK</span>` 
-              : `<span style="color:var(--panic)">超限 (Breach)</span>`}
+              : `<span style="color:var(--block)">超限 (Breach)</span>`}
           </td>
         </tr>
       `).join("")
@@ -212,7 +212,7 @@ function renderArchiveHistory(context) {
 function renderSmartOrderRow(row) {
   const conditionsAst = (row.trigger_conditions ?? []).map((item) => `${item.metric} ${item.operator} ${item.target_value}`).join(" AND ");
   const timeText = row.triggered_at ? row.triggered_at.substring(11, 16) : "-";
-  const sideVar = row.side === "BUY" ? "--ok" : "--panic";
+  const sideVar = row.side === "BUY" ? "--ok" : "--block";
   const statusClass = row.status === "TRIGGERED" ? "status-ok" : row.status === "PENDING" ? "status-warning" : "status-empty";
   return `
     <tr>
@@ -227,15 +227,15 @@ function renderSmartOrderRow(row) {
 }
 
 function fillTagHtml(tag) {
-  if (!tag) return '<span style="color:var(--text-muted)">-</span>';
-  const colorMap = { FOMO: "var(--panic)", Panic: "var(--panic)", "Manual Plan": "var(--ok)", Rebound: "var(--warning)" };
+  if (!tag) return '<span style="color:var(--text-secondary)">-</span>';
+  const colorMap = { FOMO: "var(--block)", Panic: "var(--block)", "Manual Plan": "var(--ok)", Rebound: "var(--warn)" };
   const color = colorMap[tag] || "var(--text)";
   return `<span style="display:inline-block; padding:2px 8px; background:rgba(255,255,255,0.05); border:1px solid ${color}; color:${color}; border-radius:12px; font-size:11px; font-weight:600;">${escapeHtml(tag)}</span>`;
 }
 
 function fillSlippageHtml(value) {
   const formatted = escapeHtml(fmt(value ?? 0, 4));
-  if ((value || 0) > 0) return `<span style="color:var(--warning)">+${formatted}</span>`;
+  if ((value || 0) > 0) return `<span style="color:var(--warn)">+${formatted}</span>`;
   if ((value || 0) < 0) return `<span style="color:var(--ok)">${formatted}</span>`;
   return formatted;
 }
@@ -321,7 +321,13 @@ async function handleKillSwitchToggle() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  initOperations();
+  initOperations().then(() => {
+    initAutoRefresh(() => refreshOperations(), 120);
+    document.querySelectorAll(".table-wrap").forEach((wrap) => {
+      const tbody = wrap.querySelector("tbody[id]");
+      if (tbody) addExportButton(wrap, tbody.id);
+    });
+  });
   document.getElementById("refresh-operations")?.addEventListener("click", refreshOperations);
   document.getElementById("risk-config-form")?.addEventListener("submit", handleRiskUpdate);
   document.getElementById("toggle-kill-switch")?.addEventListener("click", handleKillSwitchToggle);

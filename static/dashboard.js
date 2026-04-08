@@ -32,16 +32,9 @@ function renderError() {
   if (el("overview-cards")) el("overview-cards").innerHTML = errorMetric("Dashboard Error");
   if (el("plan-metrics")) el("plan-metrics").innerHTML = errorMetric("Trading Plan");
   if (el("plan-table")) el("plan-table").innerHTML = errorCell(8);
-  if (el("priority-actions-table")) el("priority-actions-table").innerHTML = errorCell(4);
-  if (el("queue-metrics")) el("queue-metrics").innerHTML = errorMetric("Execution Queue");
-  if (el("daily-highlights")) setList("daily-highlights", [], message);
-  if (el("weekly-highlights")) setList("weekly-highlights", [], message);
-  if (el("blockers-list")) setList("blockers-list", [], message);
-  if (el("global-incidents-list")) setList("global-incidents-list", [], message);
   if (el("queue-approvals-list")) setList("queue-approvals-list", [], message);
   if (el("queue-orders-list")) setList("queue-orders-list", [], message);
   if (el("filled-orders-list")) setList("filled-orders-list", [], message);
-  if (el("probe-orders-list")) setList("probe-orders-list", [], message);
 }
 
 function renderDashboard() {
@@ -57,8 +50,7 @@ function renderDashboard() {
     ["renderPlan", dashboardStrategy?.renderPlan],
     ["renderSignalFunnel", dashboardStrategy?.renderSignalFunnel],
     ["renderExecutionBlockers", dashboardOperations?.renderExecutionBlockers],
-    ["renderPriorityActions", dashboardOperations?.renderPriorityActions],
-    ["renderSummaries", dashboardOperations?.renderSummaries],
+    ["renderExecutionQueue", dashboardOperations?.renderExecutionQueue],
     ["renderAlphaRadar", dashboardOperations?.renderAlphaRadar],
     ["renderMacroCalendar", dashboardOperations?.renderMacroCalendar],
   ];
@@ -184,6 +176,7 @@ function enableTableSort() {
   });
 }
 
+/* ── Keyboard Shortcuts ── */
 registerShortcut("r", "刷新数据", () => loadDashboard());
 registerShortcut("1", "切换到总账户", () => { state.activeAccount = "total"; renderDashboard(); });
 registerShortcut("2", "切换到A股", () => { state.activeAccount = "CN"; renderDashboard(); });
@@ -196,7 +189,36 @@ registerShortcut("/", "聚焦搜索框", () => {
     search.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 });
+registerShortcut("Ctrl+k", "打开命令面板", () => showCommandPalette());
 initKeyboardShortcuts();
+
+/* ── Command Palette entries ── */
+registerCommand("刷新数据", "重新加载全部面板", () => loadDashboard(), "操作");
+registerCommand("总账户", "切换到总账户视图", () => { state.activeAccount = "total"; renderDashboard(); }, "账户");
+registerCommand("A股账户", "切换到A股视图", () => { state.activeAccount = "CN"; renderDashboard(); }, "账户");
+registerCommand("港股账户", "切换到港股视图", () => { state.activeAccount = "HK"; renderDashboard(); }, "账户");
+registerCommand("美股账户", "切换到美股视图", () => { state.activeAccount = "US"; renderDashboard(); }, "账户");
+registerCommand("日报", "打开日报页面", () => { window.location.href = "/dashboard/journal"; }, "导航");
+registerCommand("研究", "打开研究页面", () => { window.location.href = "/dashboard/research"; }, "导航");
+registerCommand("运营", "打开运营页面", () => { window.location.href = "/dashboard/operations"; }, "导航");
+registerCommand("极速下单", "打开 Quick Trade 面板 (Ctrl+B)", () => showQuickTradeModal(), "交易");
+registerCommand("一键撤单", "撤销所有挂单 (Ctrl+X)", () => {
+  if (confirm("确定要撤销所有未完成订单吗?")) {
+    apiFetch(API.ordersCancelOpen, { method: "POST" }).then((r) => {
+      showToast(r.ok ? "所有挂单已撤销" : r.error || "撤单失败", r.ok ? "success" : "error");
+    });
+  }
+}, "交易");
+registerCommand("Kill Switch", "触发全局紧急关停 (Shift+X)", () => {
+  if (confirm("警告：这会触发 Kill Switch！确定吗？")) {
+    apiFetch(API.killSwitch, { method: "POST" }).then((r) => {
+      showToast(r.ok ? "Kill Switch 已激活" : r.error || "触发失败", r.ok ? "error" : "error", 5000);
+    });
+  }
+}, "风控");
+registerCommand("导出持仓 CSV", "导出当前持仓表格为 CSV", () => exportTableCsv("assets-table", "positions.csv"), "导出");
+registerCommand("导出计划 CSV", "导出交易计划表格为 CSV", () => exportTableCsv("plan-table", "plan.csv"), "导出");
+registerCommand("快捷键", "显示键盘快捷键 (?)", () => toggleShortcutOverlay(), "帮助");
 
 loadDashboard().then(() => {
   enableTableSort();
@@ -206,4 +228,14 @@ loadDashboard().then(() => {
   if (document.getElementById("search-candidates") && document.getElementById("candidates-table")) {
     enableTableSearch("search-candidates", "candidates-table");
   }
+
+  /* ── Auto-refresh ── */
+  initAutoRefresh(() => loadDashboard(), 60);
+
+  /* ── CSV export hover buttons on tables ── */
+  document.querySelectorAll(".table-wrap").forEach((wrap) => {
+    const table = wrap.querySelector("table[id], table");
+    const id = table?.querySelector("tbody")?.id || table?.id;
+    if (id) addExportButton(wrap, id);
+  });
 });

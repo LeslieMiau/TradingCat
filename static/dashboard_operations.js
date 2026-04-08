@@ -80,136 +80,11 @@
     }
   }
 
-  function renderPriorityActions(state) {
-    const table = document.getElementById("priority-actions-table");
-    if (!table) {
-      return;
-    }
-
-    const details = state.summary?.details ?? {};
-    const tradingPlan = state.summary?.trading_plan ?? {};
-    const strategyActions = state.summary?.strategies?.next_actions ?? [];
-    const candidateActions = state.summary?.candidates?.next_actions ?? [];
-    const rebalanceRows = (state.rebalance?.rebalance_actions ?? []).filter((row) => row.action !== "hold");
-    const approvals = Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals : [];
-    const gateReasons = details.execution_gate?.reasons ?? [];
-
-    const actions = [];
-    gateReasons.forEach((item, index) => {
-      const gateReason = formatGateReason(item);
-      actions.push({
-        priority: index + 1,
-        type: "gate",
-        action: gateReason.type,
-        reason: gateReason.detail,
-      });
-    });
-    approvals.slice(0, 3).forEach((item) => {
-      actions.push({
-        priority: actions.length + 1,
-        type: "approval",
-        action: `Approve ${item.symbol}`,
-        reason: item.reason || `${item.market} / ${item.side}`,
-      });
-    });
-    rebalanceRows.slice(0, 3).forEach((item) => {
-      actions.push({
-        priority: actions.length + 1,
-        type: "rebalance",
-        action: `${item.action} ${item.symbol}`,
-        reason: `delta ${fmtPct(item.delta)}`,
-      });
-    });
-    [...strategyActions, ...candidateActions].slice(0, 4).forEach((item) => {
-      actions.push({
-        priority: actions.length + 1,
-        type: "research",
-        action: "Review strategy",
-        reason: item,
-      });
-    });
-
-    table.innerHTML = actions.length
-      ? actions.slice(0, 10).map((row) => `
-          <tr>
-            <td>${escapeHtml(String(row.priority))}</td>
-            <td><span class="badge status-${badgeTone(row.type === "gate" ? "blocked" : row.type === "approval" ? "warning" : row.type === "rebalance" ? "warning" : "ok")}">${escapeHtml(row.type)}</span></td>
-            <td>${escapeHtml(row.action)}</td>
-            <td>${escapeHtml(row.reason)}</td>
-          </tr>
-        `).join("")
-      : '<tr><td colspan="4" class="table-empty">当前没有需要优先处理的动作。</td></tr>';
-  }
-
-  function renderSummaries(state) {
-    const headlineEl = document.getElementById("journal-summary-headline");
-    const queueMetrics = document.getElementById("queue-metrics");
-    if (!headlineEl && !queueMetrics) {
-      return;
-    }
-
-    const daily = state.summary?.summaries?.daily ?? {};
-    const weekly = state.summary?.summaries?.weekly ?? {};
-    const details = state.summary?.details ?? {};
-    const acceptance = details.acceptance_progress ?? {};
-    const note = summaryNote(state);
-    const blockers = [
-      ...(details.execution_gate?.reasons ?? []).map(gateReasonText),
-      ...(details.live_acceptance?.blockers ?? []),
-      ...(acceptance.blockers ?? []),
-      ...(note.blockers ?? []),
-    ];
-    const actions = [
-      ...(state.summary?.strategies?.next_actions ?? []),
-      ...(daily.next_actions ?? []),
-      ...(weekly.next_actions ?? []),
-      ...(note.next_actions ?? []),
-    ];
-
-    if (headlineEl) {
-      headlineEl.textContent = note.headline ?? "暂无总结。";
-    }
-
-    const bodyParts = [
-      ...(note.highlights ?? []),
-      ...(note.blockers ?? []).map((item) => `阻塞: ${item}`),
-      ...(note.next_actions ?? []).map((item) => `下一步: ${item}`),
-    ];
-    const dailyItems = (note.highlights?.length ? note.highlights : daily.highlights ?? []).concat(bodyParts.length ? bodyParts : []);
-    const uniqueDaily = [...new Set(dailyItems)];
-    if (document.getElementById("daily-highlights")) {
-      setList("daily-highlights", uniqueDaily, "今日暂无摘要。");
-    }
-    if (document.getElementById("weekly-highlights")) {
-      setList("weekly-highlights", weekly.highlights ?? [], "本周暂无摘要。");
-    }
-    if (document.getElementById("blockers-list")) {
-      const mergedBlockers = [...blockers, ...actions.map((item) => `待处理: ${item}`)];
-      setList("blockers-list", mergedBlockers, "当前没有阻塞项或待处理动作。");
-    }
-    if (document.getElementById("global-incidents-list")) {
-      setList(
-        "global-incidents-list",
-        (state.incidents?.events ?? []).slice(0, 6).map((item) => `${item.occurred_at} / ${item.category} / ${item.label}`),
-        "最近没有关键事件。",
-      );
-    }
-
+  function renderExecutionQueue(state) {
     const rawApprovals = state.summary?.trading_plan?.pending_approvals;
     const approvals = Array.isArray(rawApprovals) ? rawApprovals : [];
     const recentOrders = state.summary?.details?.recent_orders ?? [];
-    const filledOrders = recentOrders.filter((item) => item.status === "filled").length;
-    const workingOrders = recentOrders.filter((item) => item.status && item.status !== "filled" && item.status !== "cancelled").length;
-    if (queueMetrics) {
-      queueMetrics.innerHTML = [
-        metricTile("待审批", fmt(approvals.length), "pending approval queue", approvals.length ? "warning" : "ok"),
-        metricTile("最近订单", fmt(recentOrders.length), "recent broker orders", recentOrders.length ? "ok" : "warning"),
-        metricTile("已成交", fmt(filledOrders), "filled recently", filledOrders ? "ok" : "warning"),
-        metricTile("处理中", fmt(workingOrders), "submitted / pending", workingOrders ? "warning" : "ok"),
-        metricTile("Clean 周", fmt(acceptance.current_clean_week_streak), `remaining ${fmt(acceptance.remaining_clean_weeks)}`, Number(acceptance.current_clean_week_streak || 0) >= 4 ? "ok" : "warning"),
-        metricTile("距门槛天数", fmt(acceptance.remaining_clean_days), acceptance.next_requirement?.explanation ?? "acceptance gate", Number(acceptance.remaining_clean_days || 0) === 0 ? "ok" : "warning"),
-      ].join("");
-    }
+
     if (document.getElementById("queue-approvals-list")) {
       setList(
         "queue-approvals-list",
@@ -233,16 +108,6 @@
           .map((item) => `${item.broker_order_id} / filled ${fmt(item.filled_quantity, 4)} / avg ${item.average_price == null ? "N/A" : money(item.average_price)}`),
         "当前没有最近成交单。",
       );
-    }
-    if (document.getElementById("probe-orders-list")) {
-      const probe = details.broker_order_check ?? {};
-      const probeItems = [];
-      if (probe.symbol || probe.broker_order_id || probe.submission_status || probe.cancellation_status) {
-        probeItems.push(
-          `${fmt(probe.symbol)} / ${fmt(probe.submission_status)} / ${fmt(probe.cancellation_status)} / order ${fmt(probe.broker_order_id)}`,
-        );
-      }
-      setList("probe-orders-list", probeItems, "当前没有最近验证单。");
     }
   }
 
@@ -300,8 +165,7 @@
     formatGateReason,
     gateReasonText,
     renderExecutionBlockers,
-    renderPriorityActions,
-    renderSummaries,
+    renderExecutionQueue,
     renderAlphaRadar,
     renderMacroCalendar,
   };

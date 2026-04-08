@@ -126,7 +126,7 @@
       fundTable.innerHTML = fundRows.length
         ? fundRows.map(([strategyId, notional]) => `
             <tr>
-              <td>${escapeHtml(strategyId)}</td>
+              <td><a href="/dashboard/strategies/${encodeURIComponent(strategyId)}">${escapeHtml(strategyId)}</a></td>
               <td>${escapeHtml(money(notional))}</td>
               <td>${escapeHtml(totalFund ? fmtPct(notional / totalFund) : "N/A")}</td>
               <td>${escapeHtml(fmt(planItems.filter((item) => item.strategy_id === strategyId).length))}</td>
@@ -444,7 +444,7 @@
         .map(
           (row) => `
             <tr>
-              <td>${escapeHtml(row.strategy_id)}</td>
+              <td><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></td>
               <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.market)}</span></td>
               <td>${escapeHtml(labelSide(row.side))}</td>
               <td>${escapeHtml(fmt(row.quantity, 4))}</td>

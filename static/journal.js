@@ -241,4 +241,38 @@ document.addEventListener("click", (event) => {
   }
 });
 
-refreshJournal();
+/* ── Journal generation buttons ── */
+document.getElementById("generate-plan")?.addEventListener("click", async () => {
+  const btn = document.getElementById("generate-plan");
+  btn.disabled = true; btn.textContent = "生成中...";
+  const res = await apiFetch(API.journalPlansGenerate, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account: journalState.account }),
+  });
+  btn.disabled = false; btn.textContent = "生成今日计划";
+  if (res.ok) { showToast("计划已生成", "success"); refreshJournal(); }
+  else showToast(res.error || "生成失败", "error");
+});
+
+document.getElementById("generate-summary")?.addEventListener("click", async () => {
+  const btn = document.getElementById("generate-summary");
+  btn.disabled = true; btn.textContent = "生成中...";
+  const res = await apiFetch(API.journalSummariesGenerate, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account: journalState.account }),
+  });
+  btn.disabled = false; btn.textContent = "生成今日总结";
+  if (res.ok) { showToast("总结已生成", "success"); refreshJournal(); }
+  else showToast(res.error || "生成失败", "error");
+});
+
+/* ── Init with auto-refresh and CSV export ── */
+refreshJournal().then(() => {
+  initAutoRefresh(() => refreshJournal(), 120);
+  document.querySelectorAll(".table-wrap").forEach((wrap) => {
+    const tbody = wrap.querySelector("tbody[id]");
+    if (tbody) addExportButton(wrap, tbody.id);
+  });
+});
