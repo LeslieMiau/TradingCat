@@ -340,11 +340,12 @@ class TradingCatApplication:
         return self.strategy_signal_provider.execution_signals_for_strategy(strategy, as_of)
 
     def _execution_signals_with_fallback(self, as_of: date) -> list[Signal]:
-        return self.strategy_signal_provider.execution_signals_with_fallback(
-            as_of,
-            strategy_ids=self.active_execution_strategy_ids(),
-            fallback_strategy_ids=self._default_execution_strategy_ids,
-        )
+        with self.market_history.local_history_only():
+            return self.strategy_signal_provider.execution_signals_with_fallback(
+                as_of,
+                strategy_ids=self.active_execution_strategy_ids(),
+                fallback_strategy_ids=self._default_execution_strategy_ids,
+            )
 
     def get_signals(self, as_of: date) -> list[Signal]:
         return self.strategy_signal_provider.execution_signals(
@@ -374,7 +375,7 @@ class TradingCatApplication:
         instruments = self._dedupe_instruments(signals)
         if not instruments:
             return {}
-        prices = self.market_history.fetch_quotes(instruments)
+        prices = self.market_history.fetch_quotes(instruments, fallback_to_synthetic=True)
         if not prices:
             logger.warning("No live prices available for current execution preview")
         return prices
@@ -404,7 +405,6 @@ class TradingCatApplication:
             weekly_pnl=snapshot.weekly_pnl,
             prices=prices,
             available_cash=snapshot.cash,
-            available_cash_by_market=self._available_cash_by_market(),
         )
         manual_count = sum(1 for intent in intents if intent.requires_approval)
         return {
@@ -1078,8 +1078,19 @@ class TradingCatApplication:
         algo_price_end: float | None = None,
     ) -> dict[str, object]:
         snapshot = self.portfolio.current_snapshot()
-        instrument = Instrument(symbol=symbol.upper(), market=Market(market), asset_class=AssetClass.STOCK)
-        price = self.market_history.fetch_quotes([instrument]).get(instrument.symbol)
+        normalized_symbol = symbol.upper()
+        requested_market = Market(market)
+        instrument = next(
+            (
+                candidate
+                for candidate in self.market_history.list_instruments(markets=[requested_market.value])
+                if candidate.symbol == normalized_symbol
+            ),
+            None,
+        )
+        if instrument is None:
+            instrument = Instrument(symbol=normalized_symbol, market=requested_market, asset_class=AssetClass.STOCK)
+        price = self.market_history.fetch_quotes([instrument], fallback_to_synthetic=True).get(instrument.symbol)
         if price is None or price <= 0:
             fallback_signal = Signal(
                 strategy_id="manual_trader",

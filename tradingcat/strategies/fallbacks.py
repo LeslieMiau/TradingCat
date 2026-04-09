@@ -30,7 +30,7 @@ def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]
         Signal(
             strategy_id=strategy_id,
             generated_at=datetime.combine(as_of, datetime.min.time()),
-            instrument=instruments[3],
+            instrument=instruments[5],
             side=OrderSide.BUY,
             target_weight=0.10,
             reason="A-share ETF selected for semi-automatic rotation sleeve",

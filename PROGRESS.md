@@ -91,3 +91,25 @@
   - `test_execution_run_endpoint`
 - Next active feature:
   - feature 6, restore reconciled order price-context fields on `/orders`
+
+## 2026-04-09 08:30:54 CST - Checkpoint after execution contract stabilization
+
+- Completed feature 6:
+  - Manual order submission now reuses the persisted instrument catalog before falling back to a generic stock instrument, so symbols like `SPY` keep their ETF metadata through the `/orders/manual` flow.
+  - `MarketDataService.fetch_quotes(..., fallback_to_synthetic=True)` now lets manual-order price registration fall back to deterministic synthetic quotes before risk-engine fallback prices, restoring `expected_price=100.0` and `reference_source=manual_order_reference` on reconciled `/orders` rows.
+- Completed feature 8:
+  - Execution preview/run now generate strategy signals inside `local_history_only()` so repeated safe-mode API calls no longer collapse under live history throttling.
+  - Execution preview now uses synthetic quote fallback for missing live quotes and stops constraining intent generation by volatile broker market-cash snapshots, leaving real buying-power issues to surface as `failed_orders` during submission instead of shrinking the API contract.
+  - Fallback ETF-rotation execution signals now use the real CN ETF sample (`510300`) instead of the stray `0700` stock placeholder, keeping the default execution sleeve inside risk limits.
+- Verification:
+  - `./.venv/bin/pytest tests/test_api.py -q -k 'test_orders_endpoint_exposes_expected_vs_realized_price_context or test_manual_fill_endpoint_returns_reconciliation_trace'`
+  - Result: `2 passed`
+  - `./.venv/bin/pytest tests/test_api.py -q -k 'test_execution_run_endpoint or test_execution_run_can_enforce_gate or test_orders_endpoint_exposes_expected_vs_realized_price_context'`
+  - Result: `3 passed`
+  - `./.venv/bin/pytest tests/test_api.py -q -k 'test_research_interfaces_expose_data_blockers or test_ops_evaluate_triggers_uses_real_rsi_series or test_ops_evaluate_triggers_uses_real_sma_series or test_orders_endpoint_exposes_expected_vs_realized_price_context or test_research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots or test_execution_run_endpoint'`
+  - Result: `6 passed`
+- Baseline status after this checkpoint:
+  - the original six failing API tests are now green
+  - remaining work can move from baseline restoration into market-awareness feature construction
+- Next active feature:
+  - feature 10, lock the benchmark basket and reference universe for the market-awareness posture engine

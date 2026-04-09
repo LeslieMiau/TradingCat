@@ -145,15 +145,22 @@ class MarketDataService:
     def get_instrument(self, symbol: str, strict: bool = True) -> Instrument | None:
         return self._resolve_instrument(symbol, strict=strict)
 
-    def fetch_quotes(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
+    def fetch_quotes(self, instruments_or_symbols: list[Instrument] | list[str], *, fallback_to_synthetic: bool = False) -> dict[str, float]:
         instruments = self._resolve_instruments(instruments_or_symbols)
         if not instruments:
             return {}
         try:
-            return self._adapter.fetch_quotes(instruments)
+            quotes = self._adapter.fetch_quotes(instruments)
         except Exception:
             logger.exception("Failed to fetch quotes", extra={"symbols": [instrument.symbol for instrument in instruments]})
-            return {}
+            quotes = {}
+        if not fallback_to_synthetic:
+            return quotes
+        missing = [instrument for instrument in instruments if instrument.symbol not in quotes or quotes[instrument.symbol] <= 0]
+        if not missing:
+            return quotes
+        synthetic_quotes = self._synthetic_adapter.fetch_quotes(missing)
+        return {**synthetic_quotes, **quotes}
 
     async def fetch_quotes_async(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
         return await asyncio.to_thread(self.fetch_quotes, instruments_or_symbols)
