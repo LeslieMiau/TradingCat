@@ -13,3 +13,4 @@ data/
 # Harness 临时文件（Codex/Claude Code 长期运行时生成）
 PLAN.json
 PROGRESS.md
+.harness/
