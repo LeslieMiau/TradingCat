@@ -39,3 +39,16 @@
   - `.harness/spec.md`
   - `.harness/status.json`
 
+## 2026-04-09 08:09:54 CST - Checkpoint after planning bootstrap
+
+- Marked the harness bootstrap feature complete:
+  - fresh `PLAN.json` exists with 60 immutable feature entries
+  - fresh `PROGRESS.md` exists with restored state and baseline findings
+  - initialization checkpoint commit created: `6756f77 harness: initialize market awareness plan`
+- Marked the baseline reproduction feature complete:
+  - `./.venv/bin/pytest tests/test_api.py -q` reproduced the failing set
+  - the failure list is now the entry gate before market-awareness feature work
+- Marked the market-awareness product-contract feature complete:
+  - `.harness/spec.md` now locks the advisory-only posture engine, new research endpoint shape, dashboard integration target, and delivery constraints
+- Next active feature:
+  - feature 3, stabilize research report / scorecard / strategy-detail generation when live Futu option-chain requests are throttled or quote rights are missing
