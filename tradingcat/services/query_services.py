@@ -347,31 +347,31 @@ class ResearchQueryService:
     def scorecard(self, as_of: date, *, include_candidates: bool) -> dict[str, object]:
         return self._strategy_analysis_getter().build_profit_scorecard(
             as_of,
-            self._strategy_signal_map(as_of, include_candidates=include_candidates),
+            self._strategy_signal_map(as_of, include_candidates=include_candidates, local_history_only=True),
         )
 
     def report(self, as_of: date) -> dict[str, object]:
         return self._strategy_analysis_getter().summarize_strategy_report(
             as_of,
-            self._strategy_signal_map(as_of),
+            self._strategy_signal_map(as_of, local_history_only=True),
         )
 
     def stability(self, as_of: date) -> dict[str, object]:
         return self._strategy_analysis_getter().summarize_strategy_stability(
             as_of,
-            self._strategy_signal_map(as_of),
+            self._strategy_signal_map(as_of, local_history_only=True),
         )
 
     def recommendations(self, as_of: date) -> dict[str, object]:
         return self._strategy_analysis_getter().recommend_strategy_actions(
             as_of,
-            self._strategy_signal_map(as_of, include_candidates=True),
+            self._strategy_signal_map(as_of, include_candidates=True, local_history_only=True),
         )
 
     def ideas(self, as_of: date) -> dict[str, object]:
         return self._research_getter().suggest_experiments(
             as_of,
-            self._strategy_signal_map(as_of),
+            self._strategy_signal_map(as_of, local_history_only=True),
         )
 
     def run_backtests(self, as_of: date) -> dict[str, object]:
@@ -388,11 +388,10 @@ class ResearchQueryService:
         return {"count": len(experiments), "experiments": experiments}
 
     def strategy_detail(self, strategy_id: str, as_of: date) -> dict[str, object]:
-        strategy = self._strategy_registry_getter().get(strategy_id)
         return self._strategy_analysis_getter().strategy_detail(
             strategy_id,
             as_of,
-            strategy.generate_signals(as_of),
+            self._strategy_signal_map(as_of, strategy_ids=[strategy_id], local_history_only=True).get(strategy_id, []),
         )
 
     async def asset_correlation(self, symbols: list[str], days: int) -> dict[str, object]:
@@ -406,9 +405,22 @@ class ResearchQueryService:
     def review_allocations(self, as_of: date) -> dict[str, object]:
         return self._review_strategy_allocations(as_of)
 
-    def _strategy_signal_map(self, as_of: date, *, include_candidates: bool = False) -> dict[str, object]:
-        strategy_ids = None if include_candidates else self._default_execution_strategy_ids_getter()
-        return self._strategy_signal_provider_getter().strategy_signal_map(as_of, strategy_ids=strategy_ids)
+    def _strategy_signal_map(
+        self,
+        as_of: date,
+        *,
+        include_candidates: bool = False,
+        strategy_ids: list[str] | None = None,
+        local_history_only: bool = False,
+    ) -> dict[str, object]:
+        resolved_strategy_ids = strategy_ids
+        if resolved_strategy_ids is None and not include_candidates:
+            resolved_strategy_ids = self._default_execution_strategy_ids_getter()
+        return self._strategy_signal_provider_getter().strategy_signal_map(
+            as_of,
+            strategy_ids=resolved_strategy_ids,
+            local_history_only=local_history_only,
+        )
 
 
 class DashboardQueryService:

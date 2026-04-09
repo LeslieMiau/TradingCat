@@ -52,3 +52,23 @@
   - `.harness/spec.md` now locks the advisory-only posture engine, new research endpoint shape, dashboard integration target, and delivery constraints
 - Next active feature:
   - feature 3, stabilize research report / scorecard / strategy-detail generation when live Futu option-chain requests are throttled or quote rights are missing
+
+## 2026-04-09 08:09:54 CST - Checkpoint after research-path stabilization
+
+- Completed feature 3:
+  - `ResearchQueryService` research endpoints now request signals through `local_history_only=True`, so report/scorecard/detail no longer force live option-chain reads during safe/test research flows.
+  - `MarketDataService.fetch_option_chain()` now returns a deterministic synthetic option chain inside local-history-only mode.
+  - `OptionHedgeStrategy.generate_signals()` now falls back safely instead of crashing when option-chain fetch fails.
+- Completed feature 7:
+  - `MarketDataService.ensure_history()` now backfills missing symbols with synthetic bars inside local-history-only mode, which lets research signal generation stay aligned with the persisted universe instead of reverting to sample instruments.
+  - Strategy detail and report signal-insight payloads now continue to expose `historical_*` signal sources and indicator snapshots for persisted symbols like `IVV`, `VOO`, and `AAPL`.
+- Verification:
+  - `./.venv/bin/pytest tests/test_api.py -q -k 'research_interfaces_expose_data_blockers or research_strategy_details_follow_persistent_universe_and_expose_indicator_snapshots'`
+  - Result: `2 passed`
+- Remaining baseline failures still open after this checkpoint:
+  - `test_ops_evaluate_triggers_uses_real_rsi_series`
+  - `test_ops_evaluate_triggers_uses_real_sma_series`
+  - `test_orders_endpoint_exposes_expected_vs_realized_price_context`
+  - `test_execution_run_endpoint`
+- Next active feature:
+  - feature 4 / 5, restore trigger evaluation so RSI and SMA use the synced real series instead of stale fallback values

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from datetime import date, datetime, timedelta
 from statistics import mean
@@ -21,6 +22,9 @@ from tradingcat.strategies.research_candidates import (
 
 if TYPE_CHECKING:
     from tradingcat.services.market_data import MarketDataService
+
+
+logger = logging.getLogger(__name__)
 
 
 STRATEGY_METADATA = {
@@ -335,7 +339,14 @@ class OptionHedgeStrategy(Strategy):
             return self._fallback_signal(as_of)
         defensive_window = realized_vol_20d >= 0.012 or drawdown_20d <= -0.03
         option_type = "put" if defensive_window else "call"
-        option_chain = self._market_data.fetch_option_chain(underlying.symbol, as_of, market=underlying.market.value)
+        try:
+            option_chain = self._market_data.fetch_option_chain(underlying.symbol, as_of, market=underlying.market.value)
+        except Exception:
+            logger.exception(
+                "Option overlay signal generation fell back after option-chain fetch failure",
+                extra={"strategy_id": self.strategy_id, "symbol": underlying.symbol},
+            )
+            return self._fallback_signal(as_of)
         contract = next((item for item in option_chain if item.option_type == option_type), None)
         if contract is None:
             return self._fallback_signal(as_of)

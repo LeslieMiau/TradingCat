@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import math
 
 from tradingcat.adapters.base import MarketDataAdapter
-from tradingcat.adapters.market import sample_instruments
+from tradingcat.adapters.market import StaticMarketDataAdapter, sample_instruments
 from tradingcat.domain.models import Bar, CorporateAction, FxRate, Instrument
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 
@@ -35,6 +35,7 @@ class MarketDataService:
         self._catalog = instruments.load()
         self._catalog_version = instruments.version_token()
         self._local_history_only_depth = 0
+        self._synthetic_adapter = StaticMarketDataAdapter()
         if not self._catalog:
             self.seed_catalog(sample_instruments())
 
@@ -162,6 +163,8 @@ class MarketDataService:
         normalized_market = None
         if market:
             normalized_market = next((item.market for item in self._catalog.values() if item.market.value == market.upper()), None)
+        if self._local_history_only_depth > 0:
+            return self._synthetic_adapter.fetch_option_chain(underlying, as_of, market=normalized_market)
         return self._adapter.fetch_option_chain(underlying, as_of, market=normalized_market)
 
     def fetch_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
@@ -606,7 +609,11 @@ class MarketDataService:
 
     def ensure_history(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
         if self._local_history_only_depth > 0:
-            return self.local_history_snapshot(symbols, start, end)
+            snapshot = self.local_history_snapshot(symbols, start, end)
+            missing_symbols = [symbol for symbol in symbols if symbol not in snapshot]
+            if missing_symbols:
+                snapshot.update(self._synthetic_history_snapshot(missing_symbols, start, end))
+            return snapshot
         return self._load_history(symbols, start, end, persist=True, fetch_missing=True)
 
     def history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
@@ -614,6 +621,15 @@ class MarketDataService:
 
     def local_history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
         return self._load_history(symbols, start, end, persist=False, fetch_missing=False)
+
+    def _synthetic_history_snapshot(self, symbols: list[str], start: date, end: date) -> dict[str, list[Bar]]:
+        synthetic: dict[str, list[Bar]] = {}
+        for symbol in symbols:
+            instrument = self._resolve_instrument(symbol, strict=False)
+            if instrument is None:
+                continue
+            synthetic[symbol] = self._synthetic_adapter.fetch_bars(instrument, start, end)
+        return synthetic
 
     def _load_history(
         self,
