@@ -15,6 +15,8 @@ from tradingcat.services.alpha_radar import AlphaRadarService
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.macro_calendar import MacroCalendarService
+from tradingcat.services.market_awareness import MarketAwarenessService
+from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
@@ -58,6 +60,7 @@ class ApplicationRuntime:
     research_ideas: Any
     alpha_radar: AlphaRadarService
     macro_calendar: MacroCalendarService
+    market_awareness: MarketAwarenessService
     rule_engine: RuleEngine
     strategy_registry: StrategyRegistry
     strategy_signal_provider: StrategySignalProvider
@@ -74,6 +77,7 @@ class ApplicationRuntime:
         order_repository: OrderRepository,
         execution_state_repository: ExecutionStateRepository,
         approvals: ApprovalService,
+        market_calendar: MarketCalendarService,
     ) -> "ApplicationRuntime":
         market_data_adapter = adapter_factory.create_market_data_adapter()
         live_broker = adapter_factory.create_live_broker_adapter()
@@ -96,6 +100,13 @@ class ApplicationRuntime:
         strategy_signal_provider = StrategySignalProvider(strategy_registry)
         alpha_radar = AlphaRadarService(config, market_history)
         macro_calendar = MacroCalendarService(config)
+        market_awareness = MarketAwarenessService(
+            config,
+            market_history,
+            market_calendar=market_calendar,
+            macro_calendar=macro_calendar,
+            alpha_radar=alpha_radar,
+        )
         rule_engine = RuleEngine(
             config,
             TriggerRepository(config),
@@ -114,6 +125,7 @@ class ApplicationRuntime:
             research_ideas=research.research_ideas,
             alpha_radar=alpha_radar,
             macro_calendar=macro_calendar,
+            market_awareness=market_awareness,
             rule_engine=rule_engine,
             strategy_registry=strategy_registry,
             strategy_signal_provider=strategy_signal_provider,
@@ -174,4 +186,5 @@ class ApplicationRuntimeManager:
             order_repository=self._app.order_repository,
             execution_state_repository=self._app.execution_state_repository,
             approvals=self._app.approvals,
+            market_calendar=self._app.market_calendar,
         )

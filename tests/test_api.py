@@ -105,6 +105,44 @@ def test_data_history_coverage_endpoint_exposes_summary_fields():
     assert "blockers" in payload
 
 
+def test_research_market_awareness_endpoints_expose_typed_payload():
+    reset_runtime_state(app_state)
+
+    get_response = client.get("/research/market-awareness", params={"as_of": "2026-03-08"})
+    post_response = client.post("/research/market-awareness/run", params={"as_of": "2026-03-08"})
+
+    for response in (get_response, post_response):
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["as_of"] == "2026-03-08"
+        assert "overall_regime" in payload
+        assert "confidence" in payload
+        assert "risk_posture" in payload
+        assert "overall_score" in payload
+        assert "market_views" in payload
+        assert "actions" in payload
+        assert "strategy_guidance" in payload
+        assert "data_quality" in payload
+        assert payload["market_views"][0]["benchmark_symbol"]
+
+
+def test_research_market_awareness_falls_back_to_degraded_payload_on_failure():
+    reset_runtime_state(app_state)
+    original_snapshot = app_state.market_awareness.snapshot
+    try:
+        app_state.market_awareness.snapshot = lambda as_of=None: (_ for _ in ()).throw(RuntimeError("snapshot failed"))
+
+        response = client.get("/research/market-awareness", params={"as_of": "2026-03-08"})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["data_quality"]["status"] == "degraded"
+        assert payload["data_quality"]["blockers"]
+        assert payload["actions"][0]["action_key"] == "respect_data_gaps"
+    finally:
+        app_state.market_awareness.snapshot = original_snapshot
+
+
 def test_data_history_sync_runs_expose_symbol_level_stats():
     sync = client.post(
         "/data/history/sync",
@@ -389,9 +427,13 @@ def test_research_read_endpoints_publish_response_models_in_openapi():
 
     report_schema = schema["paths"]["/research/report/run"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
     detail_schema = schema["paths"]["/research/strategies/{strategy_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    market_awareness_get_schema = schema["paths"]["/research/market-awareness"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    market_awareness_post_schema = schema["paths"]["/research/market-awareness/run"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
 
     assert report_schema["$ref"].endswith("/ResearchReportResponse")
     assert detail_schema["$ref"].endswith("/StrategyDetailResponse")
+    assert market_awareness_get_schema["$ref"].endswith("/MarketAwarenessResponse")
+    assert market_awareness_post_schema["$ref"].endswith("/MarketAwarenessResponse")
 
 
 def test_preflight_and_diagnostics_publish_response_models_in_openapi():
@@ -1612,11 +1654,20 @@ def test_dashboard_page_and_assets():
     research_page = client.get("/dashboard/research")
     assert research_page.status_code == 200
     assert "研究总览与策略筛选" in research_page.text
+    assert 'id="research-market-awareness-panel"' in research_page.text
+    assert 'id="research-market-awareness-evidence-table"' in research_page.text
+    assert "市场感知" in research_page.text
+    assert "市场感知证据" in research_page.text
     assert "当前权重" in research_page.text
     assert "研究结论 vs 今日计划 vs 当前持仓" in research_page.text
     assert "人工审批与最近动作" in research_page.text
     assert "策略链路时间线" in research_page.text
     assert "策略推进清单" in research_page.text
+
+    research_js = client.get("/static/research.js")
+    assert research_js.status_code == 200
+    assert "API.researchMarketAwareness" in research_js.text
+    assert "details?.market_awareness" in research_js.text
 
     operations_page = client.get("/dashboard/operations")
     assert operations_page.status_code == 200
@@ -1663,6 +1714,7 @@ def test_dashboard_summary_endpoint():
     assert "top_candidates" in payload["candidates"]
     assert "pending_approvals" in payload["trading_plan"]
     assert "recent_approvals" in payload["trading_plan"]
+    assert "market_awareness" in payload["trading_plan"]
     assert "latest_plan" in payload["journal"]
     assert "latest_summary" in payload["journal"]
     assert "recent_plans" in payload["journal"]
@@ -1671,12 +1723,16 @@ def test_dashboard_summary_endpoint():
     assert "weekly" in payload["summaries"]
     assert "live_acceptance" in payload["details"]
     assert "acceptance_progress" in payload["details"]
+    assert "market_awareness" in payload["details"]
     assert "recent_orders" in payload["details"]
     assert "label" in payload["accounts"]["total"]
     assert "nav" in payload["accounts"]["total"]
     assert "position_value" in payload["accounts"]["total"]
     assert "cash_weight" in payload["accounts"]["total"]
     assert "plan_items" in payload["accounts"]["total"]
+    assert "overall_regime" in payload["trading_plan"]["market_awareness"]
+    assert "overall_regime" in payload["details"]["market_awareness"]
+    assert "actions" in payload["details"]["market_awareness"]
     for item in payload["details"]["execution_gate"].get("reasons", []):
         assert "type" in item
         assert "detail" in item
@@ -1986,11 +2042,14 @@ def test_trading_journal_endpoints():
     generated_plan = client.post("/journal/plans/generate", params={"as_of": "2026-03-08"})
     assert generated_plan.status_code == 200
     assert "headline" in generated_plan.json()
+    assert "Market posture" in generated_plan.json()["headline"]
+    assert generated_plan.json()["metrics"]["market_awareness"]["overall_regime"]
 
-    latest_plan = client.get("/journal/plans/latest")
+    latest_plan = client.get("/journal/plans/latest", params={"as_of": "2026-03-08"})
     assert latest_plan.status_code == 200
     assert "status" in latest_plan.json()
     assert latest_plan.json()["account"] == "total"
+    assert latest_plan.json()["metrics"]["market_awareness"]["risk_posture"]
 
     cn_plan = client.get("/journal/plans/latest", params={"account": "CN", "as_of": "2026-03-08"})
     assert cn_plan.status_code == 200

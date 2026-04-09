@@ -57,10 +57,12 @@ def test_dashboard_facade_sub_builders_are_independently_exercisable():
         plan_items,
         {"pending": [{"id": "approval-1"}], "recent": [{"id": "approval-0"}]},
         {"ready": True, "should_block": False, "policy_stage": "simulate"},
+        {"overall_regime": "caution", "risk_posture": "hold_pace"},
     )
     assert trading_plan["signal_count"] == 2
     assert trading_plan["automated_count"] == 1
     assert trading_plan["pending_approvals"][0]["id"] == "approval-1"
+    assert trading_plan["market_awareness"]["overall_regime"] == "caution"
 
     summary_note = _DummyNote(
         headline="今日总结",
@@ -85,6 +87,7 @@ def test_dashboard_facade_sub_builders_are_independently_exercisable():
             "rollout": {"current_recommendation": "simulate", "blockers": ["waiting"]},
             "operations": {"ready": False},
             "data_quality": {"ready": False},
+            "market_awareness": {"overall_regime": "neutral", "actions": []},
             "recent_orders": [{"broker_order_id": "order-1"}],
         },
     )
@@ -176,6 +179,7 @@ def test_dashboard_facade_build_summary_delegates_dashboard_reads_to_query_servi
                     "rollout": {"current_recommendation": "simulate", "blockers": ["need more evidence"]},
                     "operations": {"ready": False},
                     "data_quality": {"ready": False},
+                    "market_awareness": {"overall_regime": "neutral", "actions": []},
                     "recent_orders": [{"broker_order_id": "order-1"}],
                     "candidate_scorecard": {
                         "rows": [
@@ -202,6 +206,7 @@ def test_dashboard_facade_build_summary_delegates_dashboard_reads_to_query_servi
         assert payload.details["recent_orders"][0]["broker_order_id"] == "order-1"
         assert payload.summaries["daily"]["highlights"] == ["daily"]
         assert payload.strategies["blocked_by_data_count"] == 1
+        assert payload.trading_plan["market_awareness"]["overall_regime"] == "neutral"
     finally:
         app_state.dashboard_queries = original_dashboard_queries
         app_state.execution_gate_summary = original_execution_gate_summary

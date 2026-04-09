@@ -4,6 +4,129 @@ const state = {
   strategyDetailCache: {},
 };
 
+function marketAwarenessTone(value) {
+  if (["bullish", "build_risk", "supportive", "high", "complete"].includes(value)) return "ok";
+  if (["neutral", "caution", "hold_pace", "mixed", "medium", "degraded", "hedged"].includes(value)) return "warning";
+  if (["risk_off", "pause_new_adds", "reduce_risk", "blocked", "low", "fallback", "defensive"].includes(value)) return "blocked";
+  return "empty";
+}
+
+function marketAwarenessSnapshot(payload) {
+  return payload.marketAwareness || payload.dashboard?.details?.market_awareness || null;
+}
+
+function renderMarketAwareness(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-market-awareness-note");
+  const metricsEl = document.getElementById("research-market-awareness-metrics");
+  const badgesEl = document.getElementById("research-market-awareness-badges");
+  const actionsEl = document.getElementById("research-market-awareness-actions");
+  const guidanceEl = document.getElementById("research-market-awareness-guidance");
+  const blockersEl = document.getElementById("research-market-awareness-blockers");
+  const cardsEl = document.getElementById("research-market-awareness-market-cards");
+  const evidenceEl = document.getElementById("research-market-awareness-evidence-table");
+  if (!noteEl || !metricsEl || !badgesEl || !actionsEl || !guidanceEl || !blockersEl || !cardsEl || !evidenceEl) {
+    return;
+  }
+
+  const snapshot = marketAwarenessSnapshot(payload);
+  const dataQuality = snapshot?.data_quality ?? {};
+  const marketViews = Array.isArray(snapshot?.market_views) ? snapshot.market_views : [];
+  const actions = Array.isArray(snapshot?.actions) ? snapshot.actions : [];
+  const guidanceRows = Array.isArray(snapshot?.strategy_guidance) ? snapshot.strategy_guidance : [];
+  const blockers = [
+    `数据状态: ${dataQuality.status || (snapshot ? "unknown" : "missing")}`,
+    ...(dataQuality.degraded ? ["当前结果为降级输出，先把它当作节奏参考。"] : []),
+    ...(dataQuality.fallback_driven ? ["部分证据来自 fallback 路径，置信度需要保守看待。"] : []),
+    ...((dataQuality.blockers || []).map((item) => `阻塞: ${item}`)),
+    ...((dataQuality.missing_symbols || []).slice(0, 5).map((item) => `缺失标的: ${item}`)),
+    ...((dataQuality.adapter_limitations || []).slice(0, 5).map((item) => `适配器限制: ${item}`)),
+  ];
+
+  if (!snapshot || errorMessage) {
+    noteEl.textContent = errorMessage || "市场感知暂不可用";
+    metricsEl.innerHTML = [
+      metricTile("Regime", "Unavailable", "market awareness missing", "blocked"),
+      metricTile("Confidence", "N/A", "waiting for snapshot", "empty"),
+      metricTile("Posture", "N/A", "no operator guidance", "empty"),
+      metricTile("Data", errorMessage ? "error" : "missing", errorMessage || "snapshot unavailable", "blocked"),
+    ].join("");
+    badgesEl.innerHTML = '<span class="detail-empty">当前没有可用的市场感知摘要。</span>';
+    setList("research-market-awareness-actions", [], errorMessage || "当前没有可用动作建议。");
+    setList("research-market-awareness-guidance", [], errorMessage || "当前没有可用策略建议。");
+    setList("research-market-awareness-blockers", blockers, errorMessage || "当前没有可用数据状态。");
+    cardsEl.innerHTML = '<article class="detail-card"><span class="detail-empty">当前没有市场视角卡片。</span></article>';
+    evidenceEl.innerHTML = '<tr><td colspan="5" class="table-empty">当前没有市场感知证据。</td></tr>';
+    return;
+  }
+
+  noteEl.textContent = `截至 ${snapshot.as_of}，仅作仓位与节奏建议，不会自动下单`;
+  metricsEl.innerHTML = [
+    metricTile("Regime", snapshot.overall_regime || "N/A", `score ${fmt(snapshot.overall_score)}`, marketAwarenessTone(snapshot.overall_regime)),
+    metricTile("Confidence", snapshot.confidence || "N/A", `markets ${fmt(marketViews.length)}`, marketAwarenessTone(snapshot.confidence)),
+    metricTile("Posture", snapshot.risk_posture || "N/A", "operator pace", marketAwarenessTone(snapshot.risk_posture)),
+    metricTile("Data", dataQuality.status || "unknown", dataQuality.degraded ? "degraded snapshot" : "snapshot ready", marketAwarenessTone(dataQuality.status)),
+  ].join("");
+  badgesEl.innerHTML = [
+    `<span class="badge status-${marketAwarenessTone(snapshot.overall_regime)}">${escapeHtml(snapshot.overall_regime || "N/A")}</span>`,
+    `<span class="badge status-${marketAwarenessTone(snapshot.confidence)}">${escapeHtml(snapshot.confidence || "N/A")} confidence</span>`,
+    `<span class="badge status-${marketAwarenessTone(snapshot.risk_posture)}">${escapeHtml(snapshot.risk_posture || "N/A")}</span>`,
+  ].join("");
+  setList(
+    "research-market-awareness-actions",
+    actions.map((item) => `${item.text} (${item.rationale})`),
+    "当前没有新增操作建议。",
+  );
+  setList(
+    "research-market-awareness-guidance",
+    guidanceRows.map((item) => `${item.strategy_id}: ${item.stance} - ${item.summary}`),
+    "当前没有策略级建议。",
+  );
+  setList(
+    "research-market-awareness-blockers",
+    blockers.length ? blockers : ["市场感知数据完整，可直接作为计划参考。"],
+    "市场感知数据完整，可直接作为计划参考。",
+  );
+
+  cardsEl.innerHTML = marketViews.length
+    ? marketViews.map((view) => `
+        <article class="detail-card">
+          <h3>${escapeHtml(view.market)} / ${escapeHtml(view.benchmark_symbol)}</h3>
+          <div class="tag-row">
+            <span class="badge status-${marketAwarenessTone(view.regime)}">${escapeHtml(view.regime)}</span>
+            <span class="badge status-${marketAwarenessTone(view.confidence)}">${escapeHtml(view.confidence)}</span>
+            <span class="badge status-${marketAwarenessTone(view.risk_posture)}">${escapeHtml(view.risk_posture)}</span>
+          </div>
+          <ul class="detail-list">
+            <li>breadth: ${escapeHtml(fmtPct(view.breadth_ratio))}</li>
+            <li>momentum 21d: ${escapeHtml(fmtPct(view.momentum_21d))}</li>
+            <li>drawdown 20d: ${escapeHtml(fmtPct(view.drawdown_20d))}</li>
+            <li>vol 20d: ${escapeHtml(fmtPct(view.realized_volatility_20d))}</li>
+          </ul>
+        </article>
+      `).join("")
+    : '<article class="detail-card"><span class="detail-empty">当前没有逐市场视角。</span></article>';
+
+  const evidenceRows = marketViews.flatMap((view) => (view.evidence || []).map((row) => ({
+    market: row.market || view.market,
+    label: row.label,
+    status: row.status,
+    value: row.value,
+    unit: row.unit,
+    explanation: row.explanation,
+  })));
+  evidenceEl.innerHTML = evidenceRows.length
+    ? evidenceRows.map((row) => `
+        <tr>
+          <td><strong>${escapeHtml(row.market)}</strong></td>
+          <td>${escapeHtml(row.label)}</td>
+          <td><span class="badge status-${marketAwarenessTone(row.status)}">${escapeHtml(row.status)}</span></td>
+          <td>${escapeHtml(row.unit === "ratio" ? fmtPct(row.value) : fmt(row.value))}</td>
+          <td>${escapeHtml(row.explanation)}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="5" class="table-empty">当前没有市场感知证据。</td></tr>';
+}
+
 function renderCorrelationMatrix(matrix) {
   const head = document.getElementById("research-correlation-head");
   const body = document.getElementById("research-correlation-table");
@@ -390,11 +513,19 @@ async function loadPayloads() {
     }),
   ]);
   if (!dashboardRes.ok) throw new Error(dashboardRes.error);
+  let marketAwareness = dashboardRes.data?.details?.market_awareness ?? null;
+  if (!marketAwareness?.overall_regime) {
+    const marketAwarenessRes = await apiFetch(API.researchMarketAwareness);
+    if (marketAwarenessRes.ok) {
+      marketAwareness = marketAwarenessRes.data;
+    }
+  }
   return {
     dashboard: dashboardRes.data,
     active: activeRes.data ?? {},
     candidates: candidateRes.data ?? {},
     assetCorrelations: assetCorrRes.data ?? {},
+    marketAwareness,
   };
 }
 
@@ -414,6 +545,7 @@ function renderResearch(payload) {
   const rejectRows = filteredRejectRows(payload.candidates?.reject_summary ?? []);
 
   renderFilterTabs();
+  renderMarketAwareness(payload);
 
   document.getElementById("research-updated").textContent = `Updated ${new Date().toLocaleString()}`;
   document.getElementById("research-overview-metrics").innerHTML = [
@@ -501,6 +633,7 @@ async function refreshResearch() {
     renderImpact(detail);
   } catch (error) {
     document.getElementById("research-overview-metrics").innerHTML = metricTile("Research Error", "Unavailable", error.message, "blocked");
+    renderMarketAwareness({}, error.message);
     renderImpact(null);
   }
 }

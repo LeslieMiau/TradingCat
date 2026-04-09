@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Request
 
 from tradingcat.api.schemas import AssetCorrelationPayload, ResearchNewsSummaryPayload
-from tradingcat.api.view_models import ResearchReportResponse, ResearchScorecardResponse, StrategyDetailResponse
+from tradingcat.api.view_models import MarketAwarenessResponse, ResearchReportResponse, ResearchScorecardResponse, StrategyDetailResponse
 from tradingcat.routes.common import get_app_state
 
 
@@ -75,6 +75,13 @@ def research_candidates_scorecard(request: Request, as_of: date | None = None):
 def research_recommendations_run(request: Request, as_of: date | None = None):
     app = get_app_state(request)
     return app.research_facade.recommendations(as_of or date.today())
+
+
+@router.get("/market-awareness", response_model=MarketAwarenessResponse)
+@router.post("/market-awareness/run", response_model=MarketAwarenessResponse)
+def research_market_awareness(request: Request, as_of: date | None = None):
+    app = get_app_state(request)
+    return app.research_facade.market_awareness(as_of or date.today())
 
 
 @router.post("/ideas/run")

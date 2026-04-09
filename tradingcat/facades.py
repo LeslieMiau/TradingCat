@@ -11,6 +11,7 @@ from tradingcat.api.view_models import (
     DataQualityResponse,
     DiagnosticsSummaryView,
     DashboardSummaryResponse,
+    MarketAwarenessResponse,
     OperationsReadinessResponse,
     PlanItemView,
     PositionView,
@@ -62,7 +63,13 @@ class DashboardFacade:
             accounts=self._accounts(snapshot, plan_items),
             strategies=self._strategies(candidate_scorecard, dashboard_context),
             candidates=self._candidate_summary(candidate_scorecard),
-            trading_plan=self._trading_plan_summary(plan_note, plan_items, approvals, gate),
+            trading_plan=self._trading_plan_summary(
+                plan_note,
+                plan_items,
+                approvals,
+                gate,
+                dashboard_context.get("market_awareness", {}),
+            ),
             journal=self._journal_summary(plan_note, summary_note),
             summaries=self._summaries_summary(plan_note, summary_note, dashboard_context["daily_report"], dashboard_context["weekly_report"]),
             details=self._details_summary(gate, dashboard_context),
@@ -118,7 +125,13 @@ class DashboardFacade:
         plan_items: list[PlanItemView],
         approvals: dict[str, list[dict[str, object]]],
         gate: dict[str, object],
+        market_awareness_snapshot: dict[str, object] | None = None,
     ) -> dict[str, object]:
+        raw_metrics = getattr(plan_note, "metrics", {})
+        metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+        market_awareness = metrics.get("market_awareness") if isinstance(metrics, dict) else None
+        if not isinstance(market_awareness, dict) or not market_awareness:
+            market_awareness = market_awareness_snapshot if isinstance(market_awareness_snapshot, dict) else {}
         return {
             "status": plan_note.status,
             "headline": plan_note.headline,
@@ -132,6 +145,7 @@ class DashboardFacade:
             "pending_approvals": approvals["pending"],
             "recent_approvals": approvals["recent"],
             "gate": gate,
+            "market_awareness": market_awareness,
         }
 
     def _journal_summary(self, plan_note, summary_note) -> dict[str, object]:
@@ -172,6 +186,7 @@ class DashboardFacade:
             "live_acceptance": live_acceptance,
             "acceptance_progress": acceptance_progress,
             "data_quality": dashboard_context["data_quality"],
+            "market_awareness": dashboard_context.get("market_awareness", {}),
             "operations": dashboard_context["operations"],
             "recent_orders": dashboard_context["recent_orders"],
             "broker_order_check": {},
@@ -387,6 +402,9 @@ class ResearchFacade:
 
     def review_allocations(self, as_of: date) -> dict[str, object]:
         return self._app.research_queries.review_allocations(as_of)
+
+    def market_awareness(self, as_of: date) -> MarketAwarenessResponse:
+        return MarketAwarenessResponse.model_validate(self._app.research_queries.market_awareness(as_of))
 
 
 class OperationsFacade:

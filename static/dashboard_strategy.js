@@ -389,6 +389,7 @@
     const plan = planNote(state);
     const account = global.DashboardAccounts?.accountData(state) ?? {};
     const gate = tradingPlan.gate ?? {};
+    const marketAwareness = tradingPlan.market_awareness ?? {};
     const rows = account.plan_items ?? [];
     metricsEl.innerHTML = [
       metricTile("Signals", fmt(tradingPlan.signal_count), `Intents ${fmt(tradingPlan.intent_count)}`, "ok"),
@@ -408,6 +409,8 @@
           `今日计划数: ${fmt(rows.length)}`,
           `待审批: ${fmt(Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals.length : tradingPlan.pending_approvals ?? 0)}`,
           `Gate ready: ${fmt(gate.ready)}`,
+          `市场姿态: ${marketAwareness.overall_regime ?? "N/A"}`,
+          `操作节奏: ${marketAwareness.risk_posture ?? "N/A"}`,
           `信号数: ${fmt(plan.counts?.signal_count)}`,
           `自动 / 手工: ${fmt(plan.counts?.automated_count)} / ${fmt(plan.counts?.manual_count)}`,
         ],
@@ -416,6 +419,16 @@
     }
 
     const planBody = [];
+    if (marketAwareness.overall_regime) {
+      planBody.push(
+        `市场感知：${marketAwareness.overall_regime} / ${marketAwareness.risk_posture ?? "N/A"} / ${marketAwareness.confidence ?? "N/A"}。`,
+      );
+      (marketAwareness.actions ?? []).slice(0, 2).forEach((item) => {
+        if (item?.text) {
+          planBody.push(`市场建议：${item.text}`);
+        }
+      });
+    }
     (plan.reasons ?? []).forEach((item) => planBody.push(`原因：${item}`));
     (plan.items ?? []).slice(0, 5).forEach((item) => {
       const side = item.side === "buy" ? "买入" : item.side === "sell" ? "卖出" : "未知";

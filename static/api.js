@@ -52,6 +52,7 @@ const API = {
   researchScorecard: "/research/scorecard/run",
   researchCandidatesScorecard: "/research/candidates/scorecard",
   researchCorrelation: "/research/correlation",
+  researchMarketAwareness: "/research/market-awareness",
   researchAlphaRadar: (count = 15) => `/research/alpha-radar?count=${encodeURIComponent(count)}`,
   researchMacroCalendar: (days = 7) => `/research/macro-calendar?days=${encodeURIComponent(days)}`,
 

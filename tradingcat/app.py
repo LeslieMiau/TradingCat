@@ -167,6 +167,7 @@ class TradingCatApplication:
             operations_execution_readiness=self.operations_analytics.execution_readiness,
         )
         self.research_queries = ResearchQueryService(
+            market_awareness_getter=lambda: self.market_awareness,
             strategy_signal_provider_getter=lambda: self._require_runtime().strategy_signal_provider,
             strategy_analysis_getter=lambda: self.strategy_analysis,
             strategy_registry_getter=lambda: self._require_runtime().strategy_registry,
@@ -176,6 +177,7 @@ class TradingCatApplication:
             review_strategy_allocations=self.review_strategy_allocations,
         )
         self.dashboard_queries = DashboardQueryService(
+            market_awareness_getter=lambda: self.market_awareness,
             execution_gate_summary=self.execution_gate_summary,
             operations_period_report=self.operations_period_report,
             live_acceptance_summary=lambda as_of: self.live_acceptance_summary(as_of),
@@ -214,6 +216,10 @@ class TradingCatApplication:
     @property
     def market_history(self) -> MarketDataService:
         return self._require_runtime().market_history
+
+    @property
+    def market_awareness(self):
+        return self._require_runtime().market_awareness
 
     @property
     def execution(self) -> ExecutionService:
@@ -602,13 +608,40 @@ class TradingCatApplication:
             )
         return items
 
+    @staticmethod
+    def _plan_reason_text(reason: object) -> str:
+        if isinstance(reason, str):
+            return reason
+        if isinstance(reason, dict):
+            reason_type = str(reason.get("type") or "gate")
+            detail = str(reason.get("detail") or "").strip()
+            return f"{reason_type}: {detail}" if detail else reason_type
+        return str(reason)
+
     def generate_daily_trading_plan(self, as_of: date, account: str = "total") -> DailyTradingPlanNote:
         try:
             preview = self.preview_execution(as_of)
             gate = self.execution_gate_summary(as_of)
+            market_awareness = self.research_queries.market_awareness(as_of)
+            posture_line = (
+                f"Market posture {market_awareness.get('overall_regime', 'unknown')} / "
+                f"{market_awareness.get('risk_posture', 'hold_pace')} / "
+                f"{market_awareness.get('confidence', 'low')} confidence."
+            )
             status = "planned" if not gate["should_block"] else "blocked"
-            headline = f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals."
-            reasons = list(gate["reasons"]) if gate["should_block"] else ["Execution gate is open for the current preview."]
+            headline = f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals. {posture_line}"
+            reasons = (
+                [self._plan_reason_text(reason) for reason in gate["reasons"]]
+                if gate["should_block"]
+                else ["Execution gate is open for the current preview."]
+            )
+            reasons.append(posture_line)
+            reasons.extend(
+                f"Market cue: {action.get('text')}"
+                for action in list(market_awareness.get("actions", []))[:2]
+                if isinstance(action, dict) and action.get("text")
+            )
+            reasons = list(dict.fromkeys(reason for reason in reasons if reason))
             items = self._build_plan_items_from_preview(preview)
             note = DailyTradingPlanNote(
                 as_of=as_of,
@@ -622,7 +655,7 @@ class TradingCatApplication:
                     "manual_count": int(preview["manual_count"]),
                     "automated_count": int(preview["intent_count"]) - int(preview["manual_count"]),
                 },
-                metrics={"gate": gate},
+                metrics={"gate": gate, "market_awareness": market_awareness},
                 items=items,
             )
         except RiskViolation as exc:

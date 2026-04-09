@@ -6,11 +6,68 @@ from datetime import date, timedelta
 from typing import Any
 
 from tradingcat.config import AppConfig
+from tradingcat.domain.models import (
+    MarketAwarenessActionItem,
+    MarketAwarenessActionSeverity,
+    MarketAwarenessConfidence,
+    MarketAwarenessDataQuality,
+    MarketAwarenessDataStatus,
+    MarketAwarenessEvidenceRow,
+    MarketAwarenessRegime,
+    MarketAwarenessRiskPosture,
+    MarketAwarenessSignalStatus,
+    MarketAwarenessSnapshot,
+)
 from tradingcat.services.preflight import build_startup_preflight, summarize_validation_diagnostics
 from tradingcat.services.reporting import latest_report_dir
 
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_market_awareness_snapshot(
+    snapshot_getter: Callable[[], Any],
+    as_of: date,
+) -> dict[str, object]:
+    try:
+        return snapshot_getter().snapshot(as_of).model_dump(mode="json")
+    except Exception:
+        logger.exception("Market awareness snapshot generation failed", extra={"as_of": as_of.isoformat()})
+        return MarketAwarenessSnapshot(
+            as_of=as_of,
+            overall_regime=MarketAwarenessRegime.CAUTION,
+            confidence=MarketAwarenessConfidence.LOW,
+            risk_posture=MarketAwarenessRiskPosture.HOLD_PACE,
+            overall_score=0.0,
+            evidence=[
+                MarketAwarenessEvidenceRow(
+                    market="overall",
+                    signal_key="market_awareness_failure",
+                    label="Market awareness",
+                    status=MarketAwarenessSignalStatus.BLOCKED,
+                    value=None,
+                    unit=None,
+                    explanation="Market-awareness snapshot generation failed, so the response was downgraded.",
+                )
+            ],
+            actions=[
+                MarketAwarenessActionItem(
+                    severity=MarketAwarenessActionSeverity.MEDIUM,
+                    action_key="respect_data_gaps",
+                    text="Treat this snapshot as conservative guidance until the market-awareness pipeline recovers.",
+                    rationale="The market-awareness service failed and returned a degraded fallback payload.",
+                )
+            ],
+            strategy_guidance=[],
+            data_quality=MarketAwarenessDataQuality(
+                status=MarketAwarenessDataStatus.DEGRADED,
+                complete=False,
+                degraded=True,
+                fallback_driven=False,
+                adapter_limitations=["market_awareness_snapshot_failed"],
+                blockers=["Market-awareness snapshot generation failed."],
+            ),
+        ).model_dump(mode="json")
 
 
 class DataQualityQueryService:
@@ -328,6 +385,7 @@ class ResearchQueryService:
     def __init__(
         self,
         *,
+        market_awareness_getter: Callable[[], Any],
         strategy_signal_provider_getter: Callable[[], Any],
         strategy_analysis_getter: Callable[[], Any],
         strategy_registry_getter: Callable[[], Any],
@@ -336,6 +394,7 @@ class ResearchQueryService:
         review_strategy_selections: Callable[[date], dict[str, object]],
         review_strategy_allocations: Callable[[date], dict[str, object]],
     ) -> None:
+        self._market_awareness_getter = market_awareness_getter
         self._strategy_signal_provider_getter = strategy_signal_provider_getter
         self._strategy_analysis_getter = strategy_analysis_getter
         self._strategy_registry_getter = strategy_registry_getter
@@ -405,6 +464,9 @@ class ResearchQueryService:
     def review_allocations(self, as_of: date) -> dict[str, object]:
         return self._review_strategy_allocations(as_of)
 
+    def market_awareness(self, as_of: date) -> dict[str, object]:
+        return _safe_market_awareness_snapshot(self._market_awareness_getter, as_of)
+
     def _strategy_signal_map(
         self,
         as_of: date,
@@ -427,6 +489,7 @@ class DashboardQueryService:
     def __init__(
         self,
         *,
+        market_awareness_getter: Callable[[], Any],
         execution_gate_summary: Callable[[date], dict[str, object]],
         operations_period_report: Callable[[int, str], dict[str, object]],
         live_acceptance_summary: Callable[[date], dict[str, object]],
@@ -441,6 +504,7 @@ class DashboardQueryService:
         resolve_intent_context: Callable[[str | None], dict[str, object] | None],
         resolve_price_context: Callable[[str | None], dict[str, object]],
     ) -> None:
+        self._market_awareness_getter = market_awareness_getter
         self._execution_gate_summary = execution_gate_summary
         self._operations_period_report = operations_period_report
         self._live_acceptance_summary = live_acceptance_summary
@@ -469,6 +533,7 @@ class DashboardQueryService:
             "active_strategy_ids": self._active_execution_strategy_ids_getter(),
             "selection_summary": self._selection_summary(),
             "allocation_summary": self._allocation_summary(),
+            "market_awareness": _safe_market_awareness_snapshot(self._market_awareness_getter, evaluation_date),
         }
 
     def recent_orders(self, limit: int = 20) -> list[dict[str, object]]:
