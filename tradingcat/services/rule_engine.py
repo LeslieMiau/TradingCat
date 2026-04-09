@@ -247,7 +247,8 @@ class RuleEngine:
     def _recent_closes(self, *, symbol: str, market: Market, lookback_days: int) -> list[float]:
         end = date.today()
         start = end - timedelta(days=lookback_days)
-        bars = self._market_data.ensure_history([symbol], start, end).get(symbol, [])
+        with self._market_data.local_history_only():
+            bars = self._market_data.ensure_history([symbol], start, end).get(symbol, [])
         ordered = sorted(
             bars,
             key=lambda item: (

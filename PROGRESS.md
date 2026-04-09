@@ -72,3 +72,22 @@
   - `test_execution_run_endpoint`
 - Next active feature:
   - feature 4 / 5, restore trigger evaluation so RSI and SMA use the synced real series instead of stale fallback values
+
+## 2026-04-09 08:21:54 CST - Checkpoint after trigger-series restoration
+
+- Completed feature 4:
+  - `RuleEngine._recent_closes()` now evaluates indicator series inside `MarketDataService.local_history_only()`, so trigger evaluation prefers synced local history and deterministic fallback bars before any live-adapter path.
+  - `/ops/evaluate-triggers` now reads the real `RSI_14` series for `SPY` during safe-mode tests instead of returning a stale fallback observation with `data_ready=false`.
+- Completed feature 5:
+  - The same indicator-history fix restores `SMA_10` evaluation for trigger checks, so RSI and SMA use the same local-history-first path and stay consistent with the synced benchmark bars.
+  - Missing-symbol behavior remains intact: unknown symbols still return `indicator_data_missing` rather than falsely passing trigger conditions.
+- Verification:
+  - `./.venv/bin/pytest tests/test_rule_engine.py -q -k 'rsi or sma or data_missing'`
+  - Result: `5 passed`
+  - `./.venv/bin/pytest tests/test_api.py -q -k 'test_ops_evaluate_triggers_uses_real_rsi_series or test_ops_evaluate_triggers_uses_real_sma_series or test_ops_evaluate_triggers_marks_indicator_data_missing'`
+  - Result: `3 passed`
+- Remaining baseline failures still open after this checkpoint:
+  - `test_orders_endpoint_exposes_expected_vs_realized_price_context`
+  - `test_execution_run_endpoint`
+- Next active feature:
+  - feature 6, restore reconciled order price-context fields on `/orders`
