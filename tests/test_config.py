@@ -17,6 +17,12 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_PARQUET_DIR", str(tmp_path / "parquet"))
     monkeypatch.setenv("TRADINGCAT_SCHEDULER_BACKEND", "lightweight")
     monkeypatch.setenv("TRADINGCAT_SCHEDULER_AUTOSTART", "false")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_US_BENCHMARKS", "SPY, DIA")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_CROSS_ASSET_REFERENCES", "TLT, GLD")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_SHORT_TREND_WINDOW", "15")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_BREADTH_SUPPORT_RATIO", "0.6")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_STRESS_THRESHOLD", "0.04")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_OVERLAY_WEIGHT", "0.08")
 
     config = AppConfig.from_env()
 
@@ -33,6 +39,12 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.duckdb.parquet_dir == tmp_path / "parquet"
     assert config.scheduler.backend == "lightweight"
     assert config.scheduler.autostart is False
+    assert config.market_awareness.us_benchmark_symbols == ["SPY", "DIA"]
+    assert config.market_awareness.cross_asset_reference_symbols == ["TLT", "GLD"]
+    assert config.market_awareness.short_trend_window == 15
+    assert config.market_awareness.breadth_support_ratio == 0.6
+    assert config.market_awareness.volatility_stress_threshold == 0.04
+    assert config.market_awareness.overlay_weight == 0.08
 
 
 def test_app_config_loads_from_dotenv(monkeypatch, tmp_path):
@@ -73,3 +85,16 @@ def test_app_config_loads_from_dotenv(monkeypatch, tmp_path):
     assert config.scheduler.backend == "apscheduler"
     assert config.scheduler.autostart is True
     assert config.smoke_symbols == ["0700", "AAPL"]
+
+
+def test_app_config_market_awareness_defaults():
+    config = AppConfig()
+
+    assert config.market_awareness.short_trend_window == 20
+    assert config.market_awareness.medium_trend_window == 50
+    assert config.market_awareness.long_trend_window == 200
+    assert config.market_awareness.us_benchmark_symbols == ["SPY", "QQQ", "VTI"]
+    assert config.market_awareness.hk_benchmark_symbols == ["0700", "9988"]
+    assert config.market_awareness.cn_benchmark_symbols == ["510300", "159915"]
+    assert config.market_awareness.cross_asset_reference_symbols == ["TLT", "IEF", "GLD", "GSG"]
+    assert config.market_awareness.breadth_support_ratio > config.market_awareness.breadth_caution_ratio

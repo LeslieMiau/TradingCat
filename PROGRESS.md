@@ -113,3 +113,39 @@
   - remaining work can move from baseline restoration into market-awareness feature construction
 - Next active feature:
   - feature 10, lock the benchmark basket and reference universe for the market-awareness posture engine
+
+## 2026-04-09 08:41:25 CST - Checkpoint after market-awareness contract lock
+
+- Completed feature 10:
+  - `.harness/spec.md` now locks the market-awareness benchmark basket explicitly:
+    - US: `SPY` primary with `QQQ` / `VTI` confirmation
+    - HK: `0700` primary with `9988` confirmation
+    - CN: `510300` primary with `159915` confirmation
+    - cross-asset defensive references: `TLT`, `IEF`, `GLD`, `GSG`
+  - The breadth-universe source order is fixed to persisted tradable instruments first, with `sample_instruments()` only as the explicit fallback path.
+- Completed feature 11:
+  - `.harness/spec.md` now fixes the regime taxonomy to `bullish`, `neutral`, `caution`, and `risk_off`.
+  - Confidence semantics are now stable and explicit: `high`, `medium`, `low`.
+- Completed feature 12:
+  - `.harness/spec.md` now fixes the deterministic top-level posture mapping to `build_risk`, `hold_pace`, `reduce_risk`, and `pause_new_adds`.
+  - Conflict folding is locked to the most defensive applicable tier, with any secondary recommendations preserved in priority order.
+- Completed features 13-16:
+  - `tradingcat/domain/models.py` now defines typed market-awareness enums and models for:
+    - overall snapshot
+    - per-market views and evidence rows
+    - action items and strategy guidance
+    - structured degraded/fallback data-quality reporting
+  - `tradingcat/api/view_models.py` now exposes a stable `MarketAwarenessResponse` contract that can serialize both full and degraded payloads without route-level ad hoc dict assembly.
+- Completed features 17-18:
+  - `tradingcat/config.py` now adds centralized `MarketAwarenessConfig` defaults for:
+    - benchmark baskets per market
+    - short / medium / long trend windows
+    - breadth, drawdown, volatility, momentum, and overlay thresholds/weights
+  - Optional env overrides are supported without requiring any `.env` changes in existing environments.
+- Verification:
+  - `./.venv/bin/pytest tests/test_config.py tests/test_market_awareness_models.py -q`
+  - Result: `5 passed`
+  - `./.venv/bin/python -m compileall tradingcat/config.py tradingcat/domain/models.py tradingcat/api/view_models.py tests/test_market_awareness_models.py`
+  - Result: success
+- Next active feature:
+  - feature 19, implement the local-history-first benchmark loader for market-awareness series

@@ -218,6 +218,71 @@ class StrategyDetailResponse(FlexibleModel):
     recommendation: dict[str, Any] = Field(default_factory=dict)
 
 
+class MarketAwarenessEvidenceView(FlexibleModel):
+    market: str = "overall"
+    signal_key: str
+    label: str
+    status: str
+    value: float | None = None
+    unit: str | None = None
+    explanation: str
+
+
+class MarketAwarenessMarketView(FlexibleModel):
+    market: str
+    benchmark_symbol: str
+    reference_symbols: list[str] = Field(default_factory=list)
+    regime: str
+    confidence: str
+    risk_posture: str
+    score: float = 0.0
+    breadth_ratio: float | None = None
+    momentum_21d: float | None = None
+    drawdown_20d: float | None = None
+    realized_volatility_20d: float | None = None
+    evidence: list[MarketAwarenessEvidenceView] = Field(default_factory=list)
+
+
+class MarketAwarenessActionItemView(FlexibleModel):
+    severity: str
+    action_key: str
+    text: str
+    rationale: str
+    markets: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessStrategyGuidanceView(FlexibleModel):
+    strategy_id: str
+    stance: str
+    summary: str
+    rationale: str
+    action_key: str | None = None
+
+
+class MarketAwarenessDataQualityView(FlexibleModel):
+    status: str = "complete"
+    complete: bool = True
+    degraded: bool = False
+    fallback_driven: bool = False
+    missing_symbols: list[str] = Field(default_factory=list)
+    stale_windows: list[str] = Field(default_factory=list)
+    adapter_limitations: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessResponse(FlexibleModel):
+    as_of: date
+    overall_regime: str
+    confidence: str
+    risk_posture: str
+    overall_score: float = 0.0
+    market_views: list[MarketAwarenessMarketView] = Field(default_factory=list)
+    evidence: list[MarketAwarenessEvidenceView] = Field(default_factory=list)
+    actions: list[MarketAwarenessActionItemView] = Field(default_factory=list)
+    strategy_guidance: list[MarketAwarenessStrategyGuidanceView] = Field(default_factory=list)
+    data_quality: MarketAwarenessDataQualityView = Field(default_factory=MarketAwarenessDataQualityView)
+
+
 class ResearchReadinessStrategyView(FlexibleModel):
     strategy_id: str
     validation_status: str

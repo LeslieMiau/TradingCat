@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _candidate_env_files() -> list[Path]:
@@ -32,6 +32,16 @@ def _load_dotenv_values() -> dict[str, str]:
 
 def _getenv(name: str, default: str, dotenv_values: dict[str, str]) -> str:
     return os.getenv(name, dotenv_values.get(name, default))
+
+
+def _csv_values(raw: str, *, upper: bool = False) -> list[str]:
+    values = []
+    for item in raw.split(","):
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        values.append(cleaned.upper() if upper else cleaned)
+    return values
 
 
 class FutuConfig(BaseModel):
@@ -181,6 +191,147 @@ class SchedulerConfig(BaseModel):
         )
 
 
+class MarketAwarenessConfig(BaseModel):
+    short_trend_window: int = 20
+    medium_trend_window: int = 50
+    long_trend_window: int = 200
+    us_benchmark_symbols: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "VTI"])
+    hk_benchmark_symbols: list[str] = Field(default_factory=lambda: ["0700", "9988"])
+    cn_benchmark_symbols: list[str] = Field(default_factory=lambda: ["510300", "159915"])
+    cross_asset_reference_symbols: list[str] = Field(default_factory=lambda: ["TLT", "IEF", "GLD", "GSG"])
+    breadth_support_ratio: float = 0.55
+    breadth_caution_ratio: float = 0.45
+    drawdown_caution_threshold: float = -0.05
+    drawdown_risk_off_threshold: float = -0.10
+    volatility_caution_threshold: float = 0.02
+    volatility_stress_threshold: float = 0.03
+    momentum_support_threshold: float = 0.03
+    momentum_warning_threshold: float = -0.03
+    trend_weight: float = 0.35
+    breadth_weight: float = 0.20
+    momentum_weight: float = 0.20
+    drawdown_weight: float = 0.10
+    volatility_weight: float = 0.10
+    overlay_weight: float = 0.05
+
+    @field_validator("short_trend_window", "medium_trend_window", "long_trend_window")
+    @classmethod
+    def validate_positive_windows(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("market awareness windows must be positive")
+        return value
+
+    @field_validator(
+        "breadth_support_ratio",
+        "breadth_caution_ratio",
+        "volatility_caution_threshold",
+        "volatility_stress_threshold",
+        "trend_weight",
+        "breadth_weight",
+        "momentum_weight",
+        "drawdown_weight",
+        "volatility_weight",
+        "overlay_weight",
+    )
+    @classmethod
+    def validate_zero_to_one(cls, value: float) -> float:
+        if value < 0 or value > 1:
+            raise ValueError("market awareness ratio/weight values must be between 0 and 1")
+        return value
+
+    @field_validator("drawdown_caution_threshold", "drawdown_risk_off_threshold", "momentum_warning_threshold")
+    @classmethod
+    def validate_non_positive_threshold(cls, value: float) -> float:
+        if value > 0:
+            raise ValueError("market awareness drawdown and warning thresholds must be non-positive")
+        return value
+
+    @field_validator("momentum_support_threshold")
+    @classmethod
+    def validate_non_negative_threshold(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("market awareness support thresholds must be non-negative")
+        return value
+
+    @field_validator(
+        "us_benchmark_symbols",
+        "hk_benchmark_symbols",
+        "cn_benchmark_symbols",
+        "cross_asset_reference_symbols",
+    )
+    @classmethod
+    def validate_non_empty_symbol_lists(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip().upper() for item in value if item.strip()]
+        if not normalized:
+            raise ValueError("market awareness symbol lists must not be empty")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_threshold_order(self) -> "MarketAwarenessConfig":
+        if not (self.short_trend_window < self.medium_trend_window < self.long_trend_window):
+            raise ValueError("market awareness windows must increase from short to long")
+        if self.breadth_support_ratio <= self.breadth_caution_ratio:
+            raise ValueError("breadth support ratio must be above the caution ratio")
+        if self.drawdown_caution_threshold <= self.drawdown_risk_off_threshold:
+            raise ValueError("drawdown caution threshold must be less severe than risk-off threshold")
+        if self.volatility_caution_threshold >= self.volatility_stress_threshold:
+            raise ValueError("volatility caution threshold must be below the stress threshold")
+        if self.momentum_support_threshold <= self.momentum_warning_threshold:
+            raise ValueError("momentum support threshold must be above the warning threshold")
+        return self
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "MarketAwarenessConfig":
+        env_values = dotenv_values or {}
+        return cls(
+            short_trend_window=int(_getenv("TRADINGCAT_MARKET_AWARENESS_SHORT_TREND_WINDOW", "20", env_values)),
+            medium_trend_window=int(_getenv("TRADINGCAT_MARKET_AWARENESS_MEDIUM_TREND_WINDOW", "50", env_values)),
+            long_trend_window=int(_getenv("TRADINGCAT_MARKET_AWARENESS_LONG_TREND_WINDOW", "200", env_values)),
+            us_benchmark_symbols=_csv_values(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_US_BENCHMARKS", "SPY,QQQ,VTI", env_values),
+                upper=True,
+            ),
+            hk_benchmark_symbols=_csv_values(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_HK_BENCHMARKS", "0700,9988", env_values),
+                upper=True,
+            ),
+            cn_benchmark_symbols=_csv_values(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_CN_BENCHMARKS", "510300,159915", env_values),
+                upper=True,
+            ),
+            cross_asset_reference_symbols=_csv_values(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_CROSS_ASSET_REFERENCES", "TLT,IEF,GLD,GSG", env_values),
+                upper=True,
+            ),
+            breadth_support_ratio=float(_getenv("TRADINGCAT_MARKET_AWARENESS_BREADTH_SUPPORT_RATIO", "0.55", env_values)),
+            breadth_caution_ratio=float(_getenv("TRADINGCAT_MARKET_AWARENESS_BREADTH_CAUTION_RATIO", "0.45", env_values)),
+            drawdown_caution_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_DRAWDOWN_CAUTION_THRESHOLD", "-0.05", env_values)
+            ),
+            drawdown_risk_off_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_DRAWDOWN_RISK_OFF_THRESHOLD", "-0.10", env_values)
+            ),
+            volatility_caution_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_CAUTION_THRESHOLD", "0.02", env_values)
+            ),
+            volatility_stress_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_STRESS_THRESHOLD", "0.03", env_values)
+            ),
+            momentum_support_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_MOMENTUM_SUPPORT_THRESHOLD", "0.03", env_values)
+            ),
+            momentum_warning_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_MOMENTUM_WARNING_THRESHOLD", "-0.03", env_values)
+            ),
+            trend_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_TREND_WEIGHT", "0.35", env_values)),
+            breadth_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_BREADTH_WEIGHT", "0.20", env_values)),
+            momentum_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_MOMENTUM_WEIGHT", "0.20", env_values)),
+            drawdown_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_DRAWDOWN_WEIGHT", "0.10", env_values)),
+            volatility_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_WEIGHT", "0.10", env_values)),
+            overlay_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_OVERLAY_WEIGHT", "0.05", env_values)),
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
@@ -206,6 +357,7 @@ class AppConfig(BaseModel):
     futu: FutuConfig = Field(default_factory=FutuConfig)
     yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
+    market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -274,4 +426,5 @@ class AppConfig(BaseModel):
             futu=FutuConfig.from_env(dotenv_values),
             yfinance=YFinanceConfig.from_env(dotenv_values),
             risk=RiskConfig(),
+            market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
         )

@@ -54,6 +54,52 @@ class ApprovalStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class MarketAwarenessRegime(str, Enum):
+    BULLISH = "bullish"
+    NEUTRAL = "neutral"
+    CAUTION = "caution"
+    RISK_OFF = "risk_off"
+
+
+class MarketAwarenessConfidence(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class MarketAwarenessRiskPosture(str, Enum):
+    BUILD_RISK = "build_risk"
+    HOLD_PACE = "hold_pace"
+    REDUCE_RISK = "reduce_risk"
+    PAUSE_NEW_ADDS = "pause_new_adds"
+
+
+class MarketAwarenessSignalStatus(str, Enum):
+    SUPPORTIVE = "supportive"
+    MIXED = "mixed"
+    WARNING = "warning"
+    BLOCKED = "blocked"
+
+
+class MarketAwarenessActionSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class MarketAwarenessStrategyStance(str, Enum):
+    OFFENSE = "offense"
+    BALANCED = "balanced"
+    DEFENSIVE = "defensive"
+    HEDGED = "hedged"
+
+
+class MarketAwarenessDataStatus(str, Enum):
+    COMPLETE = "complete"
+    DEGRADED = "degraded"
+    FALLBACK = "fallback"
+
+
 # ---------------------------------------------------------------------------
 # Core Domain Models
 # ---------------------------------------------------------------------------
@@ -232,6 +278,71 @@ class PortfolioReconciliationSummary(BaseModel):
     snapshot_position_count: int = 0
     missing_symbols: list[str] = Field(default_factory=list)
     unexpected_symbols: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessEvidenceRow(BaseModel):
+    market: str = "overall"
+    signal_key: str
+    label: str
+    status: MarketAwarenessSignalStatus
+    value: float | None = None
+    unit: str | None = None
+    explanation: str
+
+
+class MarketAwarenessMarketView(BaseModel):
+    market: Market
+    benchmark_symbol: str
+    reference_symbols: list[str] = Field(default_factory=list)
+    regime: MarketAwarenessRegime
+    confidence: MarketAwarenessConfidence
+    risk_posture: MarketAwarenessRiskPosture
+    score: float = 0.0
+    breadth_ratio: float | None = None
+    momentum_21d: float | None = None
+    drawdown_20d: float | None = None
+    realized_volatility_20d: float | None = None
+    evidence: list[MarketAwarenessEvidenceRow] = Field(default_factory=list)
+
+
+class MarketAwarenessActionItem(BaseModel):
+    severity: MarketAwarenessActionSeverity
+    action_key: str
+    text: str
+    rationale: str
+    markets: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessStrategyGuidance(BaseModel):
+    strategy_id: str
+    stance: MarketAwarenessStrategyStance
+    summary: str
+    rationale: str
+    action_key: str | None = None
+
+
+class MarketAwarenessDataQuality(BaseModel):
+    status: MarketAwarenessDataStatus = MarketAwarenessDataStatus.COMPLETE
+    complete: bool = True
+    degraded: bool = False
+    fallback_driven: bool = False
+    missing_symbols: list[str] = Field(default_factory=list)
+    stale_windows: list[str] = Field(default_factory=list)
+    adapter_limitations: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessSnapshot(BaseModel):
+    as_of: date
+    overall_regime: MarketAwarenessRegime
+    confidence: MarketAwarenessConfidence
+    risk_posture: MarketAwarenessRiskPosture
+    overall_score: float = 0.0
+    market_views: list[MarketAwarenessMarketView] = Field(default_factory=list)
+    evidence: list[MarketAwarenessEvidenceRow] = Field(default_factory=list)
+    actions: list[MarketAwarenessActionItem] = Field(default_factory=list)
+    strategy_guidance: list[MarketAwarenessStrategyGuidance] = Field(default_factory=list)
+    data_quality: MarketAwarenessDataQuality = Field(default_factory=MarketAwarenessDataQuality)
 
 
 # ---------------------------------------------------------------------------
