@@ -1,0 +1,45 @@
+# PROGRESS
+
+## 2026-04-11 23:00:00 CST - Harness initialization for research-page loading repair
+
+- User request: explicitly invoked `harness-engineering` to fix why `http://127.0.0.1:8000/dashboard/research` stays without data.
+- Restore sequence completed:
+  - `pwd`
+  - `git log --oneline -20`
+  - `PROGRESS.md` missing after prior harness cleanup
+  - `PLAN.json` missing after prior harness cleanup
+  - Read `/Users/miau/.codex/skills/harness-engineering/SKILL.md`
+  - Read `/Users/miau/Documents/TradingCat/README.md`
+  - Read `/Users/miau/Documents/TradingCat/PLAN.md`
+  - Ran `bash ~/.codex/scripts/global-init.sh`
+- Harness state on entry:
+  - prior market-awareness harness finished and cleaned up in commit `8ba60db`
+  - `.harness/` state files absent and must be re-created for this new task
+  - `.gitignore` already ignores `.harness/`
+  - `init.sh` already exists and is executable
+  - unrelated untracked file left untouched: `docs/2026-03-31-harness-review-report.md`
+- Baseline findings before implementation:
+  - `/dashboard/research` is not empty because the backend lacks data; `/dashboard/summary` already exposes:
+    - `details.market_awareness`
+    - `strategies.rows` length `3`
+    - `candidates.rows` length `7`
+  - research page frontend currently blocks first paint on:
+    - `POST /research/scorecard/run`
+    - `POST /research/candidates/scorecard`
+  - both endpoints timed out at `20s` with `0 bytes received` during local curl reproduction, while:
+    - `/dashboard/summary` returned `200`
+    - `POST /research/correlation` returned `200`
+  - therefore the page blank-state root cause is the hard `Promise.all()` dependency in `static/research.js`, not missing summary data
+  - init-time verification also exposed an existing baseline regression:
+    - `tests/test_api.py::test_research_backtest_endpoints` fails
+    - `GET /research/backtests` returns `400`
+    - error payload: `Out of range float values are not JSON compliant: nan`
+- Planning decision:
+  - primary fix: make the research page hydrate from `/dashboard/summary` first and treat live scorecard endpoints as optional enhancement layers
+  - required baseline fix: repair `/research/backtests` NaN serialization so init-time validation is not left broken
+  - keep scope bug-focused: do not redesign the page, do not remove live research endpoints, do not alter market-awareness product behavior
+- Harness artifacts initialized in this checkpoint:
+  - `PLAN.json`
+  - `PROGRESS.md`
+  - `.harness/spec.md`
+  - `.harness/status.json`

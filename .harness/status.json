@@ -1,0 +1,9 @@
+{
+  "task": "repair research page no-data loading failure",
+  "phase": "planning",
+  "current_round": 0,
+  "max_rounds": 3,
+  "active_feature": 1,
+  "last_commit": null,
+  "status": "initialized"
+}
