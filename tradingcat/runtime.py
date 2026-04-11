@@ -11,16 +11,21 @@ from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
+from tradingcat.services.ashare_indices import AshareIndexObservationService
 from tradingcat.services.alpha_radar import AlphaRadarService
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.execution import ExecutionService
+from tradingcat.services.fear_greed import FearGreedToolService
 from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.news_observation import NewsObservationService
+from tradingcat.services.participation_decision import ParticipationDecisionService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
 from tradingcat.services.strategy_registry import StrategyRegistry, StrategySignalProvider
+from tradingcat.services.volume_price import VolumePriceToolService
 from tradingcat.strategies.research_candidates import (
     AllWeatherStrategy,
     DefensiveTrendStrategy,
@@ -100,12 +105,22 @@ class ApplicationRuntime:
         strategy_signal_provider = StrategySignalProvider(strategy_registry)
         alpha_radar = AlphaRadarService(config, market_history)
         macro_calendar = MacroCalendarService(config)
+        news_observation = NewsObservationService(config)
+        a_share_indices = AshareIndexObservationService(config, market_history)
+        fear_greed_tool = FearGreedToolService()
+        volume_price_tool = VolumePriceToolService()
+        participation_decision = ParticipationDecisionService(config)
         market_awareness = MarketAwarenessService(
             config,
             market_history,
             market_calendar=market_calendar,
             macro_calendar=macro_calendar,
             alpha_radar=alpha_radar,
+            news_observation=news_observation,
+            a_share_indices=a_share_indices,
+            fear_greed_tool=fear_greed_tool,
+            volume_price_tool=volume_price_tool,
+            participation_decision=participation_decision,
         )
         rule_engine = RuleEngine(
             config,

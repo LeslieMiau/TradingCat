@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from tradingcat.config import AppConfig
@@ -7,6 +8,19 @@ from tradingcat.domain.models import BacktestExperiment, DashboardScorecardSnaps
 from tradingcat.repositories.duckdb_store import DuckDbResearchStore
 from tradingcat.repositories.json_store import JsonStore
 from tradingcat.repositories.postgres_store import PostgresStore
+
+
+def _sanitize_non_finite(value):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, list):
+        return [_sanitize_non_finite(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_non_finite(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 class BacktestExperimentRepository:
@@ -27,10 +41,13 @@ class BacktestExperimentRepository:
             records = self._store.load()
         else:
             records = self._store.load(self._bucket, []) if self._bucket else self._store.load([])
-        return {record["id"]: BacktestExperiment.model_validate(record) for record in records}
+        return {
+            record["id"]: BacktestExperiment.model_validate(_sanitize_non_finite(record))
+            for record in records
+        }
 
     def save(self, experiments: dict[str, BacktestExperiment]) -> None:
-        payload = [experiment.model_dump(mode="json") for experiment in experiments.values()]
+        payload = [_sanitize_non_finite(experiment.model_dump(mode="json")) for experiment in experiments.values()]
         if self._bucket == "duckdb":
             self._store.save(payload)
         elif self._bucket:

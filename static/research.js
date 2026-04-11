@@ -2,17 +2,305 @@ const state = {
   activeVerdict: "all",
   selectedStrategyId: null,
   strategyDetailCache: {},
+  refreshVersion: 0,
 };
 
 function marketAwarenessTone(value) {
-  if (["bullish", "build_risk", "supportive", "high", "complete"].includes(value)) return "ok";
-  if (["neutral", "caution", "hold_pace", "mixed", "medium", "degraded", "hedged"].includes(value)) return "warning";
-  if (["risk_off", "pause_new_adds", "reduce_risk", "blocked", "low", "fallback", "defensive"].includes(value)) return "blocked";
+  if ([
+    "bullish",
+    "build_risk",
+    "supportive",
+    "high",
+    "complete",
+    "participate",
+    "constructive",
+    "greed",
+    "price_up_volume_up",
+    "repair",
+  ].includes(value)) return "ok";
+  if ([
+    "neutral",
+    "caution",
+    "hold_pace",
+    "mixed",
+    "medium",
+    "degraded",
+    "hedged",
+    "selective",
+    "wait",
+    "price_up_volume_down",
+    "divergence",
+  ].includes(value)) return "warning";
+  if ([
+    "risk_off",
+    "pause_new_adds",
+    "reduce_risk",
+    "blocked",
+    "low",
+    "fallback",
+    "defensive",
+    "avoid",
+    "fear",
+    "price_down_volume_up",
+    "price_down_volume_down",
+  ].includes(value)) return "blocked";
   return "empty";
 }
 
 function marketAwarenessSnapshot(payload) {
   return payload.marketAwareness || payload.dashboard?.details?.market_awareness || null;
+}
+
+function priceVolumeStateLabel(value) {
+  const mapping = {
+    price_up_volume_up: "价涨量增",
+    price_up_volume_down: "价涨量缩",
+    price_down_volume_up: "价跌量增",
+    price_down_volume_down: "价跌量缩",
+    divergence: "分歧",
+    repair: "修复",
+  };
+  return mapping[value] || value || "N/A";
+}
+
+function sentimentBandLabel(value) {
+  const mapping = {
+    fear: "恐慌",
+    caution: "谨慎",
+    neutral: "中性",
+    constructive: "偏积极",
+    greed: "贪婪",
+  };
+  return mapping[value] || value || "N/A";
+}
+
+function participationDecisionLabel(value) {
+  const mapping = {
+    participate: "参与",
+    selective: "择机参与",
+    wait: "等待",
+    avoid: "回避",
+  };
+  return mapping[value] || value || "N/A";
+}
+
+function boolLabel(value) {
+  if (value == null) return "N/A";
+  return value ? "是" : "否";
+}
+
+function renderMarketNews(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-market-news-note");
+  const metricsEl = document.getElementById("research-market-news-metrics");
+  const listEl = document.getElementById("research-market-news-list");
+  const blockersEl = document.getElementById("research-market-news-blockers");
+  if (!noteEl || !metricsEl || !listEl || !blockersEl) return;
+
+  const observation = marketAwarenessSnapshot(payload)?.news_observation || null;
+  if (!observation || errorMessage) {
+    noteEl.textContent = errorMessage || "重点新闻观察暂不可用";
+    metricsEl.innerHTML = [
+      metricTile("倾向", "N/A", "news unavailable", "blocked"),
+      metricTile("评分", "N/A", "waiting for feeds", "empty"),
+      metricTile("重点条数", "0", "no headlines", "empty"),
+      metricTile("数据", errorMessage ? "error" : "missing", errorMessage || "snapshot unavailable", "blocked"),
+    ].join("");
+    setList("research-market-news-list", [], "当前没有可用重点资讯。");
+    setList("research-market-news-blockers", errorMessage ? [errorMessage] : [], "当前没有额外说明。");
+    return;
+  }
+
+  noteEl.textContent = observation.explanation || "重点新闻观察已就绪";
+  metricsEl.innerHTML = [
+    metricTile("倾向", observation.tone || "N/A", `score ${fmt(observation.score)}`, marketAwarenessTone(observation.tone)),
+    metricTile("主导主题", observation.dominant_topics?.[0] || "N/A", `${fmt((observation.dominant_topics || []).length)} topic(s)`, marketAwarenessTone(observation.tone)),
+    metricTile("重点条数", fmt((observation.key_items || []).length), observation.degraded ? "degraded" : "feeds ready", (observation.key_items || []).length ? "ok" : "warning"),
+    metricTile("阻塞", fmt((observation.blockers || []).length), observation.degraded ? "partial feed failure" : "no blockers", (observation.blockers || []).length ? "warning" : "ok"),
+  ].join("");
+  listEl.innerHTML = (observation.key_items || []).length
+    ? observation.key_items.map((item) => `
+        <li>
+          <strong>${escapeHtml(item.title)}</strong><br />
+          <span class="meta-text">${escapeHtml(item.source)} / ${escapeHtml(item.topic)} / ${escapeHtml(item.tone)} / ${escapeHtml(fmtTime(item.published_at))}</span><br />
+          <span class="meta-text">影响市场: ${escapeHtml((item.markets || []).join(", ") || "N/A")}${(item.symbols || []).length ? ` / 相关符号: ${escapeHtml(item.symbols.join(", "))}` : ""}</span>
+        </li>
+      `).join("")
+    : '<li class="detail-empty">当前没有保留下来的重点资讯。</li>';
+  setList(
+    "research-market-news-blockers",
+    [
+      ...(observation.dominant_topics || []).length ? [`主导主题: ${(observation.dominant_topics || []).join(", ")}`] : [],
+      ...(observation.blockers || []).map((item) => `阻塞: ${item}`),
+      ...(observation.degraded ? ["当前新闻结果为降级输出，先当作辅助判断。"] : []),
+    ],
+    "当前没有额外说明。",
+  );
+}
+
+function renderAshareIndices(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-a-share-indices-note");
+  const cardsEl = document.getElementById("research-a-share-indices-cards");
+  if (!noteEl || !cardsEl) return;
+
+  const indices = marketAwarenessSnapshot(payload)?.a_share_indices || null;
+  if (!indices || errorMessage) {
+    noteEl.textContent = errorMessage || "A 股三大股指观察暂不可用";
+    cardsEl.innerHTML = '<article class="detail-card"><span class="detail-empty">当前没有可用的三大股指观察。</span></article>';
+    return;
+  }
+
+  noteEl.textContent = indices.explanation || "A 股三大股指观察已就绪";
+  const blockerCard = (indices.blockers || []).length
+    ? `
+        <article class="detail-card">
+          <h3>数据缺口</h3>
+          <ul class="detail-list">
+            ${(indices.blockers || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </article>
+      `
+    : "";
+  cardsEl.innerHTML = (indices.index_views || []).length
+    ? `${(indices.index_views || []).map((view) => `
+        <article class="detail-card">
+          <h3>${escapeHtml(view.label)}</h3>
+          <div class="tag-row">
+            <span class="badge status-${marketAwarenessTone(view.trend_status)}">${escapeHtml(view.trend_status)}</span>
+            <span class="badge status-${marketAwarenessTone(view.price_volume_state)}">${escapeHtml(priceVolumeStateLabel(view.price_volume_state))}</span>
+            <span class="tag">score ${escapeHtml(fmt(view.score))}</span>
+          </div>
+          <ul class="detail-list">
+            <li>收盘: ${escapeHtml(fmt(view.close))}</li>
+            <li>1D / 5D / 20D: ${escapeHtml(fmtPct(view.return_1d))} / ${escapeHtml(fmtPct(view.return_5d))} / ${escapeHtml(fmtPct(view.return_20d))}</li>
+            <li>20D 量比: ${escapeHtml(view.volume_ratio_20d == null ? "N/A" : `${fmt(view.volume_ratio_20d)}x`)}</li>
+            <li>站上 20 / 50 / 200 日: ${escapeHtml(boolLabel(view.above_sma20))} / ${escapeHtml(boolLabel(view.above_sma50))} / ${escapeHtml(boolLabel(view.above_sma200))}</li>
+          </ul>
+          <p class="detail-paragraph">${escapeHtml(view.explanation)}</p>
+        </article>
+      `).join("")}${blockerCard}`
+    : '<article class="detail-card"><span class="detail-empty">当前没有可用的三大股指观察。</span></article>';
+}
+
+function renderFearGreed(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-fear-greed-note");
+  const metricsEl = document.getElementById("research-fear-greed-metrics");
+  const contributorsEl = document.getElementById("research-fear-greed-contributors");
+  const explanationEl = document.getElementById("research-fear-greed-explanation");
+  if (!noteEl || !metricsEl || !contributorsEl || !explanationEl) return;
+
+  const fearGreed = marketAwarenessSnapshot(payload)?.fear_greed || null;
+  if (!fearGreed || errorMessage) {
+    noteEl.textContent = errorMessage || "恐贪工具暂不可用";
+    metricsEl.innerHTML = [
+      metricTile("情绪区间", "N/A", "fear-greed unavailable", "blocked"),
+      metricTile("评分", "N/A", "waiting for observation", "empty"),
+      metricTile("因子数", "0", "no contributors", "empty"),
+      metricTile("说明", "missing", "snapshot unavailable", "blocked"),
+    ].join("");
+    setList("research-fear-greed-contributors", [], "当前没有情绪因子。");
+    setList("research-fear-greed-explanation", errorMessage ? [errorMessage] : [], "当前没有额外解释。");
+    return;
+  }
+
+  noteEl.textContent = fearGreed.explanation || "恐贪工具已就绪";
+  metricsEl.innerHTML = [
+    metricTile("情绪区间", sentimentBandLabel(fearGreed.band), fearGreed.band || "N/A", marketAwarenessTone(fearGreed.band)),
+    metricTile("评分", fmt(fearGreed.score), "internal composite", marketAwarenessTone(fearGreed.band)),
+    metricTile("因子数", fmt((fearGreed.contributors || []).length), "score drivers", (fearGreed.contributors || []).length ? "ok" : "warning"),
+    metricTile("状态", fearGreed.band || "N/A", "internal sentiment", marketAwarenessTone(fearGreed.band)),
+  ].join("");
+  setList(
+    "research-fear-greed-contributors",
+    (fearGreed.contributors || []).map((item) => `${item.label}: ${fmt(item.score)} (${item.explanation})`),
+    "当前没有情绪因子。",
+  );
+  setList("research-fear-greed-explanation", [fearGreed.explanation], "当前没有额外解释。");
+}
+
+function renderVolumePrice(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-volume-price-note");
+  const metricsEl = document.getElementById("research-volume-price-metrics");
+  const contributorsEl = document.getElementById("research-volume-price-contributors");
+  const guidanceEl = document.getElementById("research-volume-price-guidance");
+  if (!noteEl || !metricsEl || !contributorsEl || !guidanceEl) return;
+
+  const volumePrice = marketAwarenessSnapshot(payload)?.volume_price || null;
+  if (!volumePrice || errorMessage) {
+    noteEl.textContent = errorMessage || "量价工具暂不可用";
+    metricsEl.innerHTML = [
+      metricTile("Tape", "N/A", "volume-price unavailable", "blocked"),
+      metricTile("评分", "N/A", "waiting for observation", "empty"),
+      metricTile("因子数", "0", "no contributors", "empty"),
+      metricTile("状态", "missing", "snapshot unavailable", "blocked"),
+    ].join("");
+    setList("research-volume-price-contributors", [], "当前没有量价因子。");
+    setList("research-volume-price-guidance", errorMessage ? [errorMessage] : [], "当前没有额外解释。");
+    return;
+  }
+
+  noteEl.textContent = volumePrice.explanation || "量价工具已就绪";
+  metricsEl.innerHTML = [
+    metricTile("Tape", priceVolumeStateLabel(volumePrice.state), volumePrice.state || "N/A", marketAwarenessTone(volumePrice.state)),
+    metricTile("评分", fmt(volumePrice.score), "three-index aggregate", marketAwarenessTone(volumePrice.state)),
+    metricTile("因子数", fmt((volumePrice.contributors || []).length), "tape drivers", (volumePrice.contributors || []).length ? "ok" : "warning"),
+    metricTile("指引", volumePrice.state || "N/A", "volume-price tool", marketAwarenessTone(volumePrice.state)),
+  ].join("");
+  setList(
+    "research-volume-price-contributors",
+    (volumePrice.contributors || []).map((item) => `${item.label}: ${fmt(item.score)} (${item.explanation})`),
+    "当前没有量价因子。",
+  );
+  setList(
+    "research-volume-price-guidance",
+    [volumePrice.explanation, volumePrice.guidance].filter(Boolean),
+    "当前没有额外解释。",
+  );
+}
+
+function renderParticipation(payload, errorMessage = null) {
+  const noteEl = document.getElementById("research-participation-note");
+  const metricsEl = document.getElementById("research-participation-metrics");
+  const reasonsEl = document.getElementById("research-participation-reasons");
+  const blockersEl = document.getElementById("research-participation-blockers");
+  if (!noteEl || !metricsEl || !reasonsEl || !blockersEl) return;
+
+  const participation = marketAwarenessSnapshot(payload)?.participation || null;
+  if (!participation || errorMessage) {
+    noteEl.textContent = errorMessage || "参与判断暂不可用";
+    metricsEl.innerHTML = [
+      metricTile("决策", "N/A", "participation unavailable", "blocked"),
+      metricTile("概率", "N/A", "waiting for score", "empty"),
+      metricTile("赔率", "N/A", "waiting for score", "empty"),
+      metricTile("置信度", "N/A", "snapshot unavailable", "blocked"),
+    ].join("");
+    setList("research-participation-reasons", [], "当前没有可用参与理由。");
+    setList("research-participation-blockers", errorMessage ? [errorMessage] : [], "当前没有额外阻塞。");
+    return;
+  }
+
+  noteEl.textContent = "仅作参与建议，不进入执行门控";
+  metricsEl.innerHTML = [
+    metricTile("决策", participationDecisionLabel(participation.decision), participation.decision || "N/A", marketAwarenessTone(participation.decision)),
+    metricTile("概率", fmtPct(participation.probability), `raw ${fmt(participation.probability)}`, marketAwarenessTone(participation.decision)),
+    metricTile("赔率", fmt(participation.odds), "risk-reward estimate", marketAwarenessTone(participation.decision)),
+    metricTile("置信度", participation.confidence || "N/A", "operator confidence", marketAwarenessTone(participation.confidence)),
+  ].join("");
+  setList("research-participation-reasons", participation.reasons || [], "当前没有可用参与理由。");
+  setList(
+    "research-participation-blockers",
+    (participation.blockers || []).length
+      ? participation.blockers.map((item) => `阻塞: ${item}`)
+      : ["当前没有明显数据阻塞，仍需人工确认参与节奏。"],
+    "当前没有额外阻塞。",
+  );
+}
+
+function renderMarketAwarenessSections(payload, errorMessage = null) {
+  renderMarketNews(payload, errorMessage);
+  renderAshareIndices(payload, errorMessage);
+  renderFearGreed(payload, errorMessage);
+  renderVolumePrice(payload, errorMessage);
+  renderParticipation(payload, errorMessage);
 }
 
 function renderMarketAwareness(payload, errorMessage = null) {
@@ -33,6 +321,7 @@ function renderMarketAwareness(payload, errorMessage = null) {
   const marketViews = Array.isArray(snapshot?.market_views) ? snapshot.market_views : [];
   const actions = Array.isArray(snapshot?.actions) ? snapshot.actions : [];
   const guidanceRows = Array.isArray(snapshot?.strategy_guidance) ? snapshot.strategy_guidance : [];
+  const participation = snapshot?.participation ?? null;
   const blockers = [
     `数据状态: ${dataQuality.status || (snapshot ? "unknown" : "missing")}`,
     ...(dataQuality.degraded ? ["当前结果为降级输出，先把它当作节奏参考。"] : []),
@@ -56,6 +345,7 @@ function renderMarketAwareness(payload, errorMessage = null) {
     setList("research-market-awareness-blockers", blockers, errorMessage || "当前没有可用数据状态。");
     cardsEl.innerHTML = '<article class="detail-card"><span class="detail-empty">当前没有市场视角卡片。</span></article>';
     evidenceEl.innerHTML = '<tr><td colspan="5" class="table-empty">当前没有市场感知证据。</td></tr>';
+    renderMarketAwarenessSections(payload, errorMessage);
     return;
   }
 
@@ -70,10 +360,16 @@ function renderMarketAwareness(payload, errorMessage = null) {
     `<span class="badge status-${marketAwarenessTone(snapshot.overall_regime)}">${escapeHtml(snapshot.overall_regime || "N/A")}</span>`,
     `<span class="badge status-${marketAwarenessTone(snapshot.confidence)}">${escapeHtml(snapshot.confidence || "N/A")} confidence</span>`,
     `<span class="badge status-${marketAwarenessTone(snapshot.risk_posture)}">${escapeHtml(snapshot.risk_posture || "N/A")}</span>`,
-  ].join("");
+    participation ? `<span class="badge status-${marketAwarenessTone(participation.decision)}">${escapeHtml(participationDecisionLabel(participation.decision))}</span>` : "",
+    participation ? `<span class="tag">P ${escapeHtml(fmt(participation.probability))}</span>` : "",
+    participation ? `<span class="tag">O ${escapeHtml(fmt(participation.odds))}</span>` : "",
+  ].filter(Boolean).join("");
   setList(
     "research-market-awareness-actions",
-    actions.map((item) => `${item.text} (${item.rationale})`),
+    [
+      ...actions.map((item) => `${item.text} (${item.rationale})`),
+      ...(participation ? [`参与判断: ${participationDecisionLabel(participation.decision)} / 概率 ${fmtPct(participation.probability)} / 赔率 ${fmt(participation.odds)}`] : []),
+    ],
     "当前没有新增操作建议。",
   );
   setList(
@@ -125,6 +421,8 @@ function renderMarketAwareness(payload, errorMessage = null) {
         </tr>
       `).join("")
     : '<tr><td colspan="5" class="table-empty">当前没有市场感知证据。</td></tr>';
+
+  renderMarketAwarenessSections(payload);
 }
 
 function renderCorrelationMatrix(matrix) {
@@ -236,9 +534,14 @@ function renderVerdictGroups(groups) {
   `).join("");
 }
 
-function selectStrategy(strategyId) {
+async function selectStrategy(strategyId) {
   state.selectedStrategyId = strategyId;
-  refreshResearch();
+  try {
+    const detail = await loadStrategyImpact(strategyId);
+    renderImpact(detail);
+  } catch (_error) {
+    renderImpact(null);
+  }
 }
 
 async function loadStrategyImpact(strategyId) {
@@ -250,6 +553,162 @@ async function loadStrategyImpact(strategyId) {
   if (!result.ok) throw new Error(`strategy detail unavailable: ${strategyId}`);
   state.strategyDetailCache[strategyId] = result.data;
   return result.data;
+}
+
+function setResearchUpdated(text) {
+  const updatedEl = document.getElementById("research-updated");
+  if (updatedEl) {
+    updatedEl.textContent = text;
+  }
+}
+
+function summaryBackedResearchPayload(dashboard, marketAwareness = null) {
+  const candidates = dashboard?.candidates || {};
+  const strategies = dashboard?.strategies || {};
+  return {
+    dashboard,
+    active: { rows: strategies.rows || [] },
+    candidates: {
+      rows: candidates.rows || [],
+      top_candidates: candidates.top_candidates || [],
+      deploy_candidate_count: candidates.deploy_candidate_count || 0,
+      paper_only_count: candidates.paper_only_count || 0,
+      rejected_count: candidates.rejected_count || 0,
+      next_actions: candidates.next_actions || [],
+      verdict_groups: candidates.verdict_groups || [],
+      reject_summary: candidates.reject_summary || [],
+      correlation_matrix: candidates.correlation_matrix || null,
+    },
+    assetCorrelations: {},
+    marketAwareness: marketAwareness || dashboard?.details?.market_awareness || null,
+    hydration: {
+      mode: "summary",
+      enhancementErrors: [],
+    },
+  };
+}
+
+async function apiFetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await apiFetch(url, { ...options, signal: controller.signal }, 0);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function loadDashboardResearchPayload() {
+  const dashboardRes = await apiFetch(API.dashboardSummary);
+  if (!dashboardRes.ok) throw new Error(dashboardRes.error);
+  return summaryBackedResearchPayload(dashboardRes.data, dashboardRes.data?.details?.market_awareness ?? null);
+}
+
+async function loadResearchEnhancements(basePayload) {
+  const requests = [
+    { key: "active", label: "active scorecard", request: apiFetchWithTimeout(API.researchScorecard, { method: "POST" }, 12000) },
+    { key: "candidates", label: "candidate scorecard", request: apiFetchWithTimeout(API.researchCandidatesScorecard, { method: "POST" }, 12000) },
+    {
+      key: "assetCorrelations",
+      label: "asset correlation",
+      request: apiFetchWithTimeout(
+        API.researchCorrelation,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] }),
+        },
+        12000,
+      ),
+    },
+  ];
+  if (!basePayload.marketAwareness?.overall_regime) {
+    requests.push({
+      key: "marketAwareness",
+      label: "market awareness",
+      request: apiFetchWithTimeout(API.researchMarketAwareness, {}, 8000),
+    });
+  }
+
+  const results = await Promise.allSettled(requests.map((item) => item.request));
+  const payload = {
+    ...basePayload,
+    hydration: {
+      mode: "enhanced",
+      enhancementErrors: [],
+    },
+  };
+  results.forEach((result, index) => {
+    const { key, label } = requests[index];
+    if (result.status !== "fulfilled" || !result.value.ok) {
+      const error = result.status === "fulfilled" ? result.value.error : result.reason?.message || "unknown enhancement error";
+      payload.hydration.enhancementErrors.push(`${label}: ${error}`);
+      return;
+    }
+    if (key === "active") {
+      payload.active = result.value.data ?? payload.active;
+      return;
+    }
+    if (key === "candidates") {
+      payload.candidates = {
+        ...payload.candidates,
+        ...(result.value.data ?? {}),
+      };
+      return;
+    }
+    if (key === "assetCorrelations") {
+      payload.assetCorrelations = result.value.data ?? payload.assetCorrelations;
+      return;
+    }
+    if (key === "marketAwareness") {
+      payload.marketAwareness = result.value.data ?? payload.marketAwareness;
+    }
+  });
+  return payload;
+}
+
+function candidateRowsForPayload(payload) {
+  return payload.candidates?.rows?.length
+    ? payload.candidates.rows
+    : (payload.dashboard?.candidates?.rows ?? []);
+}
+
+function topRowsForPayload(payload) {
+  return payload.candidates?.top_candidates?.length
+    ? payload.candidates.top_candidates
+    : (payload.dashboard?.candidates?.top_candidates ?? []);
+}
+
+function defaultStrategyId(payload) {
+  return filteredRows(candidateRowsForPayload(payload))[0]?.strategy_id
+    || filteredRows(topRowsForPayload(payload))[0]?.strategy_id
+    || null;
+}
+
+async function refreshImpactForPayload(payload, refreshVersion) {
+  if (refreshVersion !== state.refreshVersion) return;
+  const availableStrategyIds = new Set([
+    ...candidateRowsForPayload(payload).map((row) => row.strategy_id),
+    ...topRowsForPayload(payload).map((row) => row.strategy_id),
+  ]);
+  if (state.selectedStrategyId && availableStrategyIds.size && !availableStrategyIds.has(state.selectedStrategyId)) {
+    state.selectedStrategyId = null;
+  }
+  if (!state.selectedStrategyId) {
+    state.selectedStrategyId = defaultStrategyId(payload);
+  }
+  if (!state.selectedStrategyId) {
+    renderImpact(null);
+    return;
+  }
+  try {
+    const detail = await loadStrategyImpact(state.selectedStrategyId);
+    if (refreshVersion !== state.refreshVersion) return;
+    renderImpact(detail);
+  } catch (_error) {
+    if (refreshVersion !== state.refreshVersion) return;
+    renderImpact(null);
+  }
 }
 
 function impactElements() {
@@ -501,58 +960,38 @@ function renderImpact(detail) {
   renderImpactReadiness(elements, context);
 }
 
-async function loadPayloads() {
-  const [dashboardRes, activeRes, candidateRes, assetCorrRes] = await Promise.all([
-    apiFetch(API.dashboardSummary),
-    apiFetch(API.researchScorecard, { method: "POST" }),
-    apiFetch(API.researchCandidatesScorecard, { method: "POST" }),
-    apiFetch(API.researchCorrelation, { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] })
-    }),
-  ]);
-  if (!dashboardRes.ok) throw new Error(dashboardRes.error);
-  let marketAwareness = dashboardRes.data?.details?.market_awareness ?? null;
-  if (!marketAwareness?.overall_regime) {
-    const marketAwarenessRes = await apiFetch(API.researchMarketAwareness);
-    if (marketAwarenessRes.ok) {
-      marketAwareness = marketAwarenessRes.data;
-    }
-  }
-  return {
-    dashboard: dashboardRes.data,
-    active: activeRes.data ?? {},
-    candidates: candidateRes.data ?? {},
-    assetCorrelations: assetCorrRes.data ?? {},
-    marketAwareness,
-  };
-}
-
 function bindStrategyPickers() {
   document.querySelectorAll("[data-strategy-pick]").forEach((node) => {
     node.addEventListener("click", (event) => {
       event.preventDefault();
-      selectStrategy(node.dataset.strategyPick || null);
+      void selectStrategy(node.dataset.strategyPick || null);
     });
   });
 }
 
 function renderResearch(payload) {
-  const activeRows = payload.dashboard?.strategies?.rows ?? [];
-  const candidateRows = filteredRows(payload.candidates?.rows ?? []);
-  const topRows = filteredRows(payload.dashboard?.candidates?.top_candidates ?? []);
+  const activeRows = payload.active?.rows?.length ? payload.active.rows : (payload.dashboard?.strategies?.rows ?? []);
+  const candidateRows = filteredRows(candidateRowsForPayload(payload));
+  const topRows = filteredRows(topRowsForPayload(payload));
   const rejectRows = filteredRejectRows(payload.candidates?.reject_summary ?? []);
+  const hydrateMode = payload.hydration?.mode || "summary";
+  const enhancementErrors = payload.hydration?.enhancementErrors || [];
 
   renderFilterTabs();
   renderMarketAwareness(payload);
 
-  document.getElementById("research-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  if (hydrateMode === "summary") {
+    setResearchUpdated(`Updated ${new Date().toLocaleString()} · 基础摘要已加载，实时增强中`);
+  } else if (enhancementErrors.length) {
+    setResearchUpdated(`Updated ${new Date().toLocaleString()} · 部分实时增强失败`);
+  } else {
+    setResearchUpdated(`Updated ${new Date().toLocaleString()}`);
+  }
   document.getElementById("research-overview-metrics").innerHTML = [
     metricTile("执行策略", fmt(activeRows.length), `accepted ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}`, activeRows.length ? "ok" : "warning"),
-    metricTile("候选 deploy", fmt(payload.candidates?.deploy_candidate_count), "worth deeper study", payload.candidates?.deploy_candidate_count ? "ok" : "warning"),
-    metricTile("候选 paper", fmt(payload.candidates?.paper_only_count), "needs more evidence", payload.candidates?.paper_only_count ? "warning" : "ok"),
-    metricTile("候选 reject", fmt(payload.candidates?.rejected_count), "cut losers faster", payload.candidates?.rejected_count ? "blocked" : "ok"),
+    metricTile("候选 deploy", fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count), "worth deeper study", (payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count) ? "ok" : "warning"),
+    metricTile("候选 paper", fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count), "needs more evidence", (payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count) ? "warning" : "ok"),
+    metricTile("候选 reject", fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count), "cut losers faster", (payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count) ? "blocked" : "ok"),
   ].join("");
 
   const topCards = document.getElementById("research-top-cards");
@@ -571,7 +1010,7 @@ function renderResearch(payload) {
       `).join("")
     : '<article class="detail-card"><span class="detail-empty">当前没有 top picks。</span></article>';
 
-  renderVerdictGroups(payload.candidates?.verdict_groups);
+  renderVerdictGroups(payload.candidates?.verdict_groups ?? []);
 
   const activeTable = document.getElementById("research-active-table");
   activeTable.innerHTML = activeRows.length
@@ -587,13 +1026,13 @@ function renderResearch(payload) {
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前没有 active 研究策略。</td></tr>';
 
-  setList("research-actions", payload.candidates?.next_actions ?? [], "当前没有新的研究动作。");
+  setList("research-actions", payload.candidates?.next_actions ?? payload.dashboard?.candidates?.next_actions ?? [], "当前没有新的研究动作。");
   setList(
     "research-buckets",
     [
-      `deploy_candidate: ${fmt(payload.candidates?.deploy_candidate_count)}`,
-      `paper_only: ${fmt(payload.candidates?.paper_only_count)}`,
-      `reject: ${fmt(payload.candidates?.rejected_count)}`,
+      `deploy_candidate: ${fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count)}`,
+      `paper_only: ${fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count)}`,
+      `reject: ${fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count)}`,
     ],
     "当前没有候选池分布。",
   );
@@ -621,16 +1060,21 @@ function renderResearch(payload) {
 }
 
 async function refreshResearch() {
+  state.refreshVersion += 1;
+  const refreshVersion = state.refreshVersion;
   try {
-    const payload = await loadPayloads();
+    const payload = await loadDashboardResearchPayload();
+    if (refreshVersion !== state.refreshVersion) return;
     state.dashboardSummary = payload.dashboard;
     renderResearch(payload);
-    if (!state.selectedStrategyId) {
-      const defaultStrategyId = filteredRows(payload.candidates?.rows ?? [])[0]?.strategy_id || null;
-      state.selectedStrategyId = defaultStrategyId;
-    }
-    const detail = await loadStrategyImpact(state.selectedStrategyId);
-    renderImpact(detail);
+    await refreshImpactForPayload(payload, refreshVersion);
+    void (async () => {
+      const enhancedPayload = await loadResearchEnhancements(payload);
+      if (refreshVersion !== state.refreshVersion) return;
+      state.dashboardSummary = enhancedPayload.dashboard;
+      renderResearch(enhancedPayload);
+      await refreshImpactForPayload(enhancedPayload, refreshVersion);
+    })();
   } catch (error) {
     document.getElementById("research-overview-metrics").innerHTML = metricTile("Research Error", "Unavailable", error.message, "blocked");
     renderMarketAwareness({}, error.message);

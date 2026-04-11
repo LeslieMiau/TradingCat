@@ -198,6 +198,7 @@ class MarketAwarenessConfig(BaseModel):
     us_benchmark_symbols: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "VTI"])
     hk_benchmark_symbols: list[str] = Field(default_factory=lambda: ["0700", "9988"])
     cn_benchmark_symbols: list[str] = Field(default_factory=lambda: ["510300", "159915"])
+    cn_observation_index_symbols: list[str] = Field(default_factory=lambda: ["SH000001", "SZ399001", "SZ399006"])
     cross_asset_reference_symbols: list[str] = Field(default_factory=lambda: ["TLT", "IEF", "GLD", "GSG"])
     breadth_support_ratio: float = 0.55
     breadth_caution_ratio: float = 0.45
@@ -213,6 +214,12 @@ class MarketAwarenessConfig(BaseModel):
     drawdown_weight: float = 0.10
     volatility_weight: float = 0.10
     overlay_weight: float = 0.05
+    news_cache_ttl_seconds: int = 900
+    news_timeout_seconds: float = 3.0
+    participate_probability_threshold: float = 0.65
+    selective_probability_threshold: float = 0.55
+    participate_odds_threshold: float = 1.5
+    selective_odds_threshold: float = 1.2
 
     @field_validator("short_trend_window", "medium_trend_window", "long_trend_window")
     @classmethod
@@ -239,6 +246,34 @@ class MarketAwarenessConfig(BaseModel):
             raise ValueError("market awareness ratio/weight values must be between 0 and 1")
         return value
 
+    @field_validator("participate_probability_threshold", "selective_probability_threshold")
+    @classmethod
+    def validate_probability_thresholds(cls, value: float) -> float:
+        if value < 0 or value > 1:
+            raise ValueError("market awareness participation probabilities must be between 0 and 1")
+        return value
+
+    @field_validator("participate_odds_threshold", "selective_odds_threshold")
+    @classmethod
+    def validate_positive_odds_thresholds(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("market awareness odds thresholds must be positive")
+        return value
+
+    @field_validator("news_cache_ttl_seconds")
+    @classmethod
+    def validate_positive_cache_ttl(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("market awareness news cache ttl must be positive")
+        return value
+
+    @field_validator("news_timeout_seconds")
+    @classmethod
+    def validate_positive_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("market awareness news timeout must be positive")
+        return value
+
     @field_validator("drawdown_caution_threshold", "drawdown_risk_off_threshold", "momentum_warning_threshold")
     @classmethod
     def validate_non_positive_threshold(cls, value: float) -> float:
@@ -257,6 +292,7 @@ class MarketAwarenessConfig(BaseModel):
         "us_benchmark_symbols",
         "hk_benchmark_symbols",
         "cn_benchmark_symbols",
+        "cn_observation_index_symbols",
         "cross_asset_reference_symbols",
     )
     @classmethod
@@ -278,6 +314,10 @@ class MarketAwarenessConfig(BaseModel):
             raise ValueError("volatility caution threshold must be below the stress threshold")
         if self.momentum_support_threshold <= self.momentum_warning_threshold:
             raise ValueError("momentum support threshold must be above the warning threshold")
+        if self.selective_probability_threshold > self.participate_probability_threshold:
+            raise ValueError("selective probability threshold must not exceed participate probability threshold")
+        if self.selective_odds_threshold > self.participate_odds_threshold:
+            raise ValueError("selective odds threshold must not exceed participate odds threshold")
         return self
 
     @classmethod
@@ -297,6 +337,10 @@ class MarketAwarenessConfig(BaseModel):
             ),
             cn_benchmark_symbols=_csv_values(
                 _getenv("TRADINGCAT_MARKET_AWARENESS_CN_BENCHMARKS", "510300,159915", env_values),
+                upper=True,
+            ),
+            cn_observation_index_symbols=_csv_values(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_CN_OBSERVATION_INDICES", "SH000001,SZ399001,SZ399006", env_values),
                 upper=True,
             ),
             cross_asset_reference_symbols=_csv_values(
@@ -329,6 +373,20 @@ class MarketAwarenessConfig(BaseModel):
             drawdown_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_DRAWDOWN_WEIGHT", "0.10", env_values)),
             volatility_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_WEIGHT", "0.10", env_values)),
             overlay_weight=float(_getenv("TRADINGCAT_MARKET_AWARENESS_OVERLAY_WEIGHT", "0.05", env_values)),
+            news_cache_ttl_seconds=int(_getenv("TRADINGCAT_MARKET_AWARENESS_NEWS_CACHE_TTL_SECONDS", "900", env_values)),
+            news_timeout_seconds=float(_getenv("TRADINGCAT_MARKET_AWARENESS_NEWS_TIMEOUT_SECONDS", "3.0", env_values)),
+            participate_probability_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_PARTICIPATE_PROBABILITY_THRESHOLD", "0.65", env_values)
+            ),
+            selective_probability_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_SELECTIVE_PROBABILITY_THRESHOLD", "0.55", env_values)
+            ),
+            participate_odds_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_PARTICIPATE_ODDS_THRESHOLD", "1.5", env_values)
+            ),
+            selective_odds_threshold=float(
+                _getenv("TRADINGCAT_MARKET_AWARENESS_SELECTIVE_ODDS_THRESHOLD", "1.2", env_values)
+            ),
         )
 
 

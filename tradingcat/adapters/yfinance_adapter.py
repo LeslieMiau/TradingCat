@@ -21,6 +21,10 @@ _YAHOO_TICKER_MAP = {
     ("CN", "300308"): "300308.SZ",
     ("CN", "603986"): "603986.SS",
     ("CN", "510300"): "510300.SS",
+    # CN observation-only indices
+    ("CN", "SH000001"): "000001.SS",
+    ("CN", "SZ399001"): "399001.SZ",
+    ("CN", "SZ399006"): "399006.SZ",
     # US symbols: use as-is
 }
 

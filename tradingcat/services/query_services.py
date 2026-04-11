@@ -7,16 +7,21 @@ from typing import Any
 
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import (
+    MarketAwarenessAshareIndices,
     MarketAwarenessActionItem,
     MarketAwarenessActionSeverity,
     MarketAwarenessConfidence,
+    MarketAwarenessFearGreed,
     MarketAwarenessDataQuality,
     MarketAwarenessDataStatus,
     MarketAwarenessEvidenceRow,
+    MarketAwarenessNewsObservation,
+    MarketAwarenessParticipation,
     MarketAwarenessRegime,
     MarketAwarenessRiskPosture,
     MarketAwarenessSignalStatus,
     MarketAwarenessSnapshot,
+    MarketAwarenessVolumePrice,
 )
 from tradingcat.services.preflight import build_startup_preflight, summarize_validation_diagnostics
 from tradingcat.services.reporting import latest_report_dir
@@ -65,6 +70,29 @@ def _safe_market_awareness_snapshot(
                 degraded=True,
                 fallback_driven=False,
                 adapter_limitations=["market_awareness_snapshot_failed"],
+                blockers=["Market-awareness snapshot generation failed."],
+            ),
+            news_observation=MarketAwarenessNewsObservation(
+                degraded=True,
+                blockers=["Market-awareness snapshot generation failed."],
+                explanation="News observation unavailable because the parent snapshot failed.",
+                tone=MarketAwarenessSignalStatus.BLOCKED,
+            ),
+            a_share_indices=MarketAwarenessAshareIndices(
+                degraded=True,
+                blockers=["Market-awareness snapshot generation failed."],
+                explanation="A-share index observation unavailable because the parent snapshot failed.",
+                tone=MarketAwarenessSignalStatus.BLOCKED,
+            ),
+            fear_greed=MarketAwarenessFearGreed(
+                explanation="Fear-greed observation unavailable because the parent snapshot failed.",
+            ),
+            volume_price=MarketAwarenessVolumePrice(
+                explanation="Volume-price observation unavailable because the parent snapshot failed.",
+                guidance="Wait until the market-awareness pipeline recovers.",
+            ),
+            participation=MarketAwarenessParticipation(
+                reasons=["Participation decision unavailable because the market-awareness snapshot failed."],
                 blockers=["Market-awareness snapshot generation failed."],
             ),
         ).model_dump(mode="json")

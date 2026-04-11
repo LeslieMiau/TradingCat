@@ -228,6 +228,84 @@ class MarketAwarenessEvidenceView(FlexibleModel):
     explanation: str
 
 
+class MarketAwarenessNewsItemView(FlexibleModel):
+    source: str
+    title: str
+    topic: str = "macro"
+    tone: str = "mixed"
+    importance: float = 0.0
+    published_at: datetime | None = None
+    url: str | None = None
+    markets: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessNewsObservationView(FlexibleModel):
+    score: float = 0.0
+    tone: str = "mixed"
+    dominant_topics: list[str] = Field(default_factory=list)
+    key_items: list[MarketAwarenessNewsItemView] = Field(default_factory=list)
+    degraded: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
+class MarketAwarenessAshareIndexView(FlexibleModel):
+    label: str
+    symbol: str
+    trend_status: str = "mixed"
+    price_volume_state: str = "divergence"
+    score: float = 0.0
+    close: float | None = None
+    return_1d: float | None = None
+    return_5d: float | None = None
+    return_20d: float | None = None
+    volume_ratio_20d: float | None = None
+    above_sma20: bool | None = None
+    above_sma50: bool | None = None
+    above_sma200: bool | None = None
+    explanation: str = ""
+
+
+class MarketAwarenessAshareIndicesView(FlexibleModel):
+    score: float = 0.0
+    tone: str = "mixed"
+    index_views: list[MarketAwarenessAshareIndexView] = Field(default_factory=list)
+    degraded: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
+class MarketAwarenessContributorView(FlexibleModel):
+    label: str
+    score: float = 0.0
+    explanation: str = ""
+
+
+class MarketAwarenessFearGreedView(FlexibleModel):
+    score: float = 0.0
+    band: str = "neutral"
+    explanation: str = ""
+    contributors: list[MarketAwarenessContributorView] = Field(default_factory=list)
+
+
+class MarketAwarenessVolumePriceView(FlexibleModel):
+    state: str = "divergence"
+    score: float = 0.0
+    explanation: str = ""
+    guidance: str = ""
+    contributors: list[MarketAwarenessContributorView] = Field(default_factory=list)
+
+
+class MarketAwarenessParticipationView(FlexibleModel):
+    decision: str = "wait"
+    probability: float = 0.0
+    odds: float = 1.0
+    confidence: str = "low"
+    reasons: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
 class MarketAwarenessMarketView(FlexibleModel):
     market: str
     benchmark_symbol: str
@@ -281,6 +359,11 @@ class MarketAwarenessResponse(FlexibleModel):
     actions: list[MarketAwarenessActionItemView] = Field(default_factory=list)
     strategy_guidance: list[MarketAwarenessStrategyGuidanceView] = Field(default_factory=list)
     data_quality: MarketAwarenessDataQualityView = Field(default_factory=MarketAwarenessDataQualityView)
+    news_observation: MarketAwarenessNewsObservationView = Field(default_factory=MarketAwarenessNewsObservationView)
+    a_share_indices: MarketAwarenessAshareIndicesView = Field(default_factory=MarketAwarenessAshareIndicesView)
+    fear_greed: MarketAwarenessFearGreedView = Field(default_factory=MarketAwarenessFearGreedView)
+    volume_price: MarketAwarenessVolumePriceView = Field(default_factory=MarketAwarenessVolumePriceView)
+    participation: MarketAwarenessParticipationView = Field(default_factory=MarketAwarenessParticipationView)
 
 
 class ResearchReadinessStrategyView(FlexibleModel):

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+import json
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OrderSide, Signal
@@ -333,6 +334,45 @@ def test_research_service_delegates_experiment_storage_to_experiment_service(tmp
     service.clear()
     assert service.list_experiments() == []
     assert service.experiment_service.list_experiments() == []
+
+
+def test_backtest_repository_sanitizes_non_finite_metrics_on_load(tmp_path):
+    raw_payload = [
+        {
+            "id": "exp-1",
+            "strategy_id": "strategy_a_etf_rotation",
+            "as_of": "2026-03-08",
+            "signal_count": 1,
+            "metrics": {
+                "gross_return": float("nan"),
+                "net_return": float("nan"),
+                "turnover": 1.0,
+                "max_drawdown": 0.1,
+                "annualized_return": float("nan"),
+                "volatility": float("nan"),
+                "sharpe": 0.0,
+                "calmar": float("nan"),
+                "sample_months": 12,
+            },
+            "sample_start": "2018-01-01",
+            "window_count": 1,
+            "passed_validation": False,
+            "assumptions": {"legacy_value": float("nan")},
+            "started_at": "2026-03-08T00:00:00Z",
+        }
+    ]
+    (tmp_path / "backtests.json").write_text(json.dumps(raw_payload), encoding="utf-8")
+
+    repository = BacktestExperimentRepository(tmp_path)
+    experiments = repository.load()
+
+    loaded = experiments["exp-1"]
+    assert loaded.metrics.gross_return == 0.0
+    assert loaded.metrics.net_return == 0.0
+    assert loaded.metrics.annualized_return == 0.0
+    assert loaded.metrics.volatility == 0.0
+    assert loaded.metrics.calmar == 0.0
+    assert loaded.assumptions["legacy_value"] == 0.0
 
 
 def test_research_service_exposes_reporting_service_separately(tmp_path):

@@ -100,6 +100,30 @@ class MarketAwarenessDataStatus(str, Enum):
     FALLBACK = "fallback"
 
 
+class MarketAwarenessSentimentBand(str, Enum):
+    FEAR = "fear"
+    CAUTION = "caution"
+    NEUTRAL = "neutral"
+    CONSTRUCTIVE = "constructive"
+    GREED = "greed"
+
+
+class MarketAwarenessPriceVolumeState(str, Enum):
+    PRICE_UP_VOLUME_UP = "price_up_volume_up"
+    PRICE_UP_VOLUME_DOWN = "price_up_volume_down"
+    PRICE_DOWN_VOLUME_UP = "price_down_volume_up"
+    PRICE_DOWN_VOLUME_DOWN = "price_down_volume_down"
+    DIVERGENCE = "divergence"
+    REPAIR = "repair"
+
+
+class MarketAwarenessParticipationDecision(str, Enum):
+    PARTICIPATE = "participate"
+    SELECTIVE = "selective"
+    WAIT = "wait"
+    AVOID = "avoid"
+
+
 # ---------------------------------------------------------------------------
 # Core Domain Models
 # ---------------------------------------------------------------------------
@@ -290,6 +314,84 @@ class MarketAwarenessEvidenceRow(BaseModel):
     explanation: str
 
 
+class MarketAwarenessNewsItem(BaseModel):
+    source: str
+    title: str
+    topic: str = "macro"
+    tone: MarketAwarenessSignalStatus = MarketAwarenessSignalStatus.MIXED
+    importance: float = 0.0
+    published_at: datetime | None = None
+    url: str | None = None
+    markets: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
+
+
+class MarketAwarenessNewsObservation(BaseModel):
+    score: float = 0.0
+    tone: MarketAwarenessSignalStatus = MarketAwarenessSignalStatus.MIXED
+    dominant_topics: list[str] = Field(default_factory=list)
+    key_items: list[MarketAwarenessNewsItem] = Field(default_factory=list)
+    degraded: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
+class MarketAwarenessAshareIndexView(BaseModel):
+    label: str
+    symbol: str
+    trend_status: MarketAwarenessSignalStatus = MarketAwarenessSignalStatus.MIXED
+    price_volume_state: MarketAwarenessPriceVolumeState = MarketAwarenessPriceVolumeState.DIVERGENCE
+    score: float = 0.0
+    close: float | None = None
+    return_1d: float | None = None
+    return_5d: float | None = None
+    return_20d: float | None = None
+    volume_ratio_20d: float | None = None
+    above_sma20: bool | None = None
+    above_sma50: bool | None = None
+    above_sma200: bool | None = None
+    explanation: str = ""
+
+
+class MarketAwarenessAshareIndices(BaseModel):
+    score: float = 0.0
+    tone: MarketAwarenessSignalStatus = MarketAwarenessSignalStatus.MIXED
+    index_views: list[MarketAwarenessAshareIndexView] = Field(default_factory=list)
+    degraded: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
+class MarketAwarenessContributor(BaseModel):
+    label: str
+    score: float = 0.0
+    explanation: str = ""
+
+
+class MarketAwarenessFearGreed(BaseModel):
+    score: float = 0.0
+    band: MarketAwarenessSentimentBand = MarketAwarenessSentimentBand.NEUTRAL
+    explanation: str = ""
+    contributors: list[MarketAwarenessContributor] = Field(default_factory=list)
+
+
+class MarketAwarenessVolumePrice(BaseModel):
+    state: MarketAwarenessPriceVolumeState = MarketAwarenessPriceVolumeState.DIVERGENCE
+    score: float = 0.0
+    explanation: str = ""
+    guidance: str = ""
+    contributors: list[MarketAwarenessContributor] = Field(default_factory=list)
+
+
+class MarketAwarenessParticipation(BaseModel):
+    decision: MarketAwarenessParticipationDecision = MarketAwarenessParticipationDecision.WAIT
+    probability: float = 0.0
+    odds: float = 1.0
+    confidence: MarketAwarenessConfidence = MarketAwarenessConfidence.LOW
+    reasons: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
 class MarketAwarenessMarketView(BaseModel):
     market: Market
     benchmark_symbol: str
@@ -343,6 +445,11 @@ class MarketAwarenessSnapshot(BaseModel):
     actions: list[MarketAwarenessActionItem] = Field(default_factory=list)
     strategy_guidance: list[MarketAwarenessStrategyGuidance] = Field(default_factory=list)
     data_quality: MarketAwarenessDataQuality = Field(default_factory=MarketAwarenessDataQuality)
+    news_observation: MarketAwarenessNewsObservation = Field(default_factory=MarketAwarenessNewsObservation)
+    a_share_indices: MarketAwarenessAshareIndices = Field(default_factory=MarketAwarenessAshareIndices)
+    fear_greed: MarketAwarenessFearGreed = Field(default_factory=MarketAwarenessFearGreed)
+    volume_price: MarketAwarenessVolumePrice = Field(default_factory=MarketAwarenessVolumePrice)
+    participation: MarketAwarenessParticipation = Field(default_factory=MarketAwarenessParticipation)
 
 
 # ---------------------------------------------------------------------------

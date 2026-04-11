@@ -74,3 +74,48 @@
   - rebuild `PLAN.json` around the new participation-engine task
   - keep the prior research-page loading repair as a required sub-feature of the new task
   - keep `docs/2026-03-31-harness-review-report.md` untouched as unrelated user state
+
+## 2026-04-11 16:45:25 CST - Participation engine implemented and QA complete
+
+- Baseline repairs completed before feature work:
+  - sanitized non-finite backtest metrics in `tradingcat/backtest/engine.py`
+  - sanitized persisted experiment payloads in `tradingcat/repositories/research.py`
+  - added regression coverage in `tests/test_research_reporting.py`
+- Market-awareness architecture was refactored into an orchestrator plus dedicated leaf services:
+  - `tradingcat/services/news_observation.py`
+  - `tradingcat/services/ashare_indices.py`
+  - `tradingcat/services/fear_greed.py`
+  - `tradingcat/services/volume_price.py`
+  - `tradingcat/services/participation_decision.py`
+- Contract/model/config/data-path work completed:
+  - expanded `MarketAwarenessSnapshot` and API view models with `news_observation`, `a_share_indices`, `fear_greed`, `volume_price`, and `participation`
+  - added A-share observation-symbol defaults, news cache/timeout, and probability/odds thresholds to config
+  - added internal-only CN index symbol mapping for yfinance/Futu plus `bars_for_instrument()` support
+- Research page loading bug was folded into this task and fixed:
+  - `templates/research.html` now includes dedicated panels for news, A-share indices, fear-greed, volume-price, and participation
+  - `static/research.js` now hydrates from `/dashboard/summary` first, then runs live scorecard/correlation enhancement in the background with `Promise.allSettled()`
+  - strategy-impact picking no longer forces a full page reload
+- Trading-plan and summary integration completed:
+  - generated plan headline now includes participation decision, probability, and odds
+  - dashboard summary/details serialize the expanded market-awareness payload
+  - degraded `avoid` messaging was corrected so it no longer incorrectly says "capped at wait"
+- Focused validation completed:
+  - `./.venv/bin/pytest tests/test_news_observation_service.py tests/test_ashare_indices_service.py tests/test_fear_greed_service.py tests/test_participation_decision_service.py tests/test_market_awareness_models.py tests/test_config.py -q` → `12 passed`
+  - `./.venv/bin/pytest tests/test_api.py -k 'research_backtest_endpoints or research_market_awareness_endpoints_expose_typed_payload or research_market_awareness_falls_back_to_degraded_payload_on_failure or dashboard_page_and_assets or dashboard_summary_endpoint or trading_journal_endpoints' tests/test_dashboard_facade.py tests/test_market_awareness_service.py -q` → `6 passed, 65 deselected`
+  - `./.venv/bin/pytest tests/test_participation_decision_service.py -q` → `3 passed`
+  - `./.venv/bin/pytest tests/test_api.py -k 'dashboard_summary_endpoint or trading_journal_endpoints' -q` → `2 passed, 54 deselected`
+- Runtime QA and smoke completed after replacing a stale pre-change uvicorn process on port `8000`:
+  - local runtime had served new templates/static assets from disk while still holding old Python code in memory, so a restart was required to verify the expanded API contract
+  - final `uvicorn` PID after restart: `77563`
+  - `GET /research/market-awareness?as_of=2026-03-08` returned `overall_regime=risk_off`, `participation.decision=avoid`, and all five typed sections
+  - `POST /journal/plans/generate?as_of=2026-03-08` returned headline text including `Participation avoid / p=0.47 / odds=0.91.`
+  - after regenerating the dated plan, `GET /dashboard/summary?as_of=2026-03-08` returned `trading_plan.market_awareness.participation.decision=avoid`
+  - `GET /dashboard/research` HTML includes:
+    - `research-market-news-panel`
+    - `research-a-share-indices-panel`
+    - `research-fear-greed-panel`
+    - `research-volume-price-panel`
+    - `research-participation-panel`
+- Remaining harness work:
+  - create the implementation checkpoint commit
+  - if no new regressions appear, remove `PLAN.json`, `PROGRESS.md`, and tracked `.harness` state files in the final cleanup commit
