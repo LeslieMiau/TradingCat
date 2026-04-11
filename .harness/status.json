@@ -1,9 +1,0 @@
-{
-  "task": "market-awareness participation engine",
-  "phase": "qa",
-  "current_round": 2,
-  "max_rounds": 3,
-  "active_feature": 73,
-  "last_commit": "93a8b73",
-  "status": "ready_for_cleanup"
-}
