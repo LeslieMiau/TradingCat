@@ -1,42 +1,72 @@
-# Research Page Loading Repair Spec
+# Market-Awareness Participation Engine Spec
 
 ## Goal
 
-Repair the TradingCat research page so `http://127.0.0.1:8000/dashboard/research` renders useful operator data immediately instead of appearing blank when optional live research endpoints are slow.
+Refactor TradingCat market awareness into a participation-engine architecture that observes key news, the A-share three-index tape, fear-greed conditions, and volume-price structure, then converts those observations into advisory-only participation guidance using probability and odds.
 
 ## Product Contract
 
-- The research page must use `/dashboard/summary` as the first-paint data source for:
-  - market-awareness
-  - active strategy rows
-  - candidate counts and top picks
-- The page must remain useful when one or more live enhancement endpoints are slow or unavailable:
-  - `POST /research/scorecard/run`
-  - `POST /research/candidates/scorecard`
-  - `POST /research/correlation`
-- Partial failure must produce explicit degraded notes, not a blank page.
-- Existing market-awareness panels must remain visible.
-- The fix must not turn live scorecards off; they remain optional enhancement layers after first paint.
+- The top-level market-awareness entrypoint remains `/research/market-awareness` and continues to expose:
+  - `overall_regime`
+  - `confidence`
+  - `risk_posture`
+  - `actions`
+  - `strategy_guidance`
+  - `data_quality`
+- The payload must now also expose typed sections for:
+  - `news_observation`
+  - `a_share_indices`
+  - `fear_greed`
+  - `volume_price`
+  - `participation`
+- Participation output is advisory-only:
+  - it informs the research page
+  - it informs `/dashboard/summary`
+  - it informs `/journal/plans/generate`
+  - it does not alter execution gating or place orders
+
+## Architecture Contract
+
+- `MarketAwarenessService` becomes an orchestrator over dedicated leaf services:
+  - `NewsObservationService`
+  - `AshareIndexObservationService`
+  - `FearGreedToolService`
+  - `VolumePriceToolService`
+  - `ParticipationDecisionService`
+- Routes remain thin.
+- Query/facade layers consume typed payloads and do not rebuild business logic.
+- A-share observation symbols are internal-only and must not leak into the tradable universe.
+
+## Data Contract
+
+- Public RSS/web feeds are used without API keys and must degrade cleanly on timeout or parsing failure.
+- The A-share tape is defined by:
+  - 上证指数
+  - 深证成指
+  - 创业板指
+- Internal symbol mapping must route those indices to provider-specific identifiers without adding a new tradable asset class.
+
+## UI Contract
+
+- `/dashboard/research` must hydrate from `/dashboard/summary` first.
+- Slow research scorecard endpoints must not block first paint.
+- The research page must show dedicated sections for news, A-share indices, fear-greed, volume-price, and participation.
+- Degraded data must show explicit operator-facing notes instead of blank panels.
 
 ## Baseline Repair Included
 
-- `GET /research/backtests` currently fails JSON serialization because at least one experiment field emits `nan`.
-- This regression must be repaired as part of the baseline before the task is considered complete.
+- `/research/backtests` currently fails because non-finite numeric values leak into API serialization.
+- This regression must be repaired before the task is considered healthy.
 
 ## Validation Contract
 
-- Targeted pytest must pass for:
-  - research backtests API
-  - dashboard summary contract
+- Focused pytest must cover:
+  - backtests API regression
+  - market-awareness services/models
+  - dashboard summary/trading-plan contracts
   - research page/static asset coverage
-  - any touched facade/helper tests
-- Local curl/html smoke must show:
-  - `/dashboard/summary` contains enough data for first paint
-  - `/dashboard/research` still exposes the expected market-awareness sections
-  - the page no longer depends on both live scorecard endpoints completing before showing data
-
-## Scope Limits
-
-- No large redesign of the research page
-- No removal of market-awareness UI
-- No broad refactor of unrelated research APIs
+- Local smoke must verify:
+  - `/research/market-awareness`
+  - `/dashboard/summary`
+  - `/journal/plans/generate`
+  - `/dashboard/research`

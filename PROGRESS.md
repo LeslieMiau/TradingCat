@@ -43,3 +43,34 @@
   - `PROGRESS.md`
   - `.harness/spec.md`
   - `.harness/status.json`
+
+## 2026-04-11 23:20:00 CST - Scope reset for market-awareness participation engine
+
+- User changed the harness scope from a narrow research-page loading repair to a broader market-awareness redesign with:
+  - key news observation
+  - A-share three-index price/volume observation
+  - fear-greed tool
+  - volume-price tool
+  - participation judgment via probability and odds
+- Approved implementation constraints for the new scope:
+  - advisory-only output
+  - research/dashboard/journal integration
+  - no execution-gate mutation
+  - public RSS/web news sourcing without API keys
+  - A-share tape anchored to 上证指数 / 深证成指 / 创业板指
+- Mandatory restore/validation completed for the new task:
+  - `pwd`
+  - `git log --oneline -20`
+  - `sed -n '1,220p' PROGRESS.md`
+  - `cat PLAN.json`
+  - `bash ~/.codex/scripts/global-init.sh`
+- Current baseline state before code changes for the new task:
+  - `global-init` left the service healthy but reported one failing baseline test:
+    - `tests/test_api.py::test_research_backtest_endpoints`
+    - failure: `/research/backtests` returned `400`
+    - reason: non-JSON-compliant `nan` payload still leaks through experiment serialization
+  - prior `.harness/spec.md` and `PLAN.json` were specific to the old research-page-only task and are now obsolete
+- Scope-reset decision:
+  - rebuild `PLAN.json` around the new participation-engine task
+  - keep the prior research-page loading repair as a required sub-feature of the new task
+  - keep `docs/2026-03-31-harness-review-report.md` untouched as unrelated user state
