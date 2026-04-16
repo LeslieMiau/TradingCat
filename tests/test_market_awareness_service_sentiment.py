@@ -18,7 +18,11 @@ import pytest
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.sentiment_sources.fakes import (
+    StaticCNMarketFlowsClient,
     StaticCNNFearGreedClient,
+    make_cn_margin_reading,
+    make_cn_northbound_reading,
+    make_cn_turnover_reading,
     make_cnn_reading,
 )
 from tradingcat.config import AppConfig
@@ -297,3 +301,102 @@ def test_sentiment_contrarian_action_when_extreme_fear_not_risk_off(tmp_path):
     )
     assert contrarian.severity.value == "low"
     assert "允许" in contrarian.text or "permitted" in contrarian.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Round 2: CN action rules
+# ---------------------------------------------------------------------------
+
+
+def test_sentiment_cn_overheated_emitted_on_turnover_stress(tmp_path):
+    """When CN turnover > 5% (STRESS), emit sentiment_cn_overheated."""
+
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    _seed_baseline_histories(market_data, bullish=True)
+    _seed_volatility_indices(market_data, vix_close=15.0, vxn_close=18.0)
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    cn_client = StaticCNMarketFlowsClient(
+        turnover=make_cn_turnover_reading(6.0),       # STRESS
+        northbound=make_cn_northbound_reading(0.0),
+        margin=make_cn_margin_reading(0.0),
+    )
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client, cn_flows_client=cn_client
+    )
+    service = MarketAwarenessService(
+        config, market_data, market_sentiment=sentiment_service
+    )
+    snapshot = service.snapshot(_AS_OF)
+    action_keys = {item.action_key for item in snapshot.actions}
+    assert "sentiment_cn_overheated" in action_keys
+    overheated = next(item for item in snapshot.actions if item.action_key == "sentiment_cn_overheated")
+    assert overheated.severity.value == "medium"
+    assert Market.CN.value in overheated.markets
+
+
+def test_sentiment_cn_outflow_pressure_emitted_on_northbound_negative(tmp_path):
+    """When northbound 5d < -20bn, emit sentiment_cn_outflow_pressure."""
+
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    _seed_baseline_histories(market_data, bullish=True)
+    _seed_volatility_indices(market_data, vix_close=15.0, vxn_close=18.0)
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    cn_client = StaticCNMarketFlowsClient(
+        turnover=make_cn_turnover_reading(2.0),
+        northbound=make_cn_northbound_reading(-30.0),  # below -20bn
+        margin=make_cn_margin_reading(0.0),
+    )
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client, cn_flows_client=cn_client
+    )
+    service = MarketAwarenessService(
+        config, market_data, market_sentiment=sentiment_service
+    )
+    snapshot = service.snapshot(_AS_OF)
+    action_keys = {item.action_key for item in snapshot.actions}
+    assert "sentiment_cn_outflow_pressure" in action_keys
+    outflow = next(item for item in snapshot.actions if item.action_key == "sentiment_cn_outflow_pressure")
+    assert outflow.severity.value == "medium"
+    assert Market.CN.value in outflow.markets
+
+
+def test_cn_sentiment_does_not_change_overall_score(tmp_path):
+    """CN sentiment must not alter the weighted regime score (same invariant as US)."""
+
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    _seed_baseline_histories(market_data, bullish=True)
+
+    baseline = MarketAwarenessService(config, market_data)
+    baseline_snapshot = baseline.snapshot(_AS_OF)
+
+    _seed_volatility_indices(market_data, vix_close=15.0, vxn_close=18.0)
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    cn_client = StaticCNMarketFlowsClient(
+        turnover=make_cn_turnover_reading(6.0),
+        northbound=make_cn_northbound_reading(-30.0),
+        margin=make_cn_margin_reading(+10.0),
+    )
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client, cn_flows_client=cn_client
+    )
+    enriched = MarketAwarenessService(config, market_data, market_sentiment=sentiment_service)
+    enriched_snapshot = enriched.snapshot(_AS_OF)
+
+    assert enriched_snapshot.overall_score == pytest.approx(baseline_snapshot.overall_score)
+    assert enriched_snapshot.overall_regime == baseline_snapshot.overall_regime
+    assert enriched_snapshot.risk_posture == baseline_snapshot.risk_posture

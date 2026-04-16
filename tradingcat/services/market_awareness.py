@@ -1016,6 +1016,46 @@ class MarketAwarenessService:
                     )
                     existing_keys.add("sentiment_trim_into_strength")
 
+        # ------------------------------------------------------------------ CN indicators
+        cn_view = sentiment.view_for(Market.CN)
+        if cn_view is not None:
+            cn_turnover = sentiment.indicator(Market.CN, "cn_turnover")
+            cn_northbound = sentiment.indicator(Market.CN, "cn_northbound")
+
+            # Turnover STRESS → overheated market
+            if cn_turnover is not None and cn_turnover.status == SentimentStatus.STRESS:
+                if "sentiment_cn_overheated" not in existing_keys:
+                    actions.append(
+                        MarketAwarenessActionItem(
+                            severity=MarketAwarenessActionSeverity.MEDIUM,
+                            action_key="sentiment_cn_overheated",
+                            text="A-share turnover rate is overheated: tighten CN new-position sizing.",
+                            rationale=f"Median turnover {cn_turnover.value:.2f}% above stress threshold 5%."
+                            if cn_turnover.value is not None
+                            else "CN turnover in stress bucket.",
+                            markets=[Market.CN.value],
+                        )
+                    )
+                    existing_keys.add("sentiment_cn_overheated")
+
+            # Northbound 5d net < -20bn → capital outflow pressure
+            if (
+                cn_northbound is not None
+                and cn_northbound.value is not None
+                and cn_northbound.value < -20.0
+            ):
+                if "sentiment_cn_outflow_pressure" not in existing_keys:
+                    actions.append(
+                        MarketAwarenessActionItem(
+                            severity=MarketAwarenessActionSeverity.MEDIUM,
+                            action_key="sentiment_cn_outflow_pressure",
+                            text="Sustained northbound outflow: treat CN holdings as neutral-to-defensive.",
+                            rationale=f"Northbound 5d net {cn_northbound.value:+.1f} bn below -20bn threshold.",
+                            markets=[Market.CN.value],
+                        )
+                    )
+                    existing_keys.add("sentiment_cn_outflow_pressure")
+
         # ------------------------------------------------------------------ Data gap
         dq = sentiment.data_quality
         sentiment_blocked = bool(dq.sources_failed) or bool(dq.blockers)

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 from tradingcat.adapters.factory import AdapterFactory
 from tradingcat.adapters.sentiment_http import SentimentHttpClient
+from tradingcat.adapters.sentiment_sources.cn_market_flows import CNMarketFlowsClient
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import CNNFearGreedClient
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
@@ -134,10 +135,19 @@ class ApplicationRuntime:
                 ttl_seconds=sentiment_cfg.cache_ttl_seconds,
                 user_agent=sentiment_cfg.http_user_agent,
             )
+        cn_flows_client: CNMarketFlowsClient | None = None
+        if sentiment_cfg.enabled and sentiment_cfg.cn_backend == "eastmoney_http":
+            cn_flows_client = CNMarketFlowsClient(
+                sentiment_http,
+                turnover_universe_size=sentiment_cfg.cn_turnover_universe_size,
+                northbound_window_days=sentiment_cfg.cn_northbound_window_days,
+                ttl_seconds=sentiment_cfg.cache_ttl_seconds,
+            )
         market_sentiment = MarketSentimentService(
             config,
             market_history,
             cnn_client=cnn_client,
+            cn_flows_client=cn_flows_client,
         )
         market_awareness = MarketAwarenessService(
             config,

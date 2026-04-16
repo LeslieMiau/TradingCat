@@ -6,10 +6,9 @@ aggregates into per-market + composite scores. It never raises: per spec §4
 (Graceful degradation), any fetcher failure downgrades the indicator and
 leaves the remaining aggregation path intact.
 
-Round 1 scope: **US view only** (VIX + VXN + CNN Fear & Greed). HK/CN views
-are placeholders (score=0, status=UNKNOWN) so the Pydantic payload shape stays
-stable across rounds — Round 2 wires `_cn_view` and Round 3 wires `_hk_view`
-without further API changes.
+Round 1: US view (VIX + VXN + CNN Fear & Greed).
+Round 2: CN view (turnover + northbound + margin via eastmoney_http).
+HK view is a placeholder (score=0, status=UNKNOWN) until Round 3.
 """
 from __future__ import annotations
 
@@ -19,6 +18,12 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from tradingcat.adapters.sentiment_sources.cn_market_flows import (
+    CNMarketFlowsClient,
+    CNMarginReading,
+    CNNorthboundReading,
+    CNTurnoverReading,
+)
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import (
     CNNFearGreedClient,
     CNNFearGreedReading,
@@ -68,6 +73,49 @@ _CNN_BUCKETS: tuple[tuple[float, SentimentStatus, float], ...] = (
 )
 
 
+# CN A-share indicators (spec §5 "分桶阈值表" — CN section).
+_CN_TURNOVER_BUCKETS: tuple[tuple[float | None, SentimentStatus, float], ...] = (
+    # Cross-sectional median turnover rate (%).  Higher = more retail-driven
+    # speculative activity → risk-negative (overheated).
+    (1.5, SentimentStatus.CALM, +0.2),
+    (3.0, SentimentStatus.NEUTRAL, 0.0),
+    (5.0, SentimentStatus.ELEVATED, -0.2),
+    (None, SentimentStatus.STRESS, -0.5),
+)
+
+_CN_NORTHBOUND_BUCKETS: tuple[tuple[float | None, SentimentStatus, float], ...] = (
+    # 5-day net in CNY billions.  Positive = foreign inflow (bullish signal).
+    # The bucket table is reversed: we iterate from most-bullish to most-bearish.
+    # NOTE: the spec says > +20 → +0.5, -20..+20 → 0, < -20 → -0.5.
+    # We cannot reuse _bucket_for_value directly because the ordering is
+    # inverted (high value = good).  Handled in _classify_northbound().
+)
+
+_CN_MARGIN_BUCKETS: tuple[tuple[float | None, SentimentStatus, float], ...] = (
+    # MoM % change.  Rising margin ≈ leveraged speculation → slightly risk-neg.
+    # Falling margin ≈ de-leveraging → slightly risk-positive (mean-reversion).
+    # Again ordering is inverted (high = bad); handled in _classify_margin().
+)
+
+
+def _classify_northbound(net_5d_bn: float) -> tuple[SentimentStatus, float]:
+    """Map northbound 5d net flow (CNY bn) to (status, score)."""
+    if net_5d_bn > 20.0:
+        return SentimentStatus.CALM, +0.5
+    if net_5d_bn >= -20.0:
+        return SentimentStatus.NEUTRAL, 0.0
+    return SentimentStatus.STRESS, -0.5
+
+
+def _classify_margin(mom_pct: float) -> tuple[SentimentStatus, float]:
+    """Map margin balance MoM % change to (status, score)."""
+    if mom_pct > 5.0:
+        return SentimentStatus.ELEVATED, -0.2
+    if mom_pct >= -5.0:
+        return SentimentStatus.NEUTRAL, 0.0
+    return SentimentStatus.CALM, +0.3
+
+
 def _bucket_for_value(
     value: float,
     buckets: tuple[tuple[float | None, SentimentStatus, float], ...],
@@ -96,8 +144,7 @@ class _ViewMeta:
 class MarketSentimentService:
     """Aggregate external sentiment sources into a per-market + composite view.
 
-    Dependencies are injected so tests can swap in `Static*Client` fakes. The
-    CNN client is the only external fetcher wired in Round 1.
+    Dependencies are injected so tests can swap in `Static*Client` fakes.
     """
 
     def __init__(
@@ -106,7 +153,7 @@ class MarketSentimentService:
         market_data: MarketDataService,
         *,
         cnn_client: CNNFearGreedClient | None = None,
-        cn_flows_client: Any = None,  # Round 2
+        cn_flows_client: CNMarketFlowsClient | None = None,
         hk_flows_client: Any = None,  # Round 3
     ) -> None:
         self._app_config = config
@@ -154,7 +201,7 @@ class MarketSentimentService:
                 any_populated=False,
             )
 
-        # Round 1 stubs — replaced in later rounds.
+        # HK view — still a placeholder until Round 3.
         hk_view = self._empty_view(Market.HK)
         hk_meta = _ViewMeta(
             sources_failed=[],
@@ -163,14 +210,20 @@ class MarketSentimentService:
             blockers=[],
             any_populated=False,
         )
-        cn_view = self._empty_view(Market.CN)
-        cn_meta = _ViewMeta(
-            sources_failed=[],
-            stale_sources=[],
-            adapter_limitations=["cn_sentiment_not_implemented"],
-            blockers=[],
-            any_populated=False,
-        )
+
+        # CN view — wired in Round 2.
+        try:
+            cn_view, cn_meta = self._build_cn_view()
+        except Exception as exc:  # noqa: BLE001 — defense in depth
+            logger.exception("market sentiment CN view failure: %s", exc)
+            cn_view = self._empty_view(Market.CN)
+            cn_meta = _ViewMeta(
+                sources_failed=["cn_sentiment"],
+                stale_sources=[],
+                adapter_limitations=["cn_view_exception"],
+                blockers=[],
+                any_populated=False,
+            )
 
         views = [us_view, hk_view, cn_view]
         composite_score = self._compute_composite_score(views)
@@ -386,6 +439,162 @@ class MarketSentimentService:
             (0.50, vix),
             (0.25, vxn),
             (0.25, cnn),
+        ):
+            if indicator.value is None or indicator.status == SentimentStatus.UNKNOWN:
+                continue
+            weighted += weight * indicator.score
+            total_weight += weight
+        if total_weight == 0.0:
+            return 0.0
+        return round(max(-1.0, min(1.0, weighted / total_weight)), 4)
+
+    # ------------------------------------------------------------------ CN view
+
+    def _build_cn_view(self) -> tuple[MarketSentimentView, _ViewMeta]:
+        """Build the A-share sentiment view from turnover/northbound/margin."""
+
+        indicators: list[MarketSentimentIndicator] = []
+        meta = _ViewMeta(
+            sources_failed=[],
+            stale_sources=[],
+            adapter_limitations=[],
+            blockers=[],
+            any_populated=False,
+        )
+
+        if self._config.cn_backend == "disabled":
+            meta.adapter_limitations.append("cn_sentiment_disabled")
+            return self._empty_view(Market.CN), meta
+
+        if self._cn_flows_client is None:
+            meta.adapter_limitations.append("cn_flows_client_missing")
+            return self._empty_view(Market.CN), meta
+
+        turnover_ind = self._fetch_cn_turnover_indicator(meta)
+        indicators.append(turnover_ind)
+
+        northbound_ind = self._fetch_cn_northbound_indicator(meta)
+        indicators.append(northbound_ind)
+
+        margin_ind = self._fetch_cn_margin_indicator(meta)
+        indicators.append(margin_ind)
+
+        score = self._aggregate_cn_score(turnover_ind, northbound_ind, margin_ind)
+        status = self._classify_market_status(score, indicators)
+
+        notes: list[str] = []
+        if not meta.any_populated:
+            notes.append("CN sentiment unavailable; downstream scoring is neutralised.")
+
+        view = MarketSentimentView(
+            market=Market.CN,
+            score=score,
+            status=status,
+            indicators=indicators,
+            notes=notes,
+        )
+        return view, meta
+
+    def _fetch_cn_turnover_indicator(self, meta: _ViewMeta) -> MarketSentimentIndicator:
+        key = "cn_turnover"
+        label = "A-share median turnover"
+        reading: CNTurnoverReading | None = None
+        try:
+            reading = self._cn_flows_client.fetch_turnover()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentiment: CN turnover fetch raised: %s", exc)
+            meta.adapter_limitations.append("cn_turnover_exception")
+
+        if reading is None:
+            meta.sources_failed.append(key)
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.CN.value,
+                value=None, unit="%", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="eastmoney", stale=True,
+                notes=["Turnover source unavailable"],
+            )
+
+        status, score = _bucket_for_value(reading.median_pct, _CN_TURNOVER_BUCKETS)
+        meta.any_populated = True
+        return MarketSentimentIndicator(
+            key=key, label=label, market=Market.CN.value,
+            value=round(reading.median_pct, 4), unit="%",
+            status=status, score=round(score, 4),
+            as_of_ts=reading.fetched_at, source="eastmoney", stale=False,
+            notes=[f"Sample: {reading.sample_size} stocks"],
+        )
+
+    def _fetch_cn_northbound_indicator(self, meta: _ViewMeta) -> MarketSentimentIndicator:
+        key = "cn_northbound"
+        label = "Northbound 5d net"
+        reading: CNNorthboundReading | None = None
+        try:
+            reading = self._cn_flows_client.fetch_northbound()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentiment: CN northbound fetch raised: %s", exc)
+            meta.adapter_limitations.append("cn_northbound_exception")
+
+        if reading is None:
+            meta.sources_failed.append(key)
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.CN.value,
+                value=None, unit="CNY_bn", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="eastmoney", stale=True,
+                notes=["Northbound source unavailable"],
+            )
+
+        status, score = _classify_northbound(reading.net_5d_bn)
+        meta.any_populated = True
+        return MarketSentimentIndicator(
+            key=key, label=label, market=Market.CN.value,
+            value=round(reading.net_5d_bn, 4), unit="CNY_bn",
+            status=status, score=round(score, 4),
+            as_of_ts=reading.fetched_at, source="eastmoney", stale=False,
+            notes=[f"5d window: {self._config.cn_northbound_window_days}d"],
+        )
+
+    def _fetch_cn_margin_indicator(self, meta: _ViewMeta) -> MarketSentimentIndicator:
+        key = "cn_margin"
+        label = "Margin balance MoM"
+        reading: CNMarginReading | None = None
+        try:
+            reading = self._cn_flows_client.fetch_margin_balance()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentiment: CN margin fetch raised: %s", exc)
+            meta.adapter_limitations.append("cn_margin_exception")
+
+        if reading is None:
+            meta.sources_failed.append(key)
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.CN.value,
+                value=None, unit="%_mom", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="eastmoney", stale=True,
+                notes=["Margin source unavailable"],
+            )
+
+        status, score = _classify_margin(reading.mom_pct)
+        meta.any_populated = True
+        return MarketSentimentIndicator(
+            key=key, label=label, market=Market.CN.value,
+            value=round(reading.mom_pct, 4), unit="%_mom",
+            status=status, score=round(score, 4),
+            as_of_ts=reading.fetched_at, source="eastmoney", stale=False,
+            notes=[],
+        )
+
+    @staticmethod
+    def _aggregate_cn_score(
+        turnover: MarketSentimentIndicator,
+        northbound: MarketSentimentIndicator,
+        margin: MarketSentimentIndicator,
+    ) -> float:
+        """Weight: 0.4 turnover + 0.4 northbound + 0.2 margin."""
+        weighted = 0.0
+        total_weight = 0.0
+        for weight, indicator in (
+            (0.40, turnover),
+            (0.40, northbound),
+            (0.20, margin),
         ):
             if indicator.value is None or indicator.status == SentimentStatus.UNKNOWN:
                 continue

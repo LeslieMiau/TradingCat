@@ -13,7 +13,11 @@ import pytest
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.sentiment_sources.fakes import (
+    StaticCNMarketFlowsClient,
     StaticCNNFearGreedClient,
+    make_cn_margin_reading,
+    make_cn_northbound_reading,
+    make_cn_turnover_reading,
     make_cnn_reading,
 )
 from tradingcat.config import AppConfig, MarketSentimentConfig
@@ -39,6 +43,7 @@ def _build_services(
     *,
     config: AppConfig | None = None,
     cnn_client=None,
+    cn_flows_client=None,
     vix_close: float | None = None,
     vxn_close: float | None = None,
 ) -> tuple[MarketSentimentService, MarketDataService]:
@@ -48,7 +53,9 @@ def _build_services(
         instruments=InstrumentCatalogRepository(app_config),
         history=HistoricalMarketDataRepository(app_config),
     )
-    service = MarketSentimentService(app_config, market_data, cnn_client=cnn_client)
+    service = MarketSentimentService(
+        app_config, market_data, cnn_client=cnn_client, cn_flows_client=cn_flows_client
+    )
     if vix_close is not None:
         _seed_index_close(market_data, "^VIX", Market.US, vix_close)
     if vxn_close is not None:
@@ -284,22 +291,20 @@ def test_disabled_returns_empty_snapshot(tmp_path):
     assert "market_sentiment_disabled" in snapshot.data_quality.adapter_limitations
 
 
-def test_hk_cn_views_are_placeholders_in_round_1(tmp_path):
+def test_hk_view_is_placeholder(tmp_path):
+    """HK view is still a placeholder in Round 2 (Round 3 scope)."""
     cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
     service, _ = _build_services(
         tmp_path, cnn_client=cnn_client, vix_close=16.0, vxn_close=20.0
     )
     snapshot = service.snapshot(_AS_OF)
     hk_view = snapshot.view_for(Market.HK)
-    cn_view = snapshot.view_for(Market.CN)
     assert hk_view is not None and hk_view.status == SentimentStatus.UNKNOWN
     assert hk_view.indicators == []
-    assert cn_view is not None and cn_view.status == SentimentStatus.UNKNOWN
-    assert cn_view.indicators == []
 
 
 def test_composite_excludes_unknown_markets(tmp_path):
-    """Round 1 composite should equal the US score (no HK/CN contribution)."""
+    """When only US is populated, composite equals the US score (renormalized)."""
 
     cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
     service, _ = _build_services(
@@ -311,3 +316,192 @@ def test_composite_excludes_unknown_markets(tmp_path):
     # Active-weight renormalisation: with only US populated, composite equals
     # us score exactly (not us_score * 0.45).
     assert snapshot.composite_score == pytest.approx(us_view.score, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# CN bucket classification (Round 2)
+# ---------------------------------------------------------------------------
+
+
+def _cn_flows_client(
+    turnover_pct: float | None = None,
+    northbound_bn: float | None = None,
+    margin_mom_pct: float | None = None,
+) -> StaticCNMarketFlowsClient:
+    return StaticCNMarketFlowsClient(
+        turnover=make_cn_turnover_reading(turnover_pct) if turnover_pct is not None else None,
+        northbound=make_cn_northbound_reading(northbound_bn) if northbound_bn is not None else None,
+        margin=make_cn_margin_reading(margin_mom_pct) if margin_mom_pct is not None else None,
+    )
+
+
+@pytest.mark.parametrize(
+    "turnover_pct,expected_status",
+    [
+        (1.0, SentimentStatus.CALM),
+        (2.5, SentimentStatus.NEUTRAL),
+        (4.0, SentimentStatus.ELEVATED),
+        (6.0, SentimentStatus.STRESS),
+    ],
+)
+def test_cn_turnover_bucket_classification(tmp_path, turnover_pct, expected_status):
+    cn_client = _cn_flows_client(turnover_pct=turnover_pct, northbound_bn=0.0, margin_mom_pct=0.0)
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    ind = snapshot.indicator(Market.CN, "cn_turnover")
+    assert ind is not None
+    assert ind.value == pytest.approx(turnover_pct, abs=1e-3)
+    assert ind.status == expected_status
+
+
+@pytest.mark.parametrize(
+    "northbound_bn,expected_status,expected_score",
+    [
+        (25.0, SentimentStatus.CALM, +0.5),
+        (0.0, SentimentStatus.NEUTRAL, 0.0),
+        (-25.0, SentimentStatus.STRESS, -0.5),
+    ],
+)
+def test_cn_northbound_bucket_classification(tmp_path, northbound_bn, expected_status, expected_score):
+    cn_client = _cn_flows_client(turnover_pct=2.0, northbound_bn=northbound_bn, margin_mom_pct=0.0)
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    ind = snapshot.indicator(Market.CN, "cn_northbound")
+    assert ind is not None
+    assert ind.value == pytest.approx(northbound_bn, abs=1e-3)
+    assert ind.status == expected_status
+    assert ind.score == pytest.approx(expected_score, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    "margin_mom_pct,expected_status,expected_score",
+    [
+        (+8.0, SentimentStatus.ELEVATED, -0.2),
+        (0.0, SentimentStatus.NEUTRAL, 0.0),
+        (-8.0, SentimentStatus.CALM, +0.3),
+    ],
+)
+def test_cn_margin_bucket_classification(tmp_path, margin_mom_pct, expected_status, expected_score):
+    cn_client = _cn_flows_client(turnover_pct=2.0, northbound_bn=0.0, margin_mom_pct=margin_mom_pct)
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    ind = snapshot.indicator(Market.CN, "cn_margin")
+    assert ind is not None
+    assert ind.value == pytest.approx(margin_mom_pct, abs=1e-3)
+    assert ind.status == expected_status
+    assert ind.score == pytest.approx(expected_score, abs=1e-3)
+
+
+def test_cn_view_populates_when_all_sources_available(tmp_path):
+    cn_client = _cn_flows_client(turnover_pct=2.0, northbound_bn=10.0, margin_mom_pct=0.0)
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    assert cn_view.status != SentimentStatus.UNKNOWN
+    assert len(cn_view.indicators) == 3
+    assert all(ind.value is not None for ind in cn_view.indicators)
+
+
+def test_cn_score_follows_weight_formula(tmp_path):
+    """CN = 0.4*turnover + 0.4*northbound + 0.2*margin."""
+    cn_client = _cn_flows_client(
+        turnover_pct=1.0,   # CALM +0.2
+        northbound_bn=25.0, # CALM +0.5
+        margin_mom_pct=-8.0, # CALM +0.3
+    )
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    # 0.4*0.2 + 0.4*0.5 + 0.2*0.3 = 0.08 + 0.20 + 0.06 = 0.34
+    assert cn_view.score == pytest.approx(0.34, abs=1e-3)
+
+
+def test_cn_score_excludes_missing_indicators(tmp_path):
+    """When one CN indicator is unavailable, renormalize by active weight."""
+    cn_client = _cn_flows_client(
+        turnover_pct=1.0,    # CALM +0.2
+        northbound_bn=None,  # missing
+        margin_mom_pct=0.0,  # NEUTRAL 0.0
+    )
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    # Active weights: 0.4 (turnover) + 0.2 (margin) = 0.6
+    # weighted = 0.4*0.2 + 0.2*0.0 = 0.08
+    # score = 0.08 / 0.6 ≈ 0.1333
+    assert cn_view.score == pytest.approx(0.1333, abs=1e-3)
+
+
+def test_cn_disabled_returns_unknown(tmp_path):
+    config = AppConfig(
+        data_dir=tmp_path,
+        market_sentiment=MarketSentimentConfig(cn_backend="disabled"),
+    )
+    cn_client = _cn_flows_client(turnover_pct=2.0, northbound_bn=0.0, margin_mom_pct=0.0)
+    service, _ = _build_services(
+        tmp_path, config=config, cn_flows_client=cn_client, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    assert cn_view.status == SentimentStatus.UNKNOWN
+    assert cn_view.indicators == []
+
+
+def test_cn_client_missing_returns_unknown(tmp_path):
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=None, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    assert cn_view.status == SentimentStatus.UNKNOWN
+
+
+def test_cn_exception_does_not_propagate(tmp_path):
+    broken = StaticCNMarketFlowsClient(
+        raise_on_turnover=True, raise_on_northbound=True, raise_on_margin=True
+    )
+    service, _ = _build_services(
+        tmp_path, cn_flows_client=broken, vix_close=15.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    assert isinstance(snapshot, MarketSentimentSnapshot)
+    cn_view = snapshot.view_for(Market.CN)
+    assert cn_view is not None
+    # All three indicators should have value=None due to exceptions
+    for ind in cn_view.indicators:
+        assert ind.value is None
+        assert ind.status == SentimentStatus.UNKNOWN
+
+
+def test_composite_includes_cn_when_populated(tmp_path):
+    """Composite should incorporate CN when both US and CN are populated."""
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    cn_client = _cn_flows_client(turnover_pct=1.0, northbound_bn=25.0, margin_mom_pct=-8.0)
+    service, _ = _build_services(
+        tmp_path, cnn_client=cnn_client, cn_flows_client=cn_client,
+        vix_close=14.0, vxn_close=18.0
+    )
+    snapshot = service.snapshot(_AS_OF)
+    us_view = snapshot.view_for(Market.US)
+    cn_view = snapshot.view_for(Market.CN)
+    assert us_view is not None and cn_view is not None
+    # HK is still unknown, so active weights: US=0.45, CN=0.30, total=0.75
+    expected_composite = (0.45 * us_view.score + 0.30 * cn_view.score) / 0.75
+    assert snapshot.composite_score == pytest.approx(expected_composite, abs=1e-3)
