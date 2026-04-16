@@ -270,6 +270,46 @@ class MarketAwarenessDataQualityView(FlexibleModel):
     blockers: list[str] = Field(default_factory=list)
 
 
+class MarketSentimentIndicatorView(FlexibleModel):
+    key: str
+    label: str
+    market: str = "overall"
+    value: float | None = None
+    unit: str | None = None
+    status: str = "unknown"
+    score: float = 0.0
+    as_of_ts: datetime | None = None
+    source: str = "unknown"
+    stale: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class MarketSentimentDataQualityView(FlexibleModel):
+    complete: bool = True
+    degraded: bool = False
+    fallback_driven: bool = False
+    sources_failed: list[str] = Field(default_factory=list)
+    stale_sources: list[str] = Field(default_factory=list)
+    adapter_limitations: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
+class MarketSentimentMarketView(FlexibleModel):
+    market: str
+    score: float = 0.0
+    status: str = "unknown"
+    indicators: list[MarketSentimentIndicatorView] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class MarketSentimentView(FlexibleModel):
+    as_of: date
+    views: list[MarketSentimentMarketView] = Field(default_factory=list)
+    composite_score: float = 0.0
+    risk_switch: str = "unknown"
+    data_quality: MarketSentimentDataQualityView = Field(default_factory=MarketSentimentDataQualityView)
+
+
 class MarketAwarenessResponse(FlexibleModel):
     as_of: date
     overall_regime: str
@@ -281,6 +321,7 @@ class MarketAwarenessResponse(FlexibleModel):
     actions: list[MarketAwarenessActionItemView] = Field(default_factory=list)
     strategy_guidance: list[MarketAwarenessStrategyGuidanceView] = Field(default_factory=list)
     data_quality: MarketAwarenessDataQualityView = Field(default_factory=MarketAwarenessDataQualityView)
+    market_sentiment: MarketSentimentView | None = None
 
 
 class ResearchReadinessStrategyView(FlexibleModel):

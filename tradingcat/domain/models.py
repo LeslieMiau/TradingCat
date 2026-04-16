@@ -6,10 +6,13 @@ from datetime import date, datetime, time, timezone
 
 UTC = timezone.utc
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, computed_field
+
+if TYPE_CHECKING:  # pragma: no cover — typing only
+    from tradingcat.domain.sentiment import MarketSentimentSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +346,10 @@ class MarketAwarenessSnapshot(BaseModel):
     actions: list[MarketAwarenessActionItem] = Field(default_factory=list)
     strategy_guidance: list[MarketAwarenessStrategyGuidance] = Field(default_factory=list)
     data_quality: MarketAwarenessDataQuality = Field(default_factory=MarketAwarenessDataQuality)
+    # Sentiment snapshot is appended alongside the existing payload. It never
+    # feeds the weighted regime score — the weighted formula + existing tests
+    # must be unchanged by Round 1. See tradingcat.domain.sentiment.
+    market_sentiment: "MarketSentimentSnapshot | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +614,11 @@ class StrategyAllocationRecord(BaseModel):
     capacity_tier: str = "unknown"
     market_distribution: dict[str, float] = Field(default_factory=dict)
     reasons: list[str] = Field(default_factory=list)
+
+
+# Resolve the forward reference from MarketAwarenessSnapshot.market_sentiment.
+# Imported here (not at top-of-file) to avoid a circular import since
+# tradingcat.domain.sentiment depends on Market defined in this module.
+from tradingcat.domain.sentiment import MarketSentimentSnapshot  # noqa: E402
+
+MarketAwarenessSnapshot.model_rebuild()

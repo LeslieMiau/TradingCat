@@ -7,6 +7,8 @@ if TYPE_CHECKING:
     from tradingcat.app import TradingCatApplication
 
 from tradingcat.adapters.factory import AdapterFactory
+from tradingcat.adapters.sentiment_http import SentimentHttpClient
+from tradingcat.adapters.sentiment_sources.cnn_fear_greed import CNNFearGreedClient
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
@@ -18,6 +20,7 @@ from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.market_sentiment import MarketSentimentService
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
 from tradingcat.services.strategy_registry import StrategyRegistry, StrategySignalProvider
@@ -61,9 +64,23 @@ class ApplicationRuntime:
     alpha_radar: AlphaRadarService
     macro_calendar: MacroCalendarService
     market_awareness: MarketAwarenessService
+    market_sentiment: MarketSentimentService
+    sentiment_http: SentimentHttpClient
     rule_engine: RuleEngine
     strategy_registry: StrategyRegistry
     strategy_signal_provider: StrategySignalProvider
+
+    def close(self) -> None:
+        """Release owned network resources (HTTP pool, etc).
+
+        Called from `TradingCatApplication` shutdown hooks. Must be idempotent
+        and non-raising — runtime rebuilds on adapter recovery rely on this.
+        """
+
+        try:
+            self.sentiment_http.close()
+        except Exception:  # noqa: BLE001 — never block shutdown
+            pass
 
     @classmethod
     def build(
@@ -100,12 +117,35 @@ class ApplicationRuntime:
         strategy_signal_provider = StrategySignalProvider(strategy_registry)
         alpha_radar = AlphaRadarService(config, market_history)
         macro_calendar = MacroCalendarService(config)
+        # Sentiment ingestion: one shared HTTP client + per-source adapters.
+        sentiment_cfg = config.market_sentiment
+        sentiment_http = SentimentHttpClient(
+            timeout_seconds=sentiment_cfg.http_timeout_seconds,
+            retries=sentiment_cfg.http_retries,
+            backoff_seconds=sentiment_cfg.http_backoff_seconds,
+            default_ttl_seconds=sentiment_cfg.cache_ttl_seconds,
+            negative_ttl_seconds=sentiment_cfg.negative_cache_ttl_seconds,
+        )
+        cnn_client: CNNFearGreedClient | None = None
+        if sentiment_cfg.enabled and sentiment_cfg.cnn_enabled:
+            cnn_client = CNNFearGreedClient(
+                sentiment_http,
+                url=sentiment_cfg.cnn_fear_greed_url,
+                ttl_seconds=sentiment_cfg.cache_ttl_seconds,
+                user_agent=sentiment_cfg.http_user_agent,
+            )
+        market_sentiment = MarketSentimentService(
+            config,
+            market_history,
+            cnn_client=cnn_client,
+        )
         market_awareness = MarketAwarenessService(
             config,
             market_history,
             market_calendar=market_calendar,
             macro_calendar=macro_calendar,
             alpha_radar=alpha_radar,
+            market_sentiment=market_sentiment,
         )
         rule_engine = RuleEngine(
             config,
@@ -126,6 +166,8 @@ class ApplicationRuntime:
             alpha_radar=alpha_radar,
             macro_calendar=macro_calendar,
             market_awareness=market_awareness,
+            market_sentiment=market_sentiment,
+            sentiment_http=sentiment_http,
             rule_engine=rule_engine,
             strategy_registry=strategy_registry,
             strategy_signal_provider=strategy_signal_provider,
@@ -149,6 +191,8 @@ class ApplicationRuntimeManager:
         previous_execution = previous_runtime.execution
         current_runtime = self._build_runtime()
         self._app.runtime = current_runtime
+        # Release the old runtime's network resources (sentiment HTTP pool).
+        previous_runtime.close()
         after = self._app.adapter_factory.broker_diagnostics()
         attempt = self._app.recovery.record(
             trigger=trigger,

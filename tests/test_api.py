@@ -143,6 +143,55 @@ def test_research_market_awareness_falls_back_to_degraded_payload_on_failure():
         app_state.market_awareness.snapshot = original_snapshot
 
 
+def test_research_market_awareness_exposes_market_sentiment_field():
+    """The awareness payload now carries `market_sentiment` (None or dict)."""
+
+    reset_runtime_state(app_state)
+    response = client.get("/research/market-awareness", params={"as_of": "2026-03-08"})
+    assert response.status_code == 200
+    payload = response.json()
+    # Field exists and is either None or a well-shaped object.
+    assert "market_sentiment" in payload
+    if payload["market_sentiment"] is not None:
+        sentiment = payload["market_sentiment"]
+        assert "risk_switch" in sentiment
+        assert "composite_score" in sentiment
+        assert "views" in sentiment
+        assert "data_quality" in sentiment
+        assert isinstance(sentiment["views"], list)
+        # US view always present in Round 1.
+        us_views = [view for view in sentiment["views"] if view.get("market") == "US"]
+        assert us_views, f"US view missing from sentiment payload: {sentiment['views']}"
+
+
+def test_research_market_awareness_survives_failing_sentiment_service():
+    """When the injected sentiment service throws, API must still return 200."""
+
+    reset_runtime_state(app_state)
+    sentiment = app_state.market_sentiment
+    original_snapshot = sentiment.snapshot
+
+    def _boom(as_of=None):
+        raise RuntimeError("sentiment blown up")
+
+    try:
+        sentiment.snapshot = _boom  # type: ignore[assignment]
+        response = client.get("/research/market-awareness", params={"as_of": "2026-03-08"})
+        assert response.status_code == 200
+        payload = response.json()
+        # Either the snapshot degraded silently (market_sentiment=None + limitation
+        # recorded) or the wider degraded-payload fallback handled it — both are
+        # acceptable per the graceful-degradation contract.
+        if payload.get("market_sentiment") is None:
+            assert (
+                "sentiment_snapshot_failed"
+                in payload.get("data_quality", {}).get("adapter_limitations", [])
+                or payload["data_quality"]["status"] == "degraded"
+            )
+    finally:
+        sentiment.snapshot = original_snapshot  # type: ignore[assignment]
+
+
 def test_data_history_sync_runs_expose_symbol_level_stats():
     sync = client.post(
         "/data/history/sync",

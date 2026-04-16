@@ -125,6 +125,99 @@ function renderMarketAwareness(payload, errorMessage = null) {
         </tr>
       `).join("")
     : '<tr><td colspan="5" class="table-empty">当前没有市场感知证据。</td></tr>';
+
+  renderMarketSentiment(snapshot.market_sentiment ?? null);
+}
+
+function sentimentStatusTone(status) {
+  if (["calm"].includes(status)) return "ok";
+  if (["neutral"].includes(status)) return "warning";
+  if (["elevated", "extreme_greed"].includes(status)) return "warning";
+  if (["stress", "extreme_fear"].includes(status)) return "blocked";
+  return "empty";
+}
+
+function sentimentSwitchTone(value) {
+  if (value === "on") return "ok";
+  if (value === "watch") return "warning";
+  if (value === "off") return "blocked";
+  return "empty";
+}
+
+function renderMarketSentiment(sentiment) {
+  const panel = document.getElementById("research-market-sentiment-panel");
+  const noteEl = document.getElementById("research-market-sentiment-note");
+  const switchEl = document.getElementById("research-market-sentiment-switch");
+  const switchNotesEl = document.getElementById("research-market-sentiment-switch-notes");
+  const qualityEl = document.getElementById("research-market-sentiment-quality");
+  const indicatorsEl = document.getElementById("research-market-sentiment-indicators");
+  if (!panel || !noteEl || !switchEl || !switchNotesEl || !qualityEl || !indicatorsEl) {
+    return;
+  }
+
+  if (!sentiment) {
+    noteEl.textContent = "Sentiment offline — 源头暂不可用";
+    switchEl.innerHTML = '<span class="badge status-empty">unknown</span>';
+    switchNotesEl.innerHTML = '<li class="detail-empty">情绪快照缺失，建议直接参考价格层市场感知。</li>';
+    qualityEl.innerHTML = '<li class="detail-empty">无数据质量信号。</li>';
+    indicatorsEl.innerHTML = '<article class="detail-card"><span class="detail-empty">情绪指标暂不可用。</span></article>';
+    return;
+  }
+
+  const views = Array.isArray(sentiment.views) ? sentiment.views : [];
+  const switchValue = sentiment.risk_switch || "unknown";
+  const composite = typeof sentiment.composite_score === "number" ? sentiment.composite_score : 0;
+  noteEl.textContent = `截至 ${sentiment.as_of}，独立观察面板；不进入加权评分，只影响操作建议`;
+
+  switchEl.innerHTML = [
+    `<span class="badge status-${sentimentSwitchTone(switchValue)}">risk_switch ${escapeHtml(switchValue)}</span>`,
+    `<span class="tag">composite ${escapeHtml(fmt(composite))}</span>`,
+  ].join("");
+
+  const notesList = views
+    .filter((view) => view.status && view.status !== "unknown")
+    .map((view) => `${view.market}: ${view.status} (score ${fmt(view.score)})`);
+  setList(
+    "research-market-sentiment-switch-notes",
+    notesList.length ? notesList : ["尚无情绪信号可汇总。"],
+    "尚无情绪信号可汇总。",
+  );
+
+  const dq = sentiment.data_quality || {};
+  const qualityLines = [
+    `complete: ${dq.complete ? "是" : "否"}`,
+    ...(dq.degraded ? ["数据处于降级模式，请保守看待情绪综合分。"] : []),
+    ...((dq.sources_failed || []).slice(0, 5).map((item) => `失败源: ${item}`)),
+    ...((dq.stale_sources || []).slice(0, 5).map((item) => `陈旧源: ${item}`)),
+    ...((dq.adapter_limitations || []).slice(0, 5).map((item) => `限制: ${item}`)),
+  ];
+  setList(
+    "research-market-sentiment-quality",
+    qualityLines.length ? qualityLines : ["数据质量完整，情绪信号可参考。"],
+    "数据质量完整，情绪信号可参考。",
+  );
+
+  const indicators = views.flatMap((view) => (view.indicators || []).map((ind) => ({
+    ...ind,
+    marketLabel: view.market,
+  })));
+  indicatorsEl.innerHTML = indicators.length
+    ? indicators.map((ind) => `
+        <article class="detail-card" role="listitem" aria-label="${escapeHtml(ind.label || ind.key)}">
+          <h3>${escapeHtml(ind.label || ind.key)}</h3>
+          <div class="tag-row">
+            <span class="badge status-${sentimentStatusTone(ind.status)}">${escapeHtml(ind.status || "unknown")}</span>
+            <span class="tag">${escapeHtml(ind.marketLabel || "overall")}</span>
+            ${ind.stale ? '<span class="tag">stale</span>' : ""}
+          </div>
+          <ul class="detail-list">
+            <li>value: ${escapeHtml(fmt(ind.value))}${ind.unit ? ` ${escapeHtml(ind.unit)}` : ""}</li>
+            <li>score: ${escapeHtml(fmt(ind.score))}</li>
+            <li>source: ${escapeHtml(ind.source || "unknown")}</li>
+          </ul>
+        </article>
+      `).join("")
+    : '<article class="detail-card"><span class="detail-empty">暂无可用指标。</span></article>';
 }
 
 function renderCorrelationMatrix(matrix) {

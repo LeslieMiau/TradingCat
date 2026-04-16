@@ -222,6 +222,12 @@ class TradingCatApplication:
         return self._require_runtime().market_awareness
 
     @property
+    def market_sentiment(self):
+        """Sentiment service mirroring the awareness property shape."""
+
+        return self._require_runtime().market_sentiment
+
+    @property
     def execution(self) -> ExecutionService:
         return self._require_runtime().execution
 
@@ -281,6 +287,12 @@ class TradingCatApplication:
 
     def shutdown(self) -> None:
         self.scheduler.stop()
+        # Release runtime-owned resources (sentiment HTTP pool, etc). The
+        # runtime guards each close with a broad except so shutdown never
+        # raises — we just need to call it.
+        runtime = getattr(self, "runtime", None)
+        if runtime is not None and hasattr(runtime, "close"):
+            runtime.close()
 
     def reset_state(self) -> None:
         self._clear_summary_cache()

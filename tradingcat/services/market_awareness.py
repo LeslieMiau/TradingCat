@@ -25,10 +25,16 @@ from tradingcat.domain.models import (
     MarketAwarenessStrategyGuidance,
     MarketAwarenessStrategyStance,
 )
+from tradingcat.domain.sentiment import (
+    MarketSentimentSnapshot,
+    RiskSwitch,
+    SentimentStatus,
+)
 from tradingcat.services.alpha_radar import AlphaRadarService
 from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.market_sentiment import MarketSentimentService
 
 
 logger = logging.getLogger(__name__)
@@ -102,12 +108,16 @@ class MarketAwarenessService:
         market_calendar: MarketCalendarService | None = None,
         macro_calendar: MacroCalendarService | None = None,
         alpha_radar: AlphaRadarService | None = None,
+        market_sentiment: MarketSentimentService | None = None,
     ) -> None:
         self._config = config.market_awareness
         self._market_data = market_data
         self._market_calendar = market_calendar
         self._macro_calendar = macro_calendar
         self._alpha_radar = alpha_radar
+        # Sentiment is injected optionally — when missing, the snapshot is
+        # identical to the pre-sentiment behaviour (golden baseline).
+        self._market_sentiment = market_sentiment
         self._bootstrap_sample_keys = {
             self._instrument_key(instrument)
             for instrument in sample_instruments()
@@ -134,6 +144,20 @@ class MarketAwarenessService:
             adapter_limitations.extend(market_meta["adapter_limitations"])
             stress_detected = stress_detected or market_meta["stress_detected"]
 
+        # Sentiment snapshot is computed separately and wrapped in try/except
+        # so a failing external source can never break the awareness path.
+        sentiment_snapshot: MarketSentimentSnapshot | None = None
+        if self._market_sentiment is not None:
+            try:
+                sentiment_snapshot = self._market_sentiment.snapshot(evaluation_date)
+            except Exception as exc:  # noqa: BLE001 — defensive wrap
+                logger.warning(
+                    "market sentiment snapshot failed; degrading gracefully",
+                    extra={"error": str(exc)},
+                )
+                adapter_limitations.append("sentiment_snapshot_failed")
+                sentiment_snapshot = None
+
         data_quality = self._build_data_quality(
             missing_symbols=missing_symbols,
             fallback_symbols=fallback_symbols,
@@ -159,9 +183,15 @@ class MarketAwarenessService:
             overall_score=overall_score,
             market_views=market_views,
             evidence=self._overall_evidence(market_views, data_quality),
-            actions=self._build_actions(risk_posture, market_views, data_quality),
+            actions=self._build_actions(
+                risk_posture,
+                market_views,
+                data_quality,
+                sentiment=sentiment_snapshot,
+            ),
             strategy_guidance=self._strategy_guidance(risk_posture, market_views, data_quality),
             data_quality=data_quality,
+            market_sentiment=sentiment_snapshot,
         )
 
     def benchmark_baskets(self) -> dict[str, dict[str, object]]:
@@ -799,6 +829,8 @@ class MarketAwarenessService:
         risk_posture: MarketAwarenessRiskPosture,
         market_views: list[MarketAwarenessMarketView],
         data_quality: MarketAwarenessDataQuality,
+        *,
+        sentiment: MarketSentimentSnapshot | None = None,
     ) -> list[MarketAwarenessActionItem]:
         actions: list[MarketAwarenessActionItem] = []
         if risk_posture == MarketAwarenessRiskPosture.BUILD_RISK:
@@ -882,7 +914,143 @@ class MarketAwarenessService:
             )
 
         actions.extend(self._market_timing_actions(market_views))
+        if sentiment is not None:
+            self._sentiment_action_items(actions, sentiment)
         return actions
+
+    # Action keys treated as "risk-reducing" for sentiment dedup. When any of
+    # these is already present, the sentiment layer should append a
+    # confirmation tag instead of emitting a duplicate HIGH-severity action.
+    _REDUCE_RISK_ACTION_KEYS = frozenset(
+        {"trim_weak_adds", "pause_new_adds", "raise_defense", "review_hedges"}
+    )
+
+    def _sentiment_action_items(
+        self,
+        actions: list[MarketAwarenessActionItem],
+        sentiment: MarketSentimentSnapshot,
+    ) -> None:
+        """Mutates `actions` in place with sentiment-derived items.
+
+        Follows the dedup contract from `.harness/spec.md` §6:
+        - When sentiment says risk-off but the price engine already emitted a
+          reduce_risk-class HIGH action, DO NOT emit a duplicate. Instead
+          tag the existing item with `sentiment_confirmed` and enrich its
+          rationale.
+        - Otherwise emit a sentiment-prefixed item with the documented text.
+        """
+
+        existing_keys = {item.action_key for item in actions}
+        reduce_risk_items = [
+            item for item in actions if item.action_key in self._REDUCE_RISK_ACTION_KEYS
+        ]
+
+        us_view = sentiment.view_for(Market.US)
+        vix = sentiment.indicator(Market.US, "us_vix") if us_view else None
+        cnn = sentiment.indicator(Market.US, "us_cnn_fng") if us_view else None
+
+        risk_switch = sentiment.risk_switch
+
+        # ------------------------------------------------------------------ OFF
+        if risk_switch == RiskSwitch.OFF:
+            if reduce_risk_items:
+                # Dedup: tag existing reduce_risk items with "sentiment_confirmed"
+                short_reason = self._sentiment_short_reason(sentiment)
+                for item in reduce_risk_items:
+                    if "sentiment_confirmed" not in item.markets:
+                        item.markets = [*item.markets, "sentiment_confirmed"]
+                    confirmation = f" Confirmed by sentiment: {short_reason}"
+                    if confirmation not in item.rationale:
+                        item.rationale = f"{item.rationale}{confirmation}"
+            elif "sentiment_force_defense" not in existing_keys:
+                actions.append(
+                    MarketAwarenessActionItem(
+                        severity=MarketAwarenessActionSeverity.HIGH,
+                        action_key="sentiment_force_defense",
+                        text="Cross-market sentiment is risk-off: pause new positions and lean defensive.",
+                        rationale=self._sentiment_long_reason(sentiment),
+                        markets=["overall"],
+                    )
+                )
+                existing_keys.add("sentiment_force_defense")
+
+        # ------------------------------------------------------------------ US VIX stress
+        if vix is not None and vix.value is not None and vix.value > 30:
+            if "sentiment_us_vol_shock" not in existing_keys:
+                actions.append(
+                    MarketAwarenessActionItem(
+                        severity=MarketAwarenessActionSeverity.HIGH,
+                        action_key="sentiment_us_vol_shock",
+                        text="US VIX is in shock territory: trim directional options and prefer hedged structures.",
+                        rationale=f"VIX reading {vix.value:.2f} above stress threshold 30.",
+                        markets=[Market.US.value],
+                    )
+                )
+                existing_keys.add("sentiment_us_vol_shock")
+
+        # ------------------------------------------------------------------ CNN F&G regime
+        if cnn is not None and cnn.value is not None:
+            # Extreme fear → contrarian tactical add (LOW severity, permissive language per spec)
+            if cnn.status == SentimentStatus.EXTREME_FEAR and risk_switch != RiskSwitch.OFF:
+                if "sentiment_contrarian_tactical_add" not in existing_keys:
+                    actions.append(
+                        MarketAwarenessActionItem(
+                            severity=MarketAwarenessActionSeverity.LOW,
+                            action_key="sentiment_contrarian_tactical_add",
+                            text="CNN Fear & Greed shows extreme fear: small probing adds with stops are permitted (not mandated).",
+                            rationale=f"CNN score {cnn.value:.1f} in extreme-fear bucket; composite not risk-off.",
+                            markets=[Market.US.value],
+                        )
+                    )
+                    existing_keys.add("sentiment_contrarian_tactical_add")
+            elif cnn.status == SentimentStatus.EXTREME_GREED:
+                if "sentiment_trim_into_strength" not in existing_keys:
+                    actions.append(
+                        MarketAwarenessActionItem(
+                            severity=MarketAwarenessActionSeverity.MEDIUM,
+                            action_key="sentiment_trim_into_strength",
+                            text="Sentiment is at extreme greed: trim into strength rather than chasing.",
+                            rationale=f"CNN score {cnn.value:.1f} in extreme-greed bucket.",
+                            markets=[Market.US.value],
+                        )
+                    )
+                    existing_keys.add("sentiment_trim_into_strength")
+
+        # ------------------------------------------------------------------ Data gap
+        dq = sentiment.data_quality
+        sentiment_blocked = bool(dq.sources_failed) or bool(dq.blockers)
+        if sentiment_blocked and "sentiment_data_gap" not in existing_keys:
+            actions.append(
+                MarketAwarenessActionItem(
+                    severity=MarketAwarenessActionSeverity.LOW,
+                    action_key="sentiment_data_gap",
+                    text="Sentiment data is partially unavailable; treat the composite signal as advisory only.",
+                    rationale="Failed sources: " + ", ".join(sorted(dq.sources_failed)) if dq.sources_failed else "Sentiment blockers present.",
+                    markets=["overall"],
+                )
+            )
+
+    @staticmethod
+    def _sentiment_short_reason(sentiment: MarketSentimentSnapshot) -> str:
+        us_view = sentiment.view_for(Market.US)
+        parts: list[str] = []
+        if us_view is not None:
+            parts.append(f"US sentiment {us_view.status.value} (score {us_view.score:+.2f})")
+        parts.append(f"composite {sentiment.composite_score:+.2f}")
+        return "; ".join(parts)
+
+    @staticmethod
+    def _sentiment_long_reason(sentiment: MarketSentimentSnapshot) -> str:
+        fragments: list[str] = [
+            f"composite sentiment {sentiment.composite_score:+.2f} crossed the risk-off threshold"
+        ]
+        for view in sentiment.views:
+            if view.status == SentimentStatus.UNKNOWN:
+                continue
+            fragments.append(
+                f"{view.market.value}: {view.status.value} (score {view.score:+.2f})"
+            )
+        return "; ".join(fragments)
 
     def _market_timing_actions(self, market_views: list[MarketAwarenessMarketView]) -> list[MarketAwarenessActionItem]:
         if self._market_calendar is None:

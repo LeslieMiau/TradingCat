@@ -332,6 +332,187 @@ class MarketAwarenessConfig(BaseModel):
         )
 
 
+class MarketSentimentConfig(BaseModel):
+    """Market sentiment ingestion + scoring knobs.
+
+    The sentiment layer lives alongside `MarketAwarenessConfig` but is fully
+    optional: setting `enabled=False` should make `MarketSentimentService`
+    return an empty snapshot without hitting any network.
+
+    Round 1 wires US (VIX + VXN + CNN F&G). HK/CN defaults are defined here so
+    future rounds don't need a config migration.
+    """
+
+    enabled: bool = True
+    cache_ttl_seconds: int = 600
+    negative_cache_ttl_seconds: int = 60
+    http_timeout_seconds: float = 5.0
+    http_retries: int = 2
+    http_backoff_seconds: float = 0.5
+    http_user_agent: str = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    )
+
+    # US
+    us_vix_symbol: str = "^VIX"
+    us_vxn_symbol: str = "^VXN"
+    vol_stale_after_days: int = 5
+    cnn_enabled: bool = True
+    cnn_fear_greed_url: str = (
+        "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+    )
+
+    # HK (Round 3)
+    hk_hsiv_symbol: str = "^HSIV"
+    hk_fallback_symbols: list[str] = Field(default_factory=lambda: ["0700", "2800"])
+    hk_southbound_enabled: bool = False
+
+    # CN (Round 2)
+    cn_backend: Literal["eastmoney_http", "akshare", "disabled"] = "eastmoney_http"
+    cn_turnover_universe_size: int = 500
+    cn_northbound_window_days: int = 5
+
+    # Composite weights — must sum to 1 within tolerance.
+    composite_weight_us: float = 0.45
+    composite_weight_cn: float = 0.30
+    composite_weight_hk: float = 0.25
+
+    # Risk switch decision thresholds on composite score (range [-1, +1]).
+    risk_switch_on_threshold: float = 0.30
+    risk_switch_off_threshold: float = -0.30
+
+    @field_validator("cache_ttl_seconds", "negative_cache_ttl_seconds", "http_retries", "vol_stale_after_days")
+    @classmethod
+    def _non_negative_ints(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("market sentiment int config values must be non-negative")
+        return value
+
+    @field_validator("http_timeout_seconds", "http_backoff_seconds")
+    @classmethod
+    def _non_negative_floats(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("market sentiment float config values must be non-negative")
+        return value
+
+    @field_validator("composite_weight_us", "composite_weight_cn", "composite_weight_hk")
+    @classmethod
+    def _zero_to_one_weight(cls, value: float) -> float:
+        if value < 0 or value > 1:
+            raise ValueError("composite weight must be between 0 and 1 inclusive")
+        return value
+
+    @field_validator("risk_switch_on_threshold", "risk_switch_off_threshold")
+    @classmethod
+    def _threshold_in_range(cls, value: float) -> float:
+        if value < -1 or value > 1:
+            raise ValueError("risk switch thresholds must be within [-1, +1]")
+        return value
+
+    @field_validator("cn_backend")
+    @classmethod
+    def _normalise_cn_backend(cls, value: str) -> str:
+        normalised = str(value).strip().lower()
+        if normalised not in {"eastmoney_http", "akshare", "disabled"}:
+            raise ValueError(
+                "cn_backend must be one of: eastmoney_http, akshare, disabled"
+            )
+        return normalised
+
+    @model_validator(mode="after")
+    def _validate_weights_and_thresholds(self) -> "MarketSentimentConfig":
+        total = self.composite_weight_us + self.composite_weight_cn + self.composite_weight_hk
+        if not 0.99 <= total <= 1.01:
+            raise ValueError(
+                f"composite weights must sum to ~1.0 (got {total:.4f})"
+            )
+        if self.risk_switch_on_threshold <= self.risk_switch_off_threshold:
+            raise ValueError(
+                "risk_switch_on_threshold must be greater than risk_switch_off_threshold"
+            )
+        return self
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "MarketSentimentConfig":
+        env_values = dotenv_values or {}
+
+        def _bool(key: str, default: str) -> bool:
+            return _getenv(key, default, env_values).strip().lower() in {"1", "true", "yes", "on"}
+
+        hk_fallback_raw = _getenv(
+            "TRADINGCAT_MARKET_SENTIMENT_HK_FALLBACK_SYMBOLS",
+            "0700,2800",
+            env_values,
+        )
+        hk_fallback = _csv_values(hk_fallback_raw) or ["0700", "2800"]
+
+        return cls(
+            enabled=_bool("TRADINGCAT_MARKET_SENTIMENT_ENABLED", "true"),
+            cache_ttl_seconds=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_CACHE_TTL_SECONDS", "600", env_values)
+            ),
+            negative_cache_ttl_seconds=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_NEGATIVE_CACHE_TTL_SECONDS", "60", env_values)
+            ),
+            http_timeout_seconds=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_HTTP_TIMEOUT_SECONDS", "5.0", env_values)
+            ),
+            http_retries=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_HTTP_RETRIES", "2", env_values)
+            ),
+            http_backoff_seconds=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_HTTP_BACKOFF_SECONDS", "0.5", env_values)
+            ),
+            us_vix_symbol=_getenv(
+                "TRADINGCAT_MARKET_SENTIMENT_US_VIX_SYMBOL", "^VIX", env_values
+            ).strip(),
+            us_vxn_symbol=_getenv(
+                "TRADINGCAT_MARKET_SENTIMENT_US_VXN_SYMBOL", "^VXN", env_values
+            ).strip(),
+            vol_stale_after_days=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_VOL_STALE_AFTER_DAYS", "5", env_values)
+            ),
+            cnn_enabled=_bool("TRADINGCAT_MARKET_SENTIMENT_CNN_ENABLED", "true"),
+            cnn_fear_greed_url=_getenv(
+                "TRADINGCAT_MARKET_SENTIMENT_CNN_URL",
+                "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+                env_values,
+            ),
+            hk_hsiv_symbol=_getenv(
+                "TRADINGCAT_MARKET_SENTIMENT_HK_HSIV_SYMBOL", "^HSIV", env_values
+            ).strip(),
+            hk_fallback_symbols=hk_fallback,
+            hk_southbound_enabled=_bool(
+                "TRADINGCAT_MARKET_SENTIMENT_HK_SOUTHBOUND_ENABLED", "false"
+            ),
+            cn_backend=_getenv(
+                "TRADINGCAT_MARKET_SENTIMENT_CN_BACKEND", "eastmoney_http", env_values
+            ).strip().lower(),
+            cn_turnover_universe_size=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_CN_TURNOVER_UNIVERSE_SIZE", "500", env_values)
+            ),
+            cn_northbound_window_days=int(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_CN_NORTHBOUND_WINDOW_DAYS", "5", env_values)
+            ),
+            composite_weight_us=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_COMPOSITE_WEIGHT_US", "0.45", env_values)
+            ),
+            composite_weight_cn=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_COMPOSITE_WEIGHT_CN", "0.30", env_values)
+            ),
+            composite_weight_hk=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_COMPOSITE_WEIGHT_HK", "0.25", env_values)
+            ),
+            risk_switch_on_threshold=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_RISK_SWITCH_ON_THRESHOLD", "0.30", env_values)
+            ),
+            risk_switch_off_threshold=float(
+                _getenv("TRADINGCAT_MARKET_SENTIMENT_RISK_SWITCH_OFF_THRESHOLD", "-0.30", env_values)
+            ),
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
@@ -358,6 +539,7 @@ class AppConfig(BaseModel):
     yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
+    market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -427,4 +609,5 @@ class AppConfig(BaseModel):
             yfinance=YFinanceConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
+            market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
         )
