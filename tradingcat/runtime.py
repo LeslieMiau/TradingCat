@@ -11,6 +11,7 @@ from tradingcat.adapters.sentiment_http import SentimentHttpClient
 from tradingcat.adapters.sentiment_sources.cn_market_flows import CNMarketFlowsClient
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import CNNFearGreedClient
 from tradingcat.adapters.sentiment_sources.hk_southbound import HKSouthboundClient
+from tradingcat.repositories.sentiment_history import MarketSentimentHistoryRepository
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
@@ -67,6 +68,7 @@ class ApplicationRuntime:
     macro_calendar: MacroCalendarService
     market_awareness: MarketAwarenessService
     market_sentiment: MarketSentimentService
+    sentiment_history: Any  # MarketSentimentHistoryRepository
     sentiment_http: SentimentHttpClient
     rule_engine: RuleEngine
     strategy_registry: StrategyRegistry
@@ -157,6 +159,7 @@ class ApplicationRuntime:
             cn_flows_client=cn_flows_client,
             hk_flows_client=hk_flows_client,
         )
+        sentiment_history = MarketSentimentHistoryRepository(config)
         market_awareness = MarketAwarenessService(
             config,
             market_history,
@@ -185,6 +188,7 @@ class ApplicationRuntime:
             macro_calendar=macro_calendar,
             market_awareness=market_awareness,
             market_sentiment=market_sentiment,
+            sentiment_history=sentiment_history,
             sentiment_http=sentiment_http,
             rule_engine=rule_engine,
             strategy_registry=strategy_registry,

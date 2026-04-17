@@ -197,9 +197,11 @@ function renderMarketSentiment(sentiment) {
     "数据质量完整，情绪信号可参考。",
   );
 
+  const historyByKey = (sentiment.history && typeof sentiment.history === "object") ? sentiment.history : {};
   const indicators = views.flatMap((view) => (view.indicators || []).map((ind) => ({
     ...ind,
     marketLabel: view.market,
+    sparklinePoints: historyByKey[ind.key] || [],
   })));
   indicatorsEl.innerHTML = indicators.length
     ? indicators.map((ind) => `
@@ -210,6 +212,7 @@ function renderMarketSentiment(sentiment) {
             <span class="tag">${escapeHtml(ind.marketLabel || "overall")}</span>
             ${ind.stale ? '<span class="tag">stale</span>' : ""}
           </div>
+          ${ind.sparklinePoints.length >= 2 ? sentimentSparklineSvg(ind.sparklinePoints, ind.key) : ""}
           <ul class="detail-list">
             <li>value: ${escapeHtml(fmt(ind.value))}${ind.unit ? ` ${escapeHtml(ind.unit)}` : ""}</li>
             <li>score: ${escapeHtml(fmt(ind.score))}</li>
@@ -218,6 +221,29 @@ function renderMarketSentiment(sentiment) {
         </article>
       `).join("")
     : '<article class="detail-card"><span class="detail-empty">暂无可用指标。</span></article>';
+}
+
+function sentimentSparklineSvg(points, key) {
+  const w = 180, h = 40, pad = 2;
+  const values = points.map((p) => (p.value != null ? p.value : p.score)).filter((v) => v != null);
+  if (values.length < 2) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const coords = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const pathD = coords.map((c, i) => (i === 0 ? `M${c}` : `L${c}`)).join(" ");
+  const lastVal = values[values.length - 1];
+  const color = lastVal >= 0 ? "#4caf50" : "#ef5350";
+  return `<svg class="sentiment-sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"
+    role="img" aria-label="30d trend for ${escapeHtml(key)}: ${values.length} points">
+    <path d="${pathD}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${coords[coords.length - 1].split(",")[0]}" cy="${coords[coords.length - 1].split(",")[1]}"
+      r="2" fill="${color}"/>
+  </svg>`;
 }
 
 function renderCorrelationMatrix(matrix) {

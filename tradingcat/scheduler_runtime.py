@@ -90,6 +90,17 @@ class ApplicationSchedulerRuntime:
     def run_daily_trading_summary_job(self) -> str:
         return self._app.generate_daily_trading_summary(date.today()).headline
 
+    def run_sentiment_history_persist_job(self) -> str:
+        """Snapshot current sentiment and persist to DuckDB for sparkline history."""
+        try:
+            snapshot = self._app.market_sentiment.snapshot()
+            snapshot_dict = snapshot.model_dump(mode="json")
+            rows = self._app.sentiment_history.persist_snapshot(snapshot_dict)
+            pruned = self._app.sentiment_history.prune(keep_days=90)
+            return f"Persisted {rows} indicator rows, pruned {pruned} old rows"
+        except Exception as exc:
+            return f"Sentiment persist failed: {exc}"
+
 
 _JOB_REGISTRATIONS = [
     SchedulerRegistration(
@@ -190,5 +201,14 @@ _JOB_REGISTRATIONS = [
         local_time=time(18, 20),
         market=Market.CN,
         handler_name="run_daily_trading_summary_job",
+    ),
+    SchedulerRegistration(
+        job_id="sentiment_history_persist",
+        name="Sentiment History Persist",
+        description="Snapshot market sentiment and persist to DuckDB for 30d sparkline",
+        timezone="Asia/Shanghai",
+        local_time=time(9, 0),
+        market=None,
+        handler_name="run_sentiment_history_persist_job",
     ),
 ]

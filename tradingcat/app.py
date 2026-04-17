@@ -175,6 +175,7 @@ class TradingCatApplication:
             default_execution_strategy_ids_getter=lambda: list(self._default_execution_strategy_ids),
             review_strategy_selections=self.review_strategy_selections,
             review_strategy_allocations=self.review_strategy_allocations,
+            sentiment_history_getter=lambda: self.sentiment_history,
         )
         self.dashboard_queries = DashboardQueryService(
             market_awareness_getter=lambda: self.market_awareness,
@@ -226,6 +227,12 @@ class TradingCatApplication:
         """Sentiment service mirroring the awareness property shape."""
 
         return self._require_runtime().market_sentiment
+
+    @property
+    def sentiment_history(self):
+        """Sentiment history repository for sparkline data."""
+
+        return self._require_runtime().sentiment_history
 
     @property
     def execution(self) -> ExecutionService:

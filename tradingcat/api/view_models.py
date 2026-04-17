@@ -302,12 +302,19 @@ class MarketSentimentMarketView(FlexibleModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class MarketSentimentHistoryPoint(FlexibleModel):
+    ts: str
+    value: float | None = None
+    score: float = 0.0
+
+
 class MarketSentimentView(FlexibleModel):
     as_of: date
     views: list[MarketSentimentMarketView] = Field(default_factory=list)
     composite_score: float = 0.0
     risk_switch: str = "unknown"
     data_quality: MarketSentimentDataQualityView = Field(default_factory=MarketSentimentDataQualityView)
+    history: dict[str, list[MarketSentimentHistoryPoint]] = Field(default_factory=dict)
 
 
 class MarketAwarenessResponse(FlexibleModel):

@@ -393,6 +393,7 @@ class ResearchQueryService:
         default_execution_strategy_ids_getter: Callable[[], list[str]],
         review_strategy_selections: Callable[[date], dict[str, object]],
         review_strategy_allocations: Callable[[date], dict[str, object]],
+        sentiment_history_getter: Callable[[], Any] | None = None,
     ) -> None:
         self._market_awareness_getter = market_awareness_getter
         self._strategy_signal_provider_getter = strategy_signal_provider_getter
@@ -402,6 +403,7 @@ class ResearchQueryService:
         self._default_execution_strategy_ids_getter = default_execution_strategy_ids_getter
         self._review_strategy_selections = review_strategy_selections
         self._review_strategy_allocations = review_strategy_allocations
+        self._sentiment_history_getter = sentiment_history_getter
 
     def scorecard(self, as_of: date, *, include_candidates: bool) -> dict[str, object]:
         return self._strategy_analysis_getter().build_profit_scorecard(
@@ -465,7 +467,29 @@ class ResearchQueryService:
         return self._review_strategy_allocations(as_of)
 
     def market_awareness(self, as_of: date) -> dict[str, object]:
-        return _safe_market_awareness_snapshot(self._market_awareness_getter, as_of)
+        result = _safe_market_awareness_snapshot(self._market_awareness_getter, as_of)
+        # Enrich with sparkline history if available.
+        if self._sentiment_history_getter is not None:
+            try:
+                history_repo = self._sentiment_history_getter()
+                if history_repo is not None and history_repo.available:
+                    raw_history = history_repo.load_history(days=30)
+                    # Group by indicator_key for sparkline rendering.
+                    by_key: dict[str, list[dict]] = {}
+                    for row in raw_history:
+                        key = row.get("indicator_key", "")
+                        if key:
+                            by_key.setdefault(key, []).append({
+                                "ts": row.get("ts", ""),
+                                "value": row.get("value"),
+                                "score": row.get("score", 0.0),
+                            })
+                    sentiment = result.get("market_sentiment")
+                    if isinstance(sentiment, dict):
+                        sentiment["history"] = by_key
+            except Exception:  # noqa: BLE001
+                logger.debug("sentiment history enrichment failed", exc_info=True)
+        return result
 
     def _strategy_signal_map(
         self,
