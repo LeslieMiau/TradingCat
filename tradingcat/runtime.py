@@ -10,6 +10,7 @@ from tradingcat.adapters.factory import AdapterFactory
 from tradingcat.adapters.sentiment_http import SentimentHttpClient
 from tradingcat.adapters.sentiment_sources.cn_market_flows import CNMarketFlowsClient
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import CNNFearGreedClient
+from tradingcat.adapters.sentiment_sources.hk_southbound import HKSouthboundClient
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
@@ -143,11 +144,18 @@ class ApplicationRuntime:
                 northbound_window_days=sentiment_cfg.cn_northbound_window_days,
                 ttl_seconds=sentiment_cfg.cache_ttl_seconds,
             )
+        hk_flows_client: HKSouthboundClient | None = None
+        if sentiment_cfg.enabled and sentiment_cfg.hk_southbound_enabled:
+            hk_flows_client = HKSouthboundClient(
+                sentiment_http,
+                ttl_seconds=sentiment_cfg.cache_ttl_seconds,
+            )
         market_sentiment = MarketSentimentService(
             config,
             market_history,
             cnn_client=cnn_client,
             cn_flows_client=cn_flows_client,
+            hk_flows_client=hk_flows_client,
         )
         market_awareness = MarketAwarenessService(
             config,

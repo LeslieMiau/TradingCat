@@ -1056,6 +1056,28 @@ class MarketAwarenessService:
                     )
                     existing_keys.add("sentiment_cn_outflow_pressure")
 
+        # ------------------------------------------------------------------ HK HSIV/realized vol stress
+        hk_view = sentiment.view_for(Market.HK)
+        if hk_view is not None:
+            hk_vol = sentiment.indicator(Market.HK, "hk_vol")
+            if (
+                hk_vol is not None
+                and hk_vol.status == SentimentStatus.STRESS
+            ):
+                if "sentiment_hk_vol_stress" not in existing_keys:
+                    actions.append(
+                        MarketAwarenessActionItem(
+                            severity=MarketAwarenessActionSeverity.MEDIUM,
+                            action_key="sentiment_hk_vol_stress",
+                            text="HK volatility is under pressure: slow HK sector adds.",
+                            rationale=f"HK vol {hk_vol.value:.1f}% above stress threshold 30%."
+                            if hk_vol.value is not None
+                            else "HK volatility in stress bucket.",
+                            markets=[Market.HK.value],
+                        )
+                    )
+                    existing_keys.add("sentiment_hk_vol_stress")
+
         # ------------------------------------------------------------------ Data gap
         dq = sentiment.data_quality
         sentiment_blocked = bool(dq.sources_failed) or bool(dq.blockers)

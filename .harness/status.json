@@ -1,0 +1,32 @@
+{
+  "phase": "awaiting_qa",
+  "current_round": 3,
+  "max_rounds": 4,
+  "spec_version": "1.0",
+  "planner": "claude-opus-4-6",
+  "generator": "claude-sonnet-4-6",
+  "evaluator": "claude-sonnet-4-6",
+  "created_at": "2026-04-15",
+  "updated_at": "2026-04-17",
+  "notes": "R3 build complete. HK HSIV+fallback, southbound client, composite risk switch with overrides, _classify_market_status contrarian fix.",
+  "rounds": {
+    "1": {
+      "phase": "complete",
+      "scope": "US sentiment MVP (VIX/VXN/CNN F&G + actions + dedup + panel)",
+      "self_score": 8.8,
+      "qa_score": 9.0
+    },
+    "2": {
+      "phase": "complete",
+      "scope": "CN sentiment (turnover/northbound/margin via eastmoney_http)",
+      "self_score": 9.5,
+      "qa_score": 9.5
+    },
+    "3": {
+      "phase": "awaiting_qa",
+      "scope": "HK sentiment + cross-market composite risk switch",
+      "self_score": 9.7
+    },
+    "4": {"phase": "blocked_by_r3", "scope": "UI polish + 30d sparkline + history persistence"}
+  }
+}

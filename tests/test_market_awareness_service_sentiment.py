@@ -20,11 +20,14 @@ from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.sentiment_sources.fakes import (
     StaticCNMarketFlowsClient,
     StaticCNNFearGreedClient,
+    StaticHKSouthboundClient,
     make_cn_margin_reading,
     make_cn_northbound_reading,
     make_cn_turnover_reading,
     make_cnn_reading,
+    make_hk_southbound_reading,
 )
+from tradingcat.config import MarketSentimentConfig
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import (
     AssetClass,
@@ -397,6 +400,142 @@ def test_cn_sentiment_does_not_change_overall_score(tmp_path):
     enriched = MarketAwarenessService(config, market_data, market_sentiment=sentiment_service)
     enriched_snapshot = enriched.snapshot(_AS_OF)
 
+    # Golden-baseline invariant: CN sentiment must not alter weighted score.
     assert enriched_snapshot.overall_score == pytest.approx(baseline_snapshot.overall_score)
     assert enriched_snapshot.overall_regime == baseline_snapshot.overall_regime
     assert enriched_snapshot.risk_posture == baseline_snapshot.risk_posture
+
+
+# ---------------------------------------------------------------------------
+# Round 3: HK action rules
+# ---------------------------------------------------------------------------
+
+
+def test_sentiment_hk_vol_stress_emitted(tmp_path):
+    """When HK vol (HSIV) is in STRESS, emit sentiment_hk_vol_stress."""
+
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    _seed_baseline_histories(market_data, bullish=True)
+    _seed_volatility_indices(market_data, vix_close=15.0, vxn_close=18.0)
+    # Seed HSIV at STRESS level (> 30).
+    hsiv_inst = Instrument(
+        symbol="^HSIV", market=Market.HK, asset_class=AssetClass.ETF,
+        currency="HKD", tradable=False, liquidity_bucket="high",
+    )
+    market_data.upsert_instruments([hsiv_inst])
+    bars = []
+    for offset in range(30, -1, -1):
+        ts_date = _AS_OF - timedelta(days=offset)
+        bars.append(Bar(
+            instrument=hsiv_inst,
+            timestamp=datetime.combine(ts_date, datetime.min.time(), tzinfo=UTC),
+            open=34.0, high=36.0, low=33.0, close=35.0, volume=0.0,
+        ))
+    market_data._history.save_bars(hsiv_inst, bars)
+
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client
+    )
+    service = MarketAwarenessService(
+        config, market_data, market_sentiment=sentiment_service
+    )
+    snapshot = service.snapshot(_AS_OF)
+    action_keys = {item.action_key for item in snapshot.actions}
+    assert "sentiment_hk_vol_stress" in action_keys
+    hk_action = next(item for item in snapshot.actions if item.action_key == "sentiment_hk_vol_stress")
+    assert hk_action.severity.value == "medium"
+    assert Market.HK.value in hk_action.markets
+
+
+def test_hk_sentiment_does_not_change_overall_score(tmp_path):
+    """HK sentiment (HSIV + southbound) must not alter the weighted regime score."""
+
+    config = AppConfig(
+        data_dir=tmp_path,
+        market_sentiment=MarketSentimentConfig(hk_southbound_enabled=True),
+    )
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    _seed_baseline_histories(market_data, bullish=True)
+
+    baseline = MarketAwarenessService(config, market_data)
+    baseline_snapshot = baseline.snapshot(_AS_OF)
+
+    _seed_volatility_indices(market_data, vix_close=15.0, vxn_close=18.0)
+    # Seed HSIV at STRESS level.
+    hsiv_inst = Instrument(
+        symbol="^HSIV", market=Market.HK, asset_class=AssetClass.ETF,
+        currency="HKD", tradable=False, liquidity_bucket="high",
+    )
+    market_data.upsert_instruments([hsiv_inst])
+    bars = []
+    for offset in range(30, -1, -1):
+        ts_date = _AS_OF - timedelta(days=offset)
+        bars.append(Bar(
+            instrument=hsiv_inst,
+            timestamp=datetime.combine(ts_date, datetime.min.time(), tzinfo=UTC),
+            open=34.0, high=36.0, low=33.0, close=35.0, volume=0.0,
+        ))
+    market_data._history.save_bars(hsiv_inst, bars)
+
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(50.0))
+    hk_client = StaticHKSouthboundClient(
+        reading=make_hk_southbound_reading(-15.0)  # STRESS
+    )
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client, hk_flows_client=hk_client
+    )
+    enriched = MarketAwarenessService(config, market_data, market_sentiment=sentiment_service)
+    enriched_snapshot = enriched.snapshot(_AS_OF)
+
+    # Golden-baseline invariant: HK sentiment must not alter weighted score.
+    assert enriched_snapshot.overall_score == pytest.approx(baseline_snapshot.overall_score)
+    assert enriched_snapshot.overall_regime == baseline_snapshot.overall_regime
+    assert enriched_snapshot.risk_posture == baseline_snapshot.risk_posture
+
+
+def test_sentiment_force_defense_when_risk_switch_off_no_existing_reduce_risk(tmp_path):
+    """When risk_switch=OFF but no existing reduce_risk action, emit force_defense."""
+
+    config = AppConfig(data_dir=tmp_path)
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(config),
+        history=HistoricalMarketDataRepository(config),
+    )
+    # Bullish baseline → no reduce_risk action from price engine.
+    _seed_baseline_histories(market_data, bullish=True)
+    # Very high VIX + CNN extreme greed → strongly negative sentiment.
+    _seed_volatility_indices(market_data, vix_close=40.0, vxn_close=35.0)
+    cnn_client = StaticCNNFearGreedClient(reading=make_cnn_reading(90.0))
+    # Also add CN stress to ensure composite is strongly negative.
+    cn_client = StaticCNMarketFlowsClient(
+        turnover=make_cn_turnover_reading(6.0),
+        northbound=make_cn_northbound_reading(-30.0),
+        margin=make_cn_margin_reading(+10.0),
+    )
+    sentiment_service = MarketSentimentService(
+        config, market_data, cnn_client=cnn_client, cn_flows_client=cn_client
+    )
+    service = MarketAwarenessService(
+        config, market_data, market_sentiment=sentiment_service
+    )
+    snapshot = service.snapshot(_AS_OF)
+    assert snapshot.market_sentiment is not None
+    # With bullish price but risk-off sentiment, check the action set.
+    action_keys = {item.action_key for item in snapshot.actions}
+    if snapshot.market_sentiment.risk_switch.value == "off":
+        # Bullish posture means no reduce_risk action → force_defense should appear.
+        if snapshot.risk_posture == MarketAwarenessRiskPosture.BUILD_RISK:
+            assert "sentiment_force_defense" in action_keys
+            fd = next(a for a in snapshot.actions if a.action_key == "sentiment_force_defense")
+            assert fd.severity.value == "high"

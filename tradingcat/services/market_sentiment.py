@@ -8,7 +8,7 @@ leaves the remaining aggregation path intact.
 
 Round 1: US view (VIX + VXN + CNN Fear & Greed).
 Round 2: CN view (turnover + northbound + margin via eastmoney_http).
-HK view is a placeholder (score=0, status=UNKNOWN) until Round 3.
+Round 3: HK view (^HSIV / realized-vol fallback + southbound) + composite risk switch.
 """
 from __future__ import annotations
 
@@ -27,6 +27,10 @@ from tradingcat.adapters.sentiment_sources.cn_market_flows import (
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import (
     CNNFearGreedClient,
     CNNFearGreedReading,
+)
+from tradingcat.adapters.sentiment_sources.hk_southbound import (
+    HKSouthboundClient,
+    HKSouthboundReading,
 )
 from tradingcat.config import AppConfig, MarketSentimentConfig
 from tradingcat.domain.models import AssetClass, Instrument, Market
@@ -73,6 +77,15 @@ _CNN_BUCKETS: tuple[tuple[float, SentimentStatus, float], ...] = (
 )
 
 
+# HK — Hang Seng Implied Volatility (^HSIV) or realized-vol fallback.
+_HSIV_BUCKETS: tuple[tuple[float | None, SentimentStatus, float], ...] = (
+    (16.0, SentimentStatus.CALM, +0.5),
+    (22.0, SentimentStatus.NEUTRAL, +0.1),
+    (30.0, SentimentStatus.ELEVATED, -0.2),
+    (None, SentimentStatus.STRESS, -0.5),
+)
+
+
 # CN A-share indicators (spec §5 "分桶阈值表" — CN section).
 _CN_TURNOVER_BUCKETS: tuple[tuple[float | None, SentimentStatus, float], ...] = (
     # Cross-sectional median turnover rate (%).  Higher = more retail-driven
@@ -116,6 +129,19 @@ def _classify_margin(mom_pct: float) -> tuple[SentimentStatus, float]:
     return SentimentStatus.CALM, +0.3
 
 
+def _classify_southbound(net_5d_hkd_bn: float) -> tuple[SentimentStatus, float]:
+    """Map southbound 5d net flow (HKD bn) to (status, score).
+
+    Positive = mainland buying HK stocks (bullish for HK).
+    Ordering is inverted (high value = good), same pattern as northbound.
+    """
+    if net_5d_hkd_bn > 10.0:
+        return SentimentStatus.CALM, +0.5
+    if net_5d_hkd_bn >= -10.0:
+        return SentimentStatus.NEUTRAL, 0.0
+    return SentimentStatus.STRESS, -0.5
+
+
 def _bucket_for_value(
     value: float,
     buckets: tuple[tuple[float | None, SentimentStatus, float], ...],
@@ -154,7 +180,7 @@ class MarketSentimentService:
         *,
         cnn_client: CNNFearGreedClient | None = None,
         cn_flows_client: CNMarketFlowsClient | None = None,
-        hk_flows_client: Any = None,  # Round 3
+        hk_flows_client: HKSouthboundClient | None = None,
     ) -> None:
         self._app_config = config
         self._config: MarketSentimentConfig = config.market_sentiment
@@ -201,15 +227,19 @@ class MarketSentimentService:
                 any_populated=False,
             )
 
-        # HK view — still a placeholder until Round 3.
-        hk_view = self._empty_view(Market.HK)
-        hk_meta = _ViewMeta(
-            sources_failed=[],
-            stale_sources=[],
-            adapter_limitations=["hk_sentiment_not_implemented"],
-            blockers=[],
-            any_populated=False,
-        )
+        # HK view — wired in Round 3.
+        try:
+            hk_view, hk_meta = self._build_hk_view(evaluation_date)
+        except Exception as exc:  # noqa: BLE001 — defense in depth
+            logger.exception("market sentiment HK view failure: %s", exc)
+            hk_view = self._empty_view(Market.HK)
+            hk_meta = _ViewMeta(
+                sources_failed=["hk_sentiment"],
+                stale_sources=[],
+                adapter_limitations=["hk_view_exception"],
+                blockers=[],
+                any_populated=False,
+            )
 
         # CN view — wired in Round 2.
         try:
@@ -227,7 +257,7 @@ class MarketSentimentService:
 
         views = [us_view, hk_view, cn_view]
         composite_score = self._compute_composite_score(views)
-        risk_switch = self._classify_risk_switch(composite_score, us_view)
+        risk_switch = self._classify_risk_switch(composite_score, us_view, views)
 
         data_quality = self._build_data_quality([us_meta, hk_meta, cn_meta], views)
 
@@ -604,6 +634,217 @@ class MarketSentimentService:
             return 0.0
         return round(max(-1.0, min(1.0, weighted / total_weight)), 4)
 
+    # ------------------------------------------------------------------ HK view
+
+    def _build_hk_view(self, as_of: date) -> tuple[MarketSentimentView, _ViewMeta]:
+        """Build HK sentiment from HSIV (preferred) or realized-vol fallback."""
+
+        indicators: list[MarketSentimentIndicator] = []
+        meta = _ViewMeta(
+            sources_failed=[],
+            stale_sources=[],
+            adapter_limitations=[],
+            blockers=[],
+            any_populated=False,
+        )
+
+        vol_indicator = self._fetch_hk_vol_indicator(as_of, meta)
+        indicators.append(vol_indicator)
+
+        # Southbound — behind feature flag; returns UNKNOWN stub when disabled.
+        sb_indicator = self._fetch_hk_southbound_indicator(meta)
+        if sb_indicator is not None:
+            indicators.append(sb_indicator)
+
+        score = self._aggregate_hk_score(vol_indicator, sb_indicator)
+        status = self._classify_market_status(score, indicators)
+
+        notes: list[str] = []
+        if not meta.any_populated:
+            notes.append("HK sentiment unavailable; downstream scoring is neutralised.")
+
+        view = MarketSentimentView(
+            market=Market.HK,
+            score=score,
+            status=status,
+            indicators=indicators,
+            notes=notes,
+        )
+        return view, meta
+
+    def _fetch_hk_vol_indicator(
+        self, as_of: date, meta: _ViewMeta
+    ) -> MarketSentimentIndicator:
+        """Try ^HSIV first; fall back to 20d realized vol from fallback symbols."""
+
+        key = "hk_vol"
+        label = "HK Volatility"
+        hsiv_symbol = self._config.hk_hsiv_symbol
+
+        # Primary: try ^HSIV via yfinance.
+        hsiv_ind = self._fetch_volatility_indicator(
+            symbol=hsiv_symbol,
+            key=key,
+            label=label,
+            market=Market.HK,
+            buckets=_HSIV_BUCKETS,
+            as_of=as_of,
+            meta=meta,
+        )
+        if hsiv_ind.value is not None:
+            hsiv_ind = MarketSentimentIndicator(
+                key=hsiv_ind.key,
+                label=hsiv_ind.label,
+                market=hsiv_ind.market,
+                value=hsiv_ind.value,
+                unit=hsiv_ind.unit,
+                status=hsiv_ind.status,
+                score=hsiv_ind.score,
+                as_of_ts=hsiv_ind.as_of_ts,
+                source="yfinance",
+                stale=hsiv_ind.stale,
+                notes=hsiv_ind.notes,
+            )
+            return hsiv_ind
+
+        # Fallback: compute 20d annualized realized vol from fallback symbols.
+        meta.adapter_limitations.append("hsiv_unavailable_using_realized_vol_fallback")
+        realized_vol = self._compute_realized_vol(as_of, meta)
+
+        if realized_vol is None:
+            meta.sources_failed.append(key)
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.HK.value,
+                value=None, unit="%", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="realized_vol_fallback", stale=True,
+                notes=["Both HSIV and realized-vol fallback unavailable"],
+            )
+
+        status, score = _bucket_for_value(realized_vol, _HSIV_BUCKETS)
+        meta.any_populated = True
+        return MarketSentimentIndicator(
+            key=key, label=label, market=Market.HK.value,
+            value=round(realized_vol, 4), unit="%",
+            status=status, score=round(score, 4),
+            as_of_ts=None, source="realized_vol_fallback", stale=False,
+            notes=[f"Realized vol from {', '.join(self._config.hk_fallback_symbols)}"],
+        )
+
+    def _compute_realized_vol(
+        self, as_of: date, meta: _ViewMeta
+    ) -> float | None:
+        """20-day annualized realized vol from HK fallback symbols (e.g. 0700, 2800)."""
+
+        symbols = self._config.hk_fallback_symbols
+        if not symbols:
+            return None
+
+        start = as_of - timedelta(days=60)
+        try:
+            histories = self._market_data.ensure_history(symbols, start, as_of)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentiment: HK fallback history failed: %s", exc)
+            meta.adapter_limitations.append("hk_fallback_history_error")
+            return None
+
+        all_vols: list[float] = []
+        for symbol in symbols:
+            bars = histories.get(symbol) or []
+            if len(bars) < 21:
+                continue
+            sorted_bars = sorted(bars, key=lambda b: b.timestamp)
+            recent = sorted_bars[-21:]  # 21 bars → 20 returns
+            returns: list[float] = []
+            for i in range(1, len(recent)):
+                prev_close = recent[i - 1].close
+                if prev_close > 0:
+                    returns.append((recent[i].close - prev_close) / prev_close)
+            if len(returns) < 10:
+                continue
+            mean_r = sum(returns) / len(returns)
+            var = sum((r - mean_r) ** 2 for r in returns) / len(returns)
+            daily_vol = math.sqrt(var)
+            annual_vol = daily_vol * math.sqrt(252) * 100  # annualized, in %
+            all_vols.append(annual_vol)
+
+        if not all_vols:
+            return None
+        return sum(all_vols) / len(all_vols)
+
+    def _fetch_hk_southbound_indicator(
+        self, meta: _ViewMeta
+    ) -> MarketSentimentIndicator | None:
+        """Southbound indicator — behind feature flag, returns None when disabled."""
+
+        key = "hk_southbound"
+        label = "HK Southbound 5d net"
+
+        if not self._config.hk_southbound_enabled:
+            meta.adapter_limitations.append("hk_southbound_disabled")
+            return None
+
+        if self._hk_flows_client is None:
+            meta.adapter_limitations.append("hk_southbound_client_missing")
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.HK.value,
+                value=None, unit="HKD_bn", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="eastmoney", stale=True,
+                notes=["Southbound client not wired"],
+            )
+
+        reading: HKSouthboundReading | None = None
+        try:
+            reading = self._hk_flows_client.fetch()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentiment: HK southbound fetch raised: %s", exc)
+            meta.adapter_limitations.append("hk_southbound_exception")
+
+        if reading is None:
+            meta.sources_failed.append(key)
+            return MarketSentimentIndicator(
+                key=key, label=label, market=Market.HK.value,
+                value=None, unit="HKD_bn", status=SentimentStatus.UNKNOWN,
+                score=0.0, source="eastmoney", stale=True,
+                notes=["Southbound source unavailable"],
+            )
+
+        status, score = _classify_southbound(reading.net_5d_hkd_bn)
+        meta.any_populated = True
+        return MarketSentimentIndicator(
+            key=key, label=label, market=Market.HK.value,
+            value=round(reading.net_5d_hkd_bn, 4), unit="HKD_bn",
+            status=status, score=round(score, 4),
+            as_of_ts=reading.fetched_at, source="eastmoney", stale=False,
+            notes=[f"5d window"],
+        )
+
+    @staticmethod
+    def _aggregate_hk_score(
+        vol: MarketSentimentIndicator,
+        southbound: MarketSentimentIndicator | None,
+    ) -> float:
+        """Weight: 0.7*vol + 0.3*southbound (or 1.0*vol if southbound absent)."""
+
+        weighted = 0.0
+        total_weight = 0.0
+
+        if vol.value is not None and vol.status != SentimentStatus.UNKNOWN:
+            vol_weight = 0.7 if (southbound is not None and southbound.value is not None) else 1.0
+            weighted += vol_weight * vol.score
+            total_weight += vol_weight
+
+        if (
+            southbound is not None
+            and southbound.value is not None
+            and southbound.status != SentimentStatus.UNKNOWN
+        ):
+            weighted += 0.3 * southbound.score
+            total_weight += 0.3
+
+        if total_weight == 0.0:
+            return 0.0
+        return round(max(-1.0, min(1.0, weighted / total_weight)), 4)
+
     @staticmethod
     def _classify_market_status(
         score: float, indicators: list[MarketSentimentIndicator]
@@ -613,16 +854,31 @@ class MarketSentimentService:
         ]
         if not populated:
             return SentimentStatus.UNKNOWN
-        # Status precedence: if any indicator is in stress/extreme fear, surface it.
+        # Only escalate the market-level status from indicators that represent
+        # genuine danger signals (negative score). Contrarian indicators like
+        # CNN EXTREME_FEAR (positive score = contrarian buy signal) must NOT
+        # propagate their label to the market view, otherwise the two-market
+        # STRESS override would fire incorrectly.
+        danger_statuses = {
+            ind.status
+            for ind in populated
+            if ind.score < 0
+            and ind.status
+            in {
+                SentimentStatus.EXTREME_FEAR,
+                SentimentStatus.STRESS,
+                SentimentStatus.EXTREME_GREED,
+                SentimentStatus.ELEVATED,
+            }
+        }
         priorities = [
             SentimentStatus.EXTREME_FEAR,
             SentimentStatus.STRESS,
             SentimentStatus.EXTREME_GREED,
             SentimentStatus.ELEVATED,
         ]
-        statuses = {ind.status for ind in populated}
         for priority in priorities:
-            if priority in statuses:
+            if priority in danger_statuses:
                 return priority
         if score >= 0.2:
             return SentimentStatus.CALM
@@ -656,11 +912,14 @@ class MarketSentimentService:
         self,
         composite_score: float,
         us_view: MarketSentimentView,
+        all_views: list[MarketSentimentView],
     ) -> RiskSwitch:
-        us_score = us_view.score
         us_status = us_view.status
         if us_status == SentimentStatus.UNKNOWN:
-            return RiskSwitch.UNKNOWN
+            # Need at least US to make a switch call.
+            active_views = [v for v in all_views if v.status != SentimentStatus.UNKNOWN]
+            if not active_views:
+                return RiskSwitch.UNKNOWN
 
         # Overrides: VIX > 30 OR CNN F&G < 10 force at-least-WATCH.
         force_watch = False
@@ -683,9 +942,19 @@ class MarketSentimentService:
             base = RiskSwitch.WATCH
 
         if force_watch and base == RiskSwitch.ON:
-            return RiskSwitch.WATCH
+            base = RiskSwitch.WATCH
 
-        # Two-market STRESS override is Round 3 territory; no-op here.
+        # Two-market STRESS override: if >= 2 populated markets are in STRESS
+        # (or worse), force OFF regardless of composite score.
+        stress_count = sum(
+            1
+            for v in all_views
+            if v.status in {SentimentStatus.STRESS, SentimentStatus.EXTREME_FEAR}
+            and v.status != SentimentStatus.UNKNOWN
+        )
+        if stress_count >= 2:
+            return RiskSwitch.OFF
+
         return base
 
     # ------------------------------------------------------------------ helpers
@@ -732,7 +1001,7 @@ class MarketSentimentService:
         )
 
     def _seed_volatility_instruments(self) -> None:
-        """Ensure ^VIX and ^VXN are in the instrument catalog so `ensure_history` can resolve them."""
+        """Ensure ^VIX, ^VXN, ^HSIV are in the instrument catalog so `ensure_history` can resolve them."""
 
         instruments = [
             Instrument(
@@ -751,6 +1020,16 @@ class MarketSentimentService:
                 asset_class=AssetClass.ETF,
                 currency="USD",
                 name="CBOE Nasdaq Volatility Index",
+                tradable=False,
+                liquidity_bucket="high",
+                tags=["sentiment", "volatility_index"],
+            ),
+            Instrument(
+                symbol=self._config.hk_hsiv_symbol,
+                market=Market.HK,
+                asset_class=AssetClass.ETF,
+                currency="HKD",
+                name="Hang Seng Implied Volatility",
                 tradable=False,
                 liquidity_bucket="high",
                 tags=["sentiment", "volatility_index"],

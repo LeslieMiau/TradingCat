@@ -18,6 +18,7 @@ from tradingcat.adapters.sentiment_sources.cn_market_flows import (
     CNNorthboundReading,
     CNTurnoverReading,
 )
+from tradingcat.adapters.sentiment_sources.hk_southbound import HKSouthboundReading
 
 
 @dataclass(slots=True)
@@ -113,5 +114,32 @@ def make_cn_margin_reading(mom_pct: float) -> CNMarginReading:
     """Convenience builder for test margin readings."""
     return CNMarginReading(
         mom_pct=float(mom_pct),
+        fetched_at=datetime.now(UTC),
+    )
+
+
+# ---------------------------------------------------------------------- HK southbound
+
+
+@dataclass(slots=True)
+class StaticHKSouthboundClient:
+    """Returns a pre-configured reading for HK southbound net flow.
+
+    Mirrors ``HKSouthboundClient.fetch()`` signature.
+    """
+
+    reading: HKSouthboundReading | None = None
+    raise_on_fetch: bool = False
+
+    def fetch(self) -> HKSouthboundReading | None:
+        if self.raise_on_fetch:
+            raise RuntimeError("static HK southbound client: boom")
+        return self.reading
+
+
+def make_hk_southbound_reading(net_5d_hkd_bn: float) -> HKSouthboundReading:
+    """Convenience builder for test southbound readings."""
+    return HKSouthboundReading(
+        net_5d_hkd_bn=float(net_5d_hkd_bn),
         fetched_at=datetime.now(UTC),
     )
