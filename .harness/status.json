@@ -1,5 +1,5 @@
 {
-  "phase": "generating",
+  "phase": "complete",
   "current_round": 4,
   "max_rounds": 4,
   "spec_version": "1.0",
@@ -8,7 +8,7 @@
   "evaluator": "claude-sonnet-4-6",
   "created_at": "2026-04-15",
   "updated_at": "2026-04-17",
-  "notes": "R3 QA passed (9.7/10). Proceeding to R4: UI polish + 30d sparkline + history persistence.",
+  "notes": "All 4 rounds complete. R4 QA passed (9.7/10). Pipeline finished.",
   "rounds": {
     "1": {
       "phase": "complete",
@@ -28,6 +28,11 @@
       "self_score": 9.7,
       "qa_score": 9.7
     },
-    "4": {"phase": "generating", "scope": "UI polish + 30d sparkline + history persistence"}
+    "4": {
+      "phase": "complete",
+      "scope": "UI polish + 30d sparkline + history persistence",
+      "self_score": 9.5,
+      "qa_score": 9.7
+    }
   }
 }
