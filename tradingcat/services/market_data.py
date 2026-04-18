@@ -8,7 +8,7 @@ import math
 
 from tradingcat.adapters.base import MarketDataAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter, sample_instruments
-from tradingcat.domain.models import Bar, CorporateAction, FxRate, Instrument
+from tradingcat.domain.models import Bar, CorporateAction, FxRate, Instrument, Market
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 
 
@@ -457,6 +457,7 @@ class MarketDataService:
         available_symbols: list[str] = []
         confirmed_none_symbols: list[str] = []
         missing_symbols: list[str] = []
+        not_tracked_symbols: list[str] = []
 
         for instrument in targets:
             actions = self._history.load_corporate_actions(instrument, start_date, end_date)
@@ -478,6 +479,11 @@ class MarketDataService:
             if actions:
                 status = "available"
                 available_symbols.append(instrument.symbol)
+            elif instrument.market == Market.CN:
+                # A-share corporate action coverage is not supplied by yfinance/futu today, so
+                # we surface it in reports but don't let it block validation.
+                status = "not_tracked"
+                not_tracked_symbols.append(instrument.symbol)
             elif error or not fetch_missing:
                 status = "missing"
                 missing_symbols.append(instrument.symbol)
@@ -516,6 +522,7 @@ class MarketDataService:
             "available_symbols": available_symbols,
             "confirmed_none_symbols": confirmed_none_symbols,
             "missing_symbols": missing_symbols,
+            "not_tracked_symbols": not_tracked_symbols,
             "blocker_count": len(blockers),
             "blockers": blockers,
             "reports": reports,

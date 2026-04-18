@@ -178,6 +178,13 @@ def test_strategy_readiness_limits_blockers_to_current_signal_symbols(tmp_path):
             self.corporate_action_symbols: list[str] = []
             self.fx_quote_currencies: list[str] = []
 
+        def list_instruments(self, **_kwargs):
+            return [
+                Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="SPY"),
+                Instrument(symbol="QQQ", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="QQQ"),
+                Instrument(symbol="VTI", market=Market.US, asset_class=AssetClass.ETF, currency="USD", name="VTI"),
+            ]
+
         def local_history_snapshot(self, symbols, start, end):
             self.history_symbols = list(symbols)
             return {}

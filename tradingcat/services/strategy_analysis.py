@@ -8,7 +8,7 @@ from datetime import date
 from statistics import mean
 
 from tradingcat.backtest.engine import EventDrivenBacktester
-from tradingcat.domain.models import BacktestExperiment, Signal
+from tradingcat.domain.models import BacktestExperiment, Market, Signal
 from tradingcat.services.market_data import MarketDataService
 
 
@@ -178,7 +178,13 @@ class StrategyAnalysisService:
         threshold = self._history_coverage_threshold()
         if self._market_data is None or not signals:
             return {"ready": False, "reports": [], "minimum_coverage_ratio": 0.0, "minimum_required_ratio": threshold}
-        symbols = sorted({signal.instrument.symbol for signal in signals if signal.instrument.asset_class != "option"})
+        # A-share history is not reliably served by the current adapters (yfinance/futu), so we
+        # track it for informational use only — don't let it gate strategy promotion.
+        symbols = sorted({
+            signal.instrument.symbol
+            for signal in signals
+            if signal.instrument.asset_class != "option" and signal.instrument.market != Market.CN
+        })
         if not symbols:
             return {"ready": True, "reports": [], "minimum_coverage_ratio": 1.0, "minimum_required_ratio": threshold}
         coverage = self._market_data.summarize_history_coverage(symbols=symbols, start=start, end=end)
