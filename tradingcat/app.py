@@ -642,19 +642,29 @@ class TradingCatApplication:
             preview = self.preview_execution(as_of)
             gate = self.execution_gate_summary(as_of)
             market_awareness = self.research_queries.market_awareness(as_of)
+            participation = market_awareness.get("participation", {}) if isinstance(market_awareness, dict) else {}
+            participation_line = (
+                f"Participation {participation.get('decision', 'wait')} / "
+                f"p={float(participation.get('probability', 0.0)):.2f} / "
+                f"odds={float(participation.get('odds', 1.0)):.2f}."
+            )
             posture_line = (
                 f"Market posture {market_awareness.get('overall_regime', 'unknown')} / "
                 f"{market_awareness.get('risk_posture', 'hold_pace')} / "
                 f"{market_awareness.get('confidence', 'low')} confidence."
             )
             status = "planned" if not gate["should_block"] else "blocked"
-            headline = f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals. {posture_line}"
+            headline = (
+                f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals. "
+                f"{posture_line} {participation_line}"
+            )
             reasons = (
                 [self._plan_reason_text(reason) for reason in gate["reasons"]]
                 if gate["should_block"]
                 else ["Execution gate is open for the current preview."]
             )
             reasons.append(posture_line)
+            reasons.append(participation_line)
             reasons.extend(
                 f"Market cue: {action.get('text')}"
                 for action in list(market_awareness.get("actions", []))[:2]

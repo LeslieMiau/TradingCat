@@ -40,6 +40,9 @@ def _load_futu_sdk() -> Any:
 
 def _normalize_code(instrument: Instrument) -> str:
     symbol = instrument.symbol
+    if instrument.market == Market.CN and symbol in {"SH000001", "SZ399001", "SZ399006"}:
+        exchange = "SH" if symbol.startswith("SH") else "SZ"
+        return f"{exchange}.{symbol[-6:]}"
     if instrument.market == Market.HK and symbol.isdigit():
         symbol = symbol.zfill(5)
     if instrument.market == Market.CN:

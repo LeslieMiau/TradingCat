@@ -11,30 +11,40 @@ from tradingcat.domain.models import (
     AssetClass,
     Instrument,
     Market,
+    MarketAwarenessAshareIndices,
     MarketAwarenessActionItem,
     MarketAwarenessActionSeverity,
     MarketAwarenessConfidence,
     MarketAwarenessDataQuality,
     MarketAwarenessDataStatus,
     MarketAwarenessEvidenceRow,
+    MarketAwarenessFearGreed,
     MarketAwarenessMarketView,
+    MarketAwarenessNewsObservation,
+    MarketAwarenessParticipation,
     MarketAwarenessRegime,
     MarketAwarenessRiskPosture,
     MarketAwarenessSignalStatus,
     MarketAwarenessSnapshot,
     MarketAwarenessStrategyGuidance,
     MarketAwarenessStrategyStance,
+    MarketAwarenessVolumePrice,
 )
 from tradingcat.domain.sentiment import (
     MarketSentimentSnapshot,
     RiskSwitch,
     SentimentStatus,
 )
+from tradingcat.services.ashare_indices import AshareIndexObservationService
 from tradingcat.services.alpha_radar import AlphaRadarService
+from tradingcat.services.fear_greed import FearGreedToolService
 from tradingcat.services.macro_calendar import MacroCalendarService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.market_sentiment import MarketSentimentService
+from tradingcat.services.news_observation import NewsObservationService
+from tradingcat.services.participation_decision import ParticipationDecisionService
+from tradingcat.services.volume_price import VolumePriceToolService
 
 
 logger = logging.getLogger(__name__)
@@ -109,7 +119,13 @@ class MarketAwarenessService:
         macro_calendar: MacroCalendarService | None = None,
         alpha_radar: AlphaRadarService | None = None,
         market_sentiment: MarketSentimentService | None = None,
+        news_observation: NewsObservationService | None = None,
+        a_share_indices: AshareIndexObservationService | None = None,
+        fear_greed_tool: FearGreedToolService | None = None,
+        volume_price_tool: VolumePriceToolService | None = None,
+        participation_decision: ParticipationDecisionService | None = None,
     ) -> None:
+        self._app_config = config
         self._config = config.market_awareness
         self._market_data = market_data
         self._market_calendar = market_calendar
@@ -118,6 +134,11 @@ class MarketAwarenessService:
         # Sentiment is injected optionally — when missing, the snapshot is
         # identical to the pre-sentiment behaviour (golden baseline).
         self._market_sentiment = market_sentiment
+        self._news_observation = news_observation or NewsObservationService(config)
+        self._a_share_indices = a_share_indices or AshareIndexObservationService(config, market_data)
+        self._fear_greed_tool = fear_greed_tool or FearGreedToolService()
+        self._volume_price_tool = volume_price_tool or VolumePriceToolService()
+        self._participation_decision = participation_decision or ParticipationDecisionService(config)
         self._bootstrap_sample_keys = {
             self._instrument_key(instrument)
             for instrument in sample_instruments()
@@ -133,6 +154,7 @@ class MarketAwarenessService:
         blockers = list(benchmark_payload["blockers"])
         adapter_limitations: list[str] = []
         stress_detected = False
+        cross_asset_scores: list[float] = []
 
         for market in (Market.US, Market.HK, Market.CN):
             market_view, market_meta = self._build_market_view(market, evaluation_date, benchmark_payload)
@@ -143,6 +165,7 @@ class MarketAwarenessService:
             blockers.extend(market_meta["blockers"])
             adapter_limitations.extend(market_meta["adapter_limitations"])
             stress_detected = stress_detected or market_meta["stress_detected"]
+            cross_asset_scores.append(float(market_meta["cross_asset_score"]))
 
         # Sentiment snapshot is computed separately and wrapped in try/except
         # so a failing external source can never break the awareness path.
@@ -174,6 +197,20 @@ class MarketAwarenessService:
             data_quality,
             stress_detected=stress_detected,
         )
+        news_observation = self._observe_news(evaluation_date)
+        a_share_indices = self._observe_a_share_indices(evaluation_date)
+        fear_greed = self._observe_fear_greed(
+            a_share_indices=a_share_indices,
+            news_observation=news_observation,
+            cross_asset_scores=cross_asset_scores,
+        )
+        volume_price = self._observe_volume_price(a_share_indices)
+        participation = self._observe_participation(
+            a_share_indices=a_share_indices,
+            news_observation=news_observation,
+            fear_greed=fear_greed,
+            volume_price=volume_price,
+        )
 
         return MarketAwarenessSnapshot(
             as_of=evaluation_date,
@@ -187,10 +224,16 @@ class MarketAwarenessService:
                 risk_posture,
                 market_views,
                 data_quality,
+                participation,
                 sentiment=sentiment_snapshot,
             ),
-            strategy_guidance=self._strategy_guidance(risk_posture, market_views, data_quality),
+            strategy_guidance=self._strategy_guidance(risk_posture, market_views, data_quality, participation),
             data_quality=data_quality,
+            news_observation=news_observation,
+            a_share_indices=a_share_indices,
+            fear_greed=fear_greed,
+            volume_price=volume_price,
+            participation=participation,
             market_sentiment=sentiment_snapshot,
         )
 
@@ -258,6 +301,44 @@ class MarketAwarenessService:
 
     def select_breadth_constituents(self, market: Market, *, limit: int | None = None) -> list[Instrument]:
         return list(self.breadth_universe(market, limit=limit)["instruments"])
+
+    def _observe_news(self, evaluation_date: date) -> MarketAwarenessNewsObservation:
+        return self._news_observation.observe(evaluation_date)
+
+    def _observe_a_share_indices(self, evaluation_date: date) -> MarketAwarenessAshareIndices:
+        return self._a_share_indices.observe(evaluation_date)
+
+    def _observe_fear_greed(
+        self,
+        *,
+        a_share_indices: MarketAwarenessAshareIndices,
+        news_observation: MarketAwarenessNewsObservation,
+        cross_asset_scores: list[float],
+    ) -> MarketAwarenessFearGreed:
+        cross_asset_score = round(mean(cross_asset_scores), 4) if cross_asset_scores else 0.0
+        return self._fear_greed_tool.observe(
+            a_share_indices=a_share_indices,
+            news_observation=news_observation,
+            cross_asset_score=cross_asset_score,
+        )
+
+    def _observe_volume_price(self, a_share_indices: MarketAwarenessAshareIndices) -> MarketAwarenessVolumePrice:
+        return self._volume_price_tool.observe(a_share_indices)
+
+    def _observe_participation(
+        self,
+        *,
+        a_share_indices: MarketAwarenessAshareIndices,
+        news_observation: MarketAwarenessNewsObservation,
+        fear_greed: MarketAwarenessFearGreed,
+        volume_price: MarketAwarenessVolumePrice,
+    ) -> MarketAwarenessParticipation:
+        return self._participation_decision.observe(
+            a_share_indices=a_share_indices,
+            news_observation=news_observation,
+            fear_greed=fear_greed,
+            volume_price=volume_price,
+        )
 
     def _build_market_view(
         self,
@@ -351,6 +432,7 @@ class MarketAwarenessService:
             "blockers": market_blockers,
             "adapter_limitations": [*macro["adapter_limitations"], *alpha["adapter_limitations"]],
             "stress_detected": stress_detected,
+            "cross_asset_score": cross_asset["score"],
         }
 
     def _trend_signal(self, market: Market, symbol: str, closes: list[float]) -> dict[str, object]:
@@ -829,6 +911,7 @@ class MarketAwarenessService:
         risk_posture: MarketAwarenessRiskPosture,
         market_views: list[MarketAwarenessMarketView],
         data_quality: MarketAwarenessDataQuality,
+        participation: MarketAwarenessParticipation,
         *,
         sentiment: MarketSentimentSnapshot | None = None,
     ) -> list[MarketAwarenessActionItem]:
@@ -913,6 +996,29 @@ class MarketAwarenessService:
                 )
             )
 
+        actions.append(
+            MarketAwarenessActionItem(
+                severity=(
+                    MarketAwarenessActionSeverity.MEDIUM
+                    if participation.decision.value in {"participate", "selective"}
+                    else MarketAwarenessActionSeverity.HIGH
+                    if participation.decision.value == "avoid"
+                    else MarketAwarenessActionSeverity.LOW
+                ),
+                action_key=f"participation_{participation.decision.value}",
+                text=(
+                    "Probability and payoff both justify participation, but scale in instead of forcing size."
+                    if participation.decision.value == "participate"
+                    else "Only participate selectively where setup quality is clearly above average."
+                    if participation.decision.value == "selective"
+                    else "Wait for better tape confirmation before committing fresh risk."
+                    if participation.decision.value == "wait"
+                    else "Avoid fresh participation until both win probability and payoff improve."
+                ),
+                rationale=f"Participation engine: probability {participation.probability:.2f}, odds {participation.odds:.2f}.",
+                markets=["CN"],
+            )
+        )
         actions.extend(self._market_timing_actions(market_views))
         if sentiment is not None:
             self._sentiment_action_items(actions, sentiment)
@@ -1142,6 +1248,7 @@ class MarketAwarenessService:
         risk_posture: MarketAwarenessRiskPosture,
         market_views: list[MarketAwarenessMarketView],
         data_quality: MarketAwarenessDataQuality,
+        participation: MarketAwarenessParticipation,
     ) -> list[MarketAwarenessStrategyGuidance]:
         us_view = next((view for view in market_views if view.market == Market.US), None)
         hk_view = next((view for view in market_views if view.market == Market.HK), None)
@@ -1152,6 +1259,12 @@ class MarketAwarenessService:
             etf_rationale = f"{etf_rationale} Data quality is not complete, so keep sizing conservative."
             equity_rationale = f"{equity_rationale} Data quality is not complete, so tighten confirmation filters."
             option_rationale = f"{option_rationale} Data quality is not complete, so prefer simpler defensive structures."
+        participation_line = (
+            f" Participation decision is {participation.decision.value} with probability {participation.probability:.2f} and odds {participation.odds:.2f}."
+        )
+        etf_rationale = f"{etf_rationale}{participation_line}"
+        equity_rationale = f"{equity_rationale}{participation_line}"
+        option_rationale = f"{option_rationale}{participation_line}"
         return [
             MarketAwarenessStrategyGuidance(
                 strategy_id="strategy_a_etf_rotation",

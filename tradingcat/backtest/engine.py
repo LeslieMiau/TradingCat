@@ -165,7 +165,12 @@ class EventDrivenBacktester:
         return returns
 
     def _metrics_from_monthly_returns(self, monthly_returns: list[float], turnover: float, total_cost_bps: float) -> BacktestMetrics:
-        if not monthly_returns:
+        sanitized_returns = [
+            self._sanitize_monthly_return(monthly_return)
+            for monthly_return in monthly_returns
+            if math.isfinite(monthly_return)
+        ]
+        if not sanitized_returns:
             return BacktestMetrics(
                 gross_return=0.0,
                 net_return=0.0,
@@ -180,8 +185,8 @@ class EventDrivenBacktester:
         max_drawdown = 0.0
         net_returns: list[float] = []
 
-        for gross_monthly_return in monthly_returns:
-            net_monthly_return = gross_monthly_return - monthly_cost
+        for gross_monthly_return in sanitized_returns:
+            net_monthly_return = max(gross_monthly_return - monthly_cost, -0.9999)
             gross_curve *= 1 + gross_monthly_return
             net_curve *= 1 + net_monthly_return
             peak_curve = max(peak_curve, net_curve)
@@ -277,7 +282,7 @@ class EventDrivenBacktester:
                 previous_month = ordered_months[index - 1]
                 previous_close = monthly_closes[previous_month]
                 current_close = monthly_closes[current_month]
-                if previous_close <= 0:
+                if not math.isfinite(previous_close) or not math.isfinite(current_close) or previous_close <= 0 or current_close <= 0:
                     continue
                 expiry_adjustment = self._option_expiry_adjustment(
                     signal=signal,
@@ -287,6 +292,8 @@ class EventDrivenBacktester:
                 )
                 if expiry_adjustment is not None:
                     current_close = expiry_adjustment
+                if not math.isfinite(current_close) or current_close <= 0:
+                    continue
                 signed_weight = signal.target_weight if signal.side.value == "buy" else -signal.target_weight
                 corporate_action_return = self._corporate_action_return(
                     corporate_actions_by_symbol.get(signal.instrument.symbol, []),
@@ -299,9 +306,10 @@ class EventDrivenBacktester:
                     current_month,
                     fx_rates_by_pair.get(f"{signal.instrument.currency.upper()}/{base_currency.upper()}"),
                 )
-                monthly_returns[current_month] = (
-                    ((current_close / previous_close) - 1) + corporate_action_return + fx_return
-                ) * signed_weight
+                asset_return = ((current_close / previous_close) - 1) + corporate_action_return + fx_return
+                if not math.isfinite(asset_return):
+                    continue
+                monthly_returns[current_month] = asset_return * signed_weight
             if monthly_returns:
                 strategy_series[signal.instrument.symbol] = monthly_returns
                 months.update(monthly_returns)
@@ -438,7 +446,14 @@ class EventDrivenBacktester:
                 closes = all_monthly_closes.get(sym, {})
                 prev_close = closes.get(previous_month)
                 curr_close = closes.get(current_month)
-                if prev_close is None or curr_close is None or prev_close <= 0:
+                if (
+                    prev_close is None
+                    or curr_close is None
+                    or not math.isfinite(prev_close)
+                    or not math.isfinite(curr_close)
+                    or prev_close <= 0
+                    or curr_close <= 0
+                ):
                     continue
                 signed_weight = signal.target_weight if signal.side.value == "buy" else -signal.target_weight
                 ca_return = self._corporate_action_return(
@@ -449,6 +464,8 @@ class EventDrivenBacktester:
                     fx_rates_by_pair.get(f"{signal.instrument.currency.upper()}/{base_currency.upper()}"),
                 )
                 asset_return = ((curr_close / prev_close) - 1) + ca_return + fx_return
+                if not math.isfinite(asset_return):
+                    continue
                 month_return += asset_return * signed_weight / total_weight
             combined_returns.append(round(month_return, 6))
         return combined_returns
@@ -458,10 +475,12 @@ class EventDrivenBacktester:
         nav = 1.0
         monthly_cost = turnover * (total_cost_bps / 10_000) / 12
         for index, gross_return in enumerate(monthly_returns, start=1):
+            gross_return = self._sanitize_monthly_return(gross_return)
             starting_nav = nav
             gross_pnl = starting_nav * gross_return
             costs = starting_nav * monthly_cost
-            ending_nav = starting_nav + gross_pnl - costs
+            net_return = max(gross_return - monthly_cost, -0.9999)
+            ending_nav = starting_nav * (1 + net_return)
             entries.append(
                 BacktestLedgerEntry(
                     period=f"m{index:03d}",
@@ -470,8 +489,14 @@ class EventDrivenBacktester:
                     costs=round(costs, 6),
                     ending_nav=round(ending_nav, 6),
                     gross_return=round(gross_return, 6),
-                    net_return=round((ending_nav / starting_nav) - 1, 6),
+                    net_return=round(net_return, 6),
                 )
             )
             nav = ending_nav
         return entries
+
+    @staticmethod
+    def _sanitize_monthly_return(value: float) -> float:
+        if not math.isfinite(value):
+            return 0.0
+        return max(value, -0.9999)

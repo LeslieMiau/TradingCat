@@ -23,6 +23,13 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_BREADTH_SUPPORT_RATIO", "0.6")
     monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_VOLATILITY_STRESS_THRESHOLD", "0.04")
     monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_OVERLAY_WEIGHT", "0.08")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_CN_OBSERVATION_INDICES", "SH000001,SZ399001,SZ399006")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_NEWS_CACHE_TTL_SECONDS", "300")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_NEWS_TIMEOUT_SECONDS", "4.5")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_PARTICIPATE_PROBABILITY_THRESHOLD", "0.7")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_SELECTIVE_PROBABILITY_THRESHOLD", "0.58")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_PARTICIPATE_ODDS_THRESHOLD", "1.6")
+    monkeypatch.setenv("TRADINGCAT_MARKET_AWARENESS_SELECTIVE_ODDS_THRESHOLD", "1.25")
 
     config = AppConfig.from_env()
 
@@ -45,6 +52,13 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.market_awareness.breadth_support_ratio == 0.6
     assert config.market_awareness.volatility_stress_threshold == 0.04
     assert config.market_awareness.overlay_weight == 0.08
+    assert config.market_awareness.cn_observation_index_symbols == ["SH000001", "SZ399001", "SZ399006"]
+    assert config.market_awareness.news_cache_ttl_seconds == 300
+    assert config.market_awareness.news_timeout_seconds == 4.5
+    assert config.market_awareness.participate_probability_threshold == 0.7
+    assert config.market_awareness.selective_probability_threshold == 0.58
+    assert config.market_awareness.participate_odds_threshold == 1.6
+    assert config.market_awareness.selective_odds_threshold == 1.25
 
 
 def test_app_config_loads_from_dotenv(monkeypatch, tmp_path):
@@ -96,5 +110,12 @@ def test_app_config_market_awareness_defaults():
     assert config.market_awareness.us_benchmark_symbols == ["SPY", "QQQ", "VTI"]
     assert config.market_awareness.hk_benchmark_symbols == ["0700", "9988"]
     assert config.market_awareness.cn_benchmark_symbols == ["510300", "159915"]
+    assert config.market_awareness.cn_observation_index_symbols == ["SH000001", "SZ399001", "SZ399006"]
     assert config.market_awareness.cross_asset_reference_symbols == ["TLT", "IEF", "GLD", "GSG"]
     assert config.market_awareness.breadth_support_ratio > config.market_awareness.breadth_caution_ratio
+    assert config.market_awareness.news_cache_ttl_seconds == 900
+    assert config.market_awareness.news_timeout_seconds == 3.0
+    assert config.market_awareness.participate_probability_threshold == 0.65
+    assert config.market_awareness.selective_probability_threshold == 0.55
+    assert config.market_awareness.participate_odds_threshold == 1.5
+    assert config.market_awareness.selective_odds_threshold == 1.2

@@ -165,6 +165,78 @@ def test_market_awareness_response_accepts_full_snapshot_payload():
             "adapter_limitations": [],
             "blockers": [],
         },
+        "news_observation": {
+            "score": 0.2,
+            "tone": "supportive",
+            "dominant_topics": ["policy", "macro"],
+            "key_items": [
+                {
+                    "source": "google_news_cn_market",
+                    "title": "A股 政策 发力",
+                    "topic": "policy",
+                    "tone": "supportive",
+                    "importance": 0.8,
+                    "published_at": "2026-04-09T09:00:00Z",
+                    "url": "https://example.com/cn-policy",
+                    "markets": ["CN"],
+                    "symbols": [],
+                }
+            ],
+            "degraded": False,
+            "blockers": [],
+            "explanation": "News flow leans supportive.",
+        },
+        "a_share_indices": {
+            "score": 0.35,
+            "tone": "supportive",
+            "index_views": [
+                {
+                    "label": "上证指数",
+                    "symbol": "SH000001",
+                    "trend_status": "supportive",
+                    "price_volume_state": "price_up_volume_up",
+                    "score": 0.5,
+                    "close": 3300.0,
+                    "return_1d": 0.01,
+                    "return_5d": 0.03,
+                    "return_20d": 0.06,
+                    "volume_ratio_20d": 1.2,
+                    "above_sma20": True,
+                    "above_sma50": True,
+                    "above_sma200": True,
+                    "explanation": "trend aligned above 20/50/200-day structure",
+                }
+            ],
+            "degraded": False,
+            "blockers": [],
+            "explanation": "A-share three-index tape is broadly supportive.",
+        },
+        "fear_greed": {
+            "score": 0.25,
+            "band": "constructive",
+            "explanation": "Internal fear-greed is constructive. Score 0.25.",
+            "contributors": [
+                {"label": "A股三大指数结构", "score": 0.35, "explanation": "indices supportive"},
+                {"label": "重点新闻倾向", "score": 0.2, "explanation": "news supportive"},
+            ],
+        },
+        "volume_price": {
+            "state": "price_up_volume_up",
+            "score": 0.3,
+            "explanation": "The three-index tape is confirming price strength with expanding volume.",
+            "guidance": "Tape follow-through exists; participation can be considered if odds also hold.",
+            "contributors": [
+                {"label": "上证指数", "score": 0.5, "explanation": "价涨量增"},
+            ],
+        },
+        "participation": {
+            "decision": "participate",
+            "probability": 0.7,
+            "odds": 1.8,
+            "confidence": "high",
+            "reasons": ["Probability 0.70 and odds 1.80."],
+            "blockers": [],
+        },
     }
 
     response = MarketAwarenessResponse.model_validate(payload)
@@ -173,3 +245,8 @@ def test_market_awareness_response_accepts_full_snapshot_payload():
     assert response.market_views[0].benchmark_symbol == "510300"
     assert response.actions[0].action_key == "hold_pace"
     assert response.strategy_guidance[0].stance == "balanced"
+    assert response.news_observation.key_items[0].source == "google_news_cn_market"
+    assert response.a_share_indices.index_views[0].symbol == "SH000001"
+    assert response.fear_greed.band == "constructive"
+    assert response.volume_price.state == "price_up_volume_up"
+    assert response.participation.decision == "participate"

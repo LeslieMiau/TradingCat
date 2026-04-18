@@ -123,6 +123,16 @@ def test_research_market_awareness_endpoints_expose_typed_payload():
         assert "actions" in payload
         assert "strategy_guidance" in payload
         assert "data_quality" in payload
+        assert "news_observation" in payload
+        assert "a_share_indices" in payload
+        assert "fear_greed" in payload
+        assert "volume_price" in payload
+        assert "participation" in payload
+        assert "key_items" in payload["news_observation"]
+        assert "index_views" in payload["a_share_indices"]
+        assert "band" in payload["fear_greed"]
+        assert "state" in payload["volume_price"]
+        assert "decision" in payload["participation"]
         assert payload["market_views"][0]["benchmark_symbol"]
 
 
@@ -139,6 +149,9 @@ def test_research_market_awareness_falls_back_to_degraded_payload_on_failure():
         assert payload["data_quality"]["status"] == "degraded"
         assert payload["data_quality"]["blockers"]
         assert payload["actions"][0]["action_key"] == "respect_data_gaps"
+        assert payload["news_observation"]["degraded"] is True
+        assert payload["a_share_indices"]["degraded"] is True
+        assert payload["participation"]["decision"] in {"wait", "avoid"}
     finally:
         app_state.market_awareness.snapshot = original_snapshot
 
@@ -1705,8 +1718,18 @@ def test_dashboard_page_and_assets():
     assert "研究总览与策略筛选" in research_page.text
     assert 'id="research-market-awareness-panel"' in research_page.text
     assert 'id="research-market-awareness-evidence-table"' in research_page.text
+    assert 'id="research-market-news-panel"' in research_page.text
+    assert 'id="research-a-share-indices-panel"' in research_page.text
+    assert 'id="research-fear-greed-panel"' in research_page.text
+    assert 'id="research-volume-price-panel"' in research_page.text
+    assert 'id="research-participation-panel"' in research_page.text
     assert "市场感知" in research_page.text
     assert "市场感知证据" in research_page.text
+    assert "重点新闻观察" in research_page.text
+    assert "A 股三大股指量价" in research_page.text
+    assert "恐贪工具" in research_page.text
+    assert "量价工具" in research_page.text
+    assert "参与判断" in research_page.text
     assert "当前权重" in research_page.text
     assert "研究结论 vs 今日计划 vs 当前持仓" in research_page.text
     assert "人工审批与最近动作" in research_page.text
@@ -1717,6 +1740,9 @@ def test_dashboard_page_and_assets():
     assert research_js.status_code == 200
     assert "API.researchMarketAwareness" in research_js.text
     assert "details?.market_awareness" in research_js.text
+    assert "loadDashboardResearchPayload" in research_js.text
+    assert "loadResearchEnhancements" in research_js.text
+    assert "Promise.allSettled" in research_js.text
 
     operations_page = client.get("/dashboard/operations")
     assert operations_page.status_code == 200
@@ -1782,6 +1808,10 @@ def test_dashboard_summary_endpoint():
     assert "overall_regime" in payload["trading_plan"]["market_awareness"]
     assert "overall_regime" in payload["details"]["market_awareness"]
     assert "actions" in payload["details"]["market_awareness"]
+    assert "participation" in payload["trading_plan"]["market_awareness"]
+    assert "participation" in payload["details"]["market_awareness"]
+    assert "decision" in payload["trading_plan"]["market_awareness"]["participation"]
+    assert "decision" in payload["details"]["market_awareness"]["participation"]
     for item in payload["details"]["execution_gate"].get("reasons", []):
         assert "type" in item
         assert "detail" in item
@@ -2092,13 +2122,16 @@ def test_trading_journal_endpoints():
     assert generated_plan.status_code == 200
     assert "headline" in generated_plan.json()
     assert "Market posture" in generated_plan.json()["headline"]
+    assert "Participation" in generated_plan.json()["headline"]
     assert generated_plan.json()["metrics"]["market_awareness"]["overall_regime"]
+    assert generated_plan.json()["metrics"]["market_awareness"]["participation"]["decision"]
 
     latest_plan = client.get("/journal/plans/latest", params={"as_of": "2026-03-08"})
     assert latest_plan.status_code == 200
     assert "status" in latest_plan.json()
     assert latest_plan.json()["account"] == "total"
     assert latest_plan.json()["metrics"]["market_awareness"]["risk_posture"]
+    assert latest_plan.json()["metrics"]["market_awareness"]["participation"]["decision"]
 
     cn_plan = client.get("/journal/plans/latest", params={"account": "CN", "as_of": "2026-03-08"})
     assert cn_plan.status_code == 200

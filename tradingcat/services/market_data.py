@@ -411,6 +411,32 @@ class MarketDataService:
         instrument = self._resolve_instrument(symbol)
         return self._history.load_bars(instrument, start, end)
 
+    def bars_for_instrument(
+        self,
+        instrument: Instrument,
+        start: date,
+        end: date,
+        *,
+        fetch_missing: bool = True,
+        persist: bool = True,
+    ) -> list[Bar]:
+        bars = self._history.load_bars(instrument, start, end)
+        if bars and not self._history_too_sparse_for_window(bars, start, end):
+            return bars
+        if self._local_history_only_depth > 0 or not fetch_missing:
+            return bars
+        try:
+            fetched = self._adapter.fetch_bars(instrument, start, end)
+        except Exception:
+            logger.exception(
+                "Failed to fetch bars for custom instrument",
+                extra={"symbol": instrument.symbol, "market": instrument.market.value},
+            )
+            return bars
+        if fetched and persist:
+            self._history.save_bars(instrument, fetched)
+        return fetched or bars
+
     def get_corporate_actions(self, symbol: str, start: date, end: date) -> list[dict]:
         instrument = self._resolve_instrument(symbol)
         return self._history.load_corporate_actions(instrument, start, end)
