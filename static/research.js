@@ -2,7 +2,10 @@ const state = {
   activeVerdict: "all",
   selectedStrategyId: null,
   strategyDetailCache: {},
+  dashboardSummary: null,
+  latestPayload: null,
 };
+let researchLoading = false;
 
 function marketAwarenessTone(value) {
   if (["bullish", "build_risk", "supportive", "high", "complete"].includes(value)) return "ok";
@@ -355,9 +358,14 @@ function renderVerdictGroups(groups) {
   `).join("");
 }
 
-function selectStrategy(strategyId) {
+async function selectStrategy(strategyId) {
   state.selectedStrategyId = strategyId;
-  refreshResearch();
+  try {
+    const detail = await loadStrategyImpact(strategyId);
+    renderImpact(detail);
+  } catch (_err) {
+    renderImpact(null);
+  }
 }
 
 async function loadStrategyImpact(strategyId) {
@@ -620,34 +628,6 @@ function renderImpact(detail) {
   renderImpactReadiness(elements, context);
 }
 
-async function loadPayloads() {
-  const [dashboardRes, activeRes, candidateRes, assetCorrRes] = await Promise.all([
-    apiFetch(API.dashboardSummary),
-    apiFetch(API.researchScorecard, { method: "POST" }),
-    apiFetch(API.researchCandidatesScorecard, { method: "POST" }),
-    apiFetch(API.researchCorrelation, { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] })
-    }),
-  ]);
-  if (!dashboardRes.ok) throw new Error(dashboardRes.error);
-  let marketAwareness = dashboardRes.data?.details?.market_awareness ?? null;
-  if (!marketAwareness?.overall_regime) {
-    const marketAwarenessRes = await apiFetch(API.researchMarketAwareness);
-    if (marketAwarenessRes.ok) {
-      marketAwareness = marketAwarenessRes.data;
-    }
-  }
-  return {
-    dashboard: dashboardRes.data,
-    active: activeRes.data ?? {},
-    candidates: candidateRes.data ?? {},
-    assetCorrelations: assetCorrRes.data ?? {},
-    marketAwareness,
-  };
-}
-
 function bindStrategyPickers() {
   document.querySelectorAll("[data-strategy-pick]").forEach((node) => {
     node.addEventListener("click", (event) => {
@@ -657,23 +637,39 @@ function bindStrategyPickers() {
   });
 }
 
-function renderResearch(payload) {
+// ---------------------------------------------------------------------------
+// Tiered render functions — each renders independently with partial data
+// ---------------------------------------------------------------------------
+
+function renderOverviewMetrics(payload) {
   const activeRows = payload.dashboard?.strategies?.rows ?? [];
-  const candidateRows = filteredRows(payload.candidates?.rows ?? []);
-  const topRows = filteredRows(payload.dashboard?.candidates?.top_candidates ?? []);
-  const rejectRows = filteredRejectRows(payload.candidates?.reject_summary ?? []);
-
-  renderFilterTabs();
-  renderMarketAwareness(payload);
-
-  document.getElementById("research-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  const hasActiveData = payload.dashboard != null;
   document.getElementById("research-overview-metrics").innerHTML = [
-    metricTile("执行策略", fmt(activeRows.length), `accepted ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}`, activeRows.length ? "ok" : "warning"),
+    metricTile("执行策略", hasActiveData ? fmt(activeRows.length) : "…", hasActiveData ? `accepted ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}` : "waiting for dashboard", hasActiveData ? (activeRows.length ? "ok" : "warning") : "empty"),
     metricTile("候选 deploy", fmt(payload.candidates?.deploy_candidate_count), "worth deeper study", payload.candidates?.deploy_candidate_count ? "ok" : "warning"),
     metricTile("候选 paper", fmt(payload.candidates?.paper_only_count), "needs more evidence", payload.candidates?.paper_only_count ? "warning" : "ok"),
     metricTile("候选 reject", fmt(payload.candidates?.rejected_count), "cut losers faster", payload.candidates?.rejected_count ? "blocked" : "ok"),
   ].join("");
+}
 
+function renderTier1Awareness(payload) {
+  renderMarketAwareness(payload);
+}
+
+function renderTier1Correlation(payload) {
+  renderAssetCorrelationMatrix(payload.assetCorrelations);
+}
+
+function renderTier2Candidates(payload) {
+  const candidateRows = filteredRows(payload.candidates?.rows ?? []);
+  const rejectRows = filteredRejectRows(payload.candidates?.reject_summary ?? []);
+
+  renderFilterTabs();
+  document.getElementById("research-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  renderOverviewMetrics(payload);
+
+  // Top picks: prefer dashboard data, fall back to candidates rows
+  const topRows = filteredRows(payload.dashboard?.candidates?.top_candidates ?? payload.candidates?.rows ?? []).slice(0, 5);
   const topCards = document.getElementById("research-top-cards");
   topCards.innerHTML = topRows.length
     ? topRows.map((row) => `
@@ -691,20 +687,6 @@ function renderResearch(payload) {
     : '<article class="detail-card"><span class="detail-empty">当前没有 top picks。</span></article>';
 
   renderVerdictGroups(payload.candidates?.verdict_groups);
-
-  const activeTable = document.getElementById("research-active-table");
-  activeTable.innerHTML = activeRows.length
-    ? activeRows.map((row) => `
-        <tr>
-          <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></strong><br /><span class="meta-text">${escapeHtml(row.strategy_id)}</span></td>
-          <td><span class="badge status-${badgeTone(row.action)}">${escapeHtml(row.action)}</span></td>
-          <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
-          <td>${escapeHtml(fmt(row.sharpe))}</td>
-          <td>${escapeHtml(fmtPct(row.max_drawdown))}</td>
-          <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="6" class="table-empty">当前没有 active 研究策略。</td></tr>';
 
   setList("research-actions", payload.candidates?.next_actions ?? [], "当前没有新的研究动作。");
   setList(
@@ -734,34 +716,157 @@ function renderResearch(payload) {
     : '<tr><td colspan="8" class="table-empty">当前没有候选池评分。</td></tr>';
 
   renderCorrelationMatrix(payload.candidates?.correlation_matrix);
-  renderAssetCorrelationMatrix(payload.assetCorrelations);
   renderRejectSummary(rejectRows);
   bindStrategyPickers();
 }
 
+function renderTier3Dashboard(payload) {
+  if (!payload.dashboard) return;
+  const activeRows = payload.dashboard?.strategies?.rows ?? [];
+
+  // Re-render overview with real active-strategy count
+  renderOverviewMetrics(payload);
+
+  // Re-render top picks with authoritative dashboard data
+  const topRows = filteredRows(payload.dashboard?.candidates?.top_candidates ?? []);
+  const topCards = document.getElementById("research-top-cards");
+  topCards.innerHTML = topRows.length
+    ? topRows.map((row) => `
+        <article class="detail-card">
+          <h3><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></h3>
+          <p class="detail-paragraph">Verdict ${escapeHtml(row.verdict)} / Profit score ${escapeHtml(fmt(row.profitability_score))}</p>
+          <div class="tag-row">
+            <span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(row.verdict)}</span>
+            <span class="tag">Sharpe ${escapeHtml(fmt(row.sharpe))}</span>
+            <span class="tag">CAGR ${escapeHtml(fmtPct(row.annualized_return))}</span>
+            <button class="button" data-strategy-pick="${escapeHtml(row.strategy_id)}" type="button">查看影响</button>
+          </div>
+        </article>
+      `).join("")
+    : '<article class="detail-card"><span class="detail-empty">当前没有 top picks。</span></article>';
+
+  // Active strategies table (only available from dashboard)
+  const activeTable = document.getElementById("research-active-table");
+  activeTable.innerHTML = activeRows.length
+    ? activeRows.map((row) => `
+        <tr>
+          <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></strong><br /><span class="meta-text">${escapeHtml(row.strategy_id)}</span></td>
+          <td><span class="badge status-${badgeTone(row.action)}">${escapeHtml(row.action)}</span></td>
+          <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
+          <td>${escapeHtml(fmt(row.sharpe))}</td>
+          <td>${escapeHtml(fmtPct(row.max_drawdown))}</td>
+          <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="6" class="table-empty">当前没有 active 研究策略。</td></tr>';
+
+  bindStrategyPickers();
+}
+
+// ---------------------------------------------------------------------------
+// Progressive refresh — all fetches launch in parallel, each tier renders on arrival
+// ---------------------------------------------------------------------------
+
 async function refreshResearch() {
-  try {
-    const payload = await loadPayloads();
-    state.dashboardSummary = payload.dashboard;
-    renderResearch(payload);
-    if (!state.selectedStrategyId) {
-      const defaultStrategyId = filteredRows(payload.candidates?.rows ?? [])[0]?.strategy_id || null;
-      state.selectedStrategyId = defaultStrategyId;
-    }
-    const detail = await loadStrategyImpact(state.selectedStrategyId);
-    renderImpact(detail);
-  } catch (error) {
-    document.getElementById("research-overview-metrics").innerHTML = metricTile("Research Error", "Unavailable", error.message, "blocked");
-    renderMarketAwareness({}, error.message);
-    renderImpact(null);
+  if (researchLoading) return;
+  researchLoading = true;
+
+  const button = document.getElementById("refresh-research");
+  if (button) {
+    button.classList.add("button--loading");
+    button.disabled = true;
   }
+
+  const payload = {
+    dashboard: null,
+    active: {},
+    candidates: {},
+    assetCorrelations: {},
+    marketAwareness: null,
+  };
+
+  // Tier 1 — fast: market awareness + asset correlation (render in ~2s)
+  const awarenessP = apiFetch(API.researchMarketAwareness)
+    .then((res) => {
+      if (res.ok) payload.marketAwareness = res.data;
+      renderTier1Awareness(payload);
+    })
+    .catch(() => renderTier1Awareness(payload));
+
+  const corrP = apiFetch(API.researchCorrelation, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: ["SPY", "QQQ", "IWM", "EEM", "GLD", "TLT", "USO"] }),
+    })
+    .then((res) => {
+      payload.assetCorrelations = res.data ?? {};
+      renderTier1Correlation(payload);
+    })
+    .catch(() => renderTier1Correlation(payload));
+
+  // Tier 2 — medium: scorecards → candidates table + strategy impact (render in ~5-30s)
+  const scorecardP = Promise.all([
+      apiFetch(API.researchScorecard, { method: "POST" }),
+      apiFetch(API.researchCandidatesScorecard, { method: "POST" }),
+    ])
+    .then(([activeRes, candidateRes]) => {
+      payload.active = activeRes.data ?? {};
+      payload.candidates = candidateRes.data ?? {};
+      renderTier2Candidates(payload);
+      if (!state.selectedStrategyId) {
+        state.selectedStrategyId = filteredRows(payload.candidates?.rows ?? [])[0]?.strategy_id || null;
+      }
+      return loadStrategyImpact(state.selectedStrategyId)
+        .then((detail) => renderImpact(detail))
+        .catch(() => renderImpact(null));
+    })
+    .catch(() => {
+      renderTier2Candidates(payload);
+      renderImpact(null);
+    });
+
+  // Tier 3 — slow: dashboard summary → active table + overview completion (render in ~60-120s)
+  const dashboardP = apiFetch(API.dashboardSummary)
+    .then((res) => {
+      if (!res.ok) return;
+      payload.dashboard = res.data;
+      state.dashboardSummary = res.data;
+      // If awareness not yet loaded from direct endpoint, extract from dashboard
+      if (!payload.marketAwareness?.overall_regime) {
+        const embedded = res.data?.details?.market_awareness ?? null;
+        if (embedded?.overall_regime) {
+          payload.marketAwareness = embedded;
+          renderTier1Awareness(payload);
+        }
+      }
+      renderTier3Dashboard(payload);
+      // Re-render impact with richer dashboard context if strategy was already loaded
+      if (state.selectedStrategyId && state.strategyDetailCache[state.selectedStrategyId]) {
+        renderImpact(state.strategyDetailCache[state.selectedStrategyId]);
+      }
+    })
+    .catch(() => {});
+
+  await Promise.allSettled([awarenessP, corrP, scorecardP, dashboardP]);
+
+  state.latestPayload = payload;
+  if (button) {
+    button.classList.remove("button--loading");
+    button.disabled = false;
+  }
+  researchLoading = false;
 }
 
 document.getElementById("refresh-research")?.addEventListener("click", refreshResearch);
 document.querySelectorAll("#research-filter-tabs .tab").forEach((node) => {
   node.addEventListener("click", () => {
     state.activeVerdict = node.dataset.verdict || "all";
-    refreshResearch();
+    if (state.latestPayload) {
+      renderTier2Candidates(state.latestPayload);
+      renderTier3Dashboard(state.latestPayload);
+    } else {
+      refreshResearch();
+    }
   });
 });
 
