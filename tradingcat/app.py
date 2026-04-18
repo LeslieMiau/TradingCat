@@ -47,6 +47,7 @@ from tradingcat.repositories.state import (
     StrategySelectionRepository,
 )
 from tradingcat.services.alerts import AlertService
+from tradingcat.services.notifier import build_default_dispatcher
 from tradingcat.services.allocation import StrategyAllocationService
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.audit import AuditService
@@ -94,7 +95,23 @@ class TradingCatApplication:
 
         self.adapter_factory = AdapterFactory(self.config)
         self.market_calendar = MarketCalendarService()
-        self.scheduler = SchedulerService(self.market_calendar, backend=self.config.scheduler.backend)
+        dispatcher = build_default_dispatcher(
+            telegram_bot_token=self.config.notifier.telegram_bot_token,
+            telegram_chat_id=self.config.notifier.telegram_chat_id,
+            smtp_host=self.config.notifier.smtp_host,
+            smtp_port=self.config.notifier.smtp_port,
+            smtp_username=self.config.notifier.smtp_username,
+            smtp_password=self.config.notifier.smtp_password,
+            email_from=self.config.notifier.email_from,
+            email_to=self.config.notifier.email_to,
+            min_severity=self.config.notifier.min_severity,
+        )
+        self.alerts = AlertService(AlertRepository(self.config), dispatcher=dispatcher)
+        self.scheduler = SchedulerService(
+            self.market_calendar,
+            backend=self.config.scheduler.backend,
+            failure_listener=self._record_scheduler_failure_alert,
+        )
 
         self.instrument_catalog_repository = InstrumentCatalogRepository(self.config)
         self.market_history_repository = HistoricalMarketDataRepository(self.config)
@@ -105,7 +122,6 @@ class TradingCatApplication:
 
         self.risk = RiskEngine(self.config.risk, kill_switch_repository=KillSwitchRepository(self.config))
         self.audit = AuditService(AuditLogRepository(self.config))
-        self.alerts = AlertService(AlertRepository(self.config))
         self.approvals = ApprovalService(ApprovalRepository(self.config), expiry_minutes=self.config.approval_expiry_minutes)
         self.compliance = ComplianceService(ComplianceRepository(self.config))
         self.portfolio = PortfolioService(self.config, PortfolioRepository(self.config), PortfolioHistoryRepository(self.config))
@@ -1233,6 +1249,63 @@ class TradingCatApplication:
         config = self.risk.update_config(**changes)
         self.audit.log(category="risk", action="config_update", details=changes)
         return {"status": "ok", "config": config}
+
+    def _record_scheduler_failure_alert(self, job_id: str, job_name: str, exc: Exception) -> None:
+        self.alerts.record(
+            severity="error",
+            category="scheduler_job_failed",
+            message=f"Scheduled job '{job_name}' ({job_id}) failed: {type(exc).__name__}: {exc}",
+            recovery_action="Inspect logs, retry via POST /scheduler/jobs/{job_id}/run, confirm downstream state.",
+            details={"job_id": job_id, "error_type": type(exc).__name__, "error": str(exc)[:200]},
+        )
+
+    def run_intraday_risk_tick(self) -> dict[str, object]:
+        try:
+            snapshot = self.portfolio.current_snapshot()
+        except Exception as exc:
+            logger.exception("Intraday risk tick: snapshot fetch failed")
+            snapshot = None
+            snapshot_error = str(exc)
+        else:
+            snapshot_error = None
+
+        check = self.risk.evaluate_intraday(snapshot)
+
+        if check.kill_switch_activated:
+            if snapshot is None:
+                message = "Intraday risk tick activated kill switch: NAV unavailable (fail-closed)."
+                category = "intraday_risk_nav_unavailable"
+                recovery = "Investigate portfolio snapshot/broker availability before clearing kill switch."
+                details: dict[str, str | int | float | bool] = {"reason": "nav_unavailable"}
+                if snapshot_error:
+                    details["error"] = snapshot_error[:200]
+            else:
+                breached_rules = ",".join(str(item.get("rule", "")) for item in check.breached)
+                message = f"Intraday risk tick activated kill switch: {breached_rules}"
+                category = "intraday_risk_breach"
+                recovery = "Review portfolio risk state and confirm breach before clearing kill switch."
+                details = {"rules": breached_rules, "breach_count": len(check.breached)}
+            self.alerts.record(
+                severity="error",
+                category=category,
+                message=message,
+                recovery_action=recovery,
+                details=details,
+            )
+            self.audit.log(
+                category="risk",
+                action="intraday_tick_kill_switch",
+                status="warning",
+                details={"rules": ",".join(str(item.get("rule", "")) for item in check.breached) or "nav_unavailable"},
+            )
+
+        return {
+            "nav_available": check.nav_available,
+            "kill_switch_activated": check.kill_switch_activated,
+            "kill_switch_already_active": check.kill_switch_already_active,
+            "severity": check.severity,
+            "breached": check.breached,
+        }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -39,6 +39,35 @@ def test_scheduler_computes_next_run_and_executes_handler():
     assert calls == ["ran"]
 
 
+def test_scheduler_failure_listener_receives_job_exception():
+    service = MarketCalendarService()
+    captured: list[tuple[str, str, str]] = []
+
+    def listener(job_id: str, job_name: str, exc: Exception) -> None:
+        captured.append((job_id, job_name, f"{type(exc).__name__}: {exc}"))
+
+    scheduler = SchedulerService(service, failure_listener=listener)
+
+    def boom() -> str:
+        raise RuntimeError("sync failed")
+
+    scheduler.register(
+        job_id="broken_job",
+        name="Broken Job",
+        description="Always fails",
+        timezone="Asia/Shanghai",
+        local_time=time(10, 0),
+        market=Market.CN,
+        handler=boom,
+    )
+
+    result = scheduler.run_job("broken_job")
+
+    assert result.status == "error"
+    assert "RuntimeError" in (result.detail or "")
+    assert captured == [("broken_job", "Broken Job", "RuntimeError: sync failed")]
+
+
 def test_apscheduler_backend_starts_and_stops_cleanly():
     service = MarketCalendarService()
     scheduler = SchedulerService(service, backend="apscheduler")

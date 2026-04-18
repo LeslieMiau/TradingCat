@@ -1,14 +1,31 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
 
 from tradingcat.config import RiskConfig
-from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, Signal
+from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, PortfolioSnapshot, Signal
 from tradingcat.repositories.state import KillSwitchRepository
 
 
 class RiskViolation(Exception):
     pass
+
+
+@dataclass(slots=True)
+class IntradayRiskCheck:
+    breached: list[dict[str, object]] = field(default_factory=list)
+    kill_switch_activated: bool = False
+    kill_switch_already_active: bool = False
+    nav_available: bool = True
+
+    @property
+    def severity(self) -> str:
+        if self.kill_switch_activated or not self.nav_available:
+            return "error"
+        if self.breached:
+            return "warning"
+        return "info"
 
 
 class RiskEngine:
@@ -117,6 +134,62 @@ class RiskEngine:
                     market_cash_remaining[signal.instrument.market] - (quantity * reference_price),
                 )
         return intents
+
+    def evaluate_intraday(self, snapshot: PortfolioSnapshot | None) -> IntradayRiskCheck:
+        """Read-only intraday risk check with automatic kill-switch activation on hard breaches.
+
+        Fail-closed: if no snapshot is available (e.g. broker degraded), treat NAV as
+        unavailable and activate the kill switch so no new orders are accepted until an
+        operator clears it.
+        """
+        result = IntradayRiskCheck()
+        if snapshot is None or snapshot.nav <= 0:
+            result.nav_available = False
+            if not self._kill_switch:
+                self.set_kill_switch(True, reason="Intraday tick: NAV unavailable (fail-closed)")
+                result.kill_switch_activated = True
+            else:
+                result.kill_switch_already_active = True
+            return result
+
+        if self._kill_switch:
+            result.kill_switch_already_active = True
+
+        nav = snapshot.nav
+        if snapshot.daily_pnl < 0 and abs(snapshot.daily_pnl) >= nav * self._config.daily_stop_loss:
+            result.breached.append(
+                {
+                    "rule": "daily_stop_loss",
+                    "threshold": self._config.daily_stop_loss,
+                    "observed": round(snapshot.daily_pnl / nav, 6),
+                    "message": "Daily loss limit breached",
+                }
+            )
+        if snapshot.weekly_pnl < 0 and abs(snapshot.weekly_pnl) >= nav * self._config.weekly_drawdown_limit:
+            result.breached.append(
+                {
+                    "rule": "weekly_drawdown_limit",
+                    "threshold": self._config.weekly_drawdown_limit,
+                    "observed": round(snapshot.weekly_pnl / nav, 6),
+                    "message": "Weekly loss limit breached",
+                }
+            )
+        if snapshot.drawdown >= self._config.no_new_risk_drawdown:
+            result.breached.append(
+                {
+                    "rule": "no_new_risk_drawdown",
+                    "threshold": self._config.no_new_risk_drawdown,
+                    "observed": round(snapshot.drawdown, 6),
+                    "message": "Portfolio drawdown lockout threshold hit",
+                }
+            )
+
+        if result.breached and not self._kill_switch:
+            reason = "Intraday tick: " + "; ".join(str(item["message"]) for item in result.breached)
+            self.set_kill_switch(True, reason=reason)
+            result.kill_switch_activated = True
+
+        return result
 
     def _resolve_reference_price(self, signal: Signal, prices: dict[str, float] | None) -> float:
         if prices is not None:

@@ -37,6 +37,25 @@ class ApplicationSchedulerRuntime:
                 market=job.market,
                 handler=handler,
             )
+        interval = int(getattr(self._app.config, "intraday_risk_tick_seconds", 60))
+        if interval > 0:
+            self._app.scheduler.register_interval(
+                job_id="intraday_risk_tick",
+                name="Intraday Risk Tick",
+                description="Poll portfolio risk state; auto-activate kill switch on hard breach or NAV unavailability",
+                interval_seconds=interval,
+                handler=self.run_intraday_risk_tick_job,
+            )
+
+    def run_intraday_risk_tick_job(self) -> str:
+        result = self._app.run_intraday_risk_tick()
+        if result["kill_switch_activated"]:
+            return f"Kill switch activated (severity={result['severity']})"
+        if not result["nav_available"]:
+            return "NAV unavailable (kill switch already active)"
+        if result["breached"]:
+            return f"Breached rules: {len(result['breached'])} (kill switch was already active)"
+        return "ok"
 
     def run_daily_signal_cycle(self) -> str:
         result = self._app.run_execution_cycle(date.today(), enforce_gate=False)

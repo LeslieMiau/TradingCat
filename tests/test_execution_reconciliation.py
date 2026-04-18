@@ -1,8 +1,49 @@
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
-from tradingcat.domain.models import AssetClass, Instrument, ManualFill, Market, OrderIntent, OrderSide
+from tradingcat.domain.models import (
+    AssetClass,
+    ExecutionReport,
+    Instrument,
+    ManualFill,
+    Market,
+    OrderIntent,
+    OrderSide,
+    OrderStatus,
+    Position,
+)
 from tradingcat.repositories.state import ApprovalRepository, ExecutionStateRepository, OrderRepository
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.execution import ExecutionService
+from tradingcat.services.reconciliation import ReconciliationService
+from tradingcat.services.order_state_machine import OrderStateMachine
+
+
+class _FakeBroker:
+    """Minimal broker double that lets tests script the fills stream."""
+
+    def __init__(self, orders: list[ExecutionReport], fills: list[ExecutionReport]) -> None:
+        self._orders = list(orders)
+        self._fills = list(fills)
+
+    def get_orders(self) -> list[ExecutionReport]:
+        return list(self._orders)
+
+    def get_positions(self) -> list[Position]:
+        return []
+
+    def get_cash(self) -> float:
+        return 0.0
+
+    def get_cash_by_market(self) -> dict[Market, float]:
+        return {}
+
+    def place_order(self, intent: OrderIntent) -> ExecutionReport:  # pragma: no cover - unused
+        raise NotImplementedError
+
+    def cancel_order(self, broker_order_id: str) -> ExecutionReport:  # pragma: no cover - unused
+        raise NotImplementedError
+
+    def reconcile_fills(self) -> list[ExecutionReport]:
+        return list(self._fills)
 
 
 def test_execution_reconcile_deduplicates_repeated_fills(tmp_path):
@@ -274,3 +315,105 @@ def test_execution_authorization_summary_links_external_fill_source_and_final_mo
     assert row["authorization_mode"] == "manual_pending"
     assert row["final_authorization_mode"] == "manual_fill_external"
     assert row["external_source"] == "broker_statement"
+
+
+def test_fill_fingerprint_prefers_fill_id_over_composite():
+    service = ReconciliationService(OrderStateMachine())
+
+    same_composite_a = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        fill_id="deal-A",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+    same_composite_b = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        fill_id="deal-B",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+
+    assert service.fill_fingerprint(same_composite_a) != service.fill_fingerprint(same_composite_b)
+    assert service.fill_fingerprint(same_composite_a) == "fill:deal-A"
+
+    no_id = ExecutionReport(
+        order_intent_id="oi-2",
+        broker_order_id="ord-2",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+    assert "fill:" not in service.fill_fingerprint(no_id)
+
+
+def test_reconcile_live_state_counts_distinct_fill_ids_with_same_qty_price():
+    state_machine = OrderStateMachine()
+    service = ReconciliationService(state_machine)
+
+    order_report = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        status=OrderStatus.SUBMITTED,
+        filled_quantity=0.0,
+    )
+    fill_one = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        fill_id="deal-A",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+    fill_two = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        fill_id="deal-B",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+
+    broker = _FakeBroker(orders=[order_report], fills=[fill_one, fill_two])
+    summary, _, fingerprints = service.reconcile_live_state(
+        live_broker=broker,
+        orders={"oi-1": order_report},
+        fill_fingerprints=set(),
+    )
+
+    assert summary.fill_updates == 2, "two distinct fill_ids should both be applied"
+    assert summary.duplicate_fills == 0
+    assert {"fill:deal-A", "fill:deal-B"} <= fingerprints
+
+
+def test_reconcile_live_state_deduplicates_replayed_fill_id():
+    state_machine = OrderStateMachine()
+    service = ReconciliationService(state_machine)
+
+    order_report = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        status=OrderStatus.SUBMITTED,
+    )
+    deal = ExecutionReport(
+        order_intent_id="oi-1",
+        broker_order_id="ord-1",
+        fill_id="deal-A",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        average_price=50.0,
+    )
+
+    broker = _FakeBroker(orders=[order_report], fills=[deal, deal])
+    summary, _, fingerprints = service.reconcile_live_state(
+        live_broker=broker,
+        orders={"oi-1": order_report},
+        fill_fingerprints=set(),
+    )
+
+    assert summary.fill_updates == 1
+    assert summary.duplicate_fills == 1
+    assert fingerprints == {"fill:deal-A"}
