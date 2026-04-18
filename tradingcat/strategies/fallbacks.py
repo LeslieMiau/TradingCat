@@ -40,7 +40,7 @@ def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]
 
 
 def fallback_equity_momentum_signals(strategy_id: str, as_of: date) -> list[Signal]:
-    instrument = sample_instruments()[2]
+    instrument = next(item for item in sample_instruments() if item.asset_class == AssetClass.STOCK)
     return [
         Signal(
             strategy_id=strategy_id,
