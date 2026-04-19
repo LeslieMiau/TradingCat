@@ -300,6 +300,44 @@ class ReconciliationSummary(BaseModel):
     applied_fill_order_ids: list[str] = Field(default_factory=list)
 
 
+class TradeLedgerEntry(BaseModel):
+    """Tax/audit-grade trade ledger row.
+
+    Schema established now (Stage B) so the year-end export has all fields
+    populated from day one of live trading. Fee columns are filled by the
+    TradeLedgerService from market-specific schedules — HK (stamp duty both
+    sides, no capital gains), US (SEC fee on sells, 30% dividend withholding
+    tracked separately), CN (0.05% seller stamp duty, 0.001% transfer fee).
+    """
+
+    order_intent_id: str
+    broker_order_id: str = ""
+    fill_id: str = ""
+    trade_date: date
+    trade_datetime: datetime
+    symbol: str
+    market: Market
+    asset_class: AssetClass
+    side: OrderSide
+    currency: str
+    quantity: float
+    price: float
+    gross_amount: float
+    commission: float = 0.0
+    stamp_duty: float = 0.0
+    transfer_fee: float = 0.0
+    exchange_fee: float = 0.0
+    regulatory_fee: float = 0.0
+    other_fees: float = 0.0
+    net_amount: float
+    withholding_tax: float = 0.0
+    realized_slippage_bps: float | None = None
+    strategy_id: str = "unknown"
+    fill_source: str = "live"
+    fee_schedule_version: str = "v1"
+    reporting_notes: list[str] = Field(default_factory=list)
+
+
 class PortfolioReconciliationSummary(BaseModel):
     broker_cash: float = 0.0
     snapshot_cash: float = 0.0

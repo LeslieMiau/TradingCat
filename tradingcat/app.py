@@ -901,6 +901,43 @@ class TradingCatApplication:
             authorization=authorization,
         )
 
+    def trade_ledger_service(self):
+        from tradingcat.services.trade_ledger import TradeLedgerService
+
+        return TradeLedgerService(
+            list_orders=self.execution.list_orders,
+            resolve_intent_context=self.execution.resolve_intent_context,
+            resolve_price_context=self.execution.resolve_price_context,
+            resolve_authorization_context=self.execution.resolve_authorization_context,
+        )
+
+    def trade_ledger_export(
+        self,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+        market: str | None = None,
+    ) -> dict[str, object]:
+        from tradingcat.domain.models import Market
+
+        parsed_market: Market | None = None
+        if market:
+            try:
+                parsed_market = Market(market.upper())
+            except ValueError:
+                parsed_market = None
+        service = self.trade_ledger_service()
+        entries = service.build_entries(start=start, end=end, market=parsed_market)
+        return {
+            "rows": [entry.model_dump(mode="json") for entry in entries],
+            "summary": service.summary(entries),
+            "filters": {
+                "start": start.isoformat() if start else None,
+                "end": end.isoformat() if end else None,
+                "market": parsed_market.value if parsed_market else None,
+            },
+        }
+
     def acceptance_gates(self) -> dict[str, object]:
         from tradingcat.services.acceptance_gates import compute_acceptance_gates
 
