@@ -288,6 +288,7 @@ class KillSwitchEvent(BaseModel):
     enabled: bool
     reason: str | None = None
     changed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    detected_at: datetime | None = None
 
 
 class ReconciliationSummary(BaseModel):

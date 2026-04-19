@@ -464,6 +464,9 @@ class OperationsFacade:
     def execution_metrics(self) -> dict[str, object]:
         return self._app.operations_execution_metrics()
 
+    def acceptance_gates(self) -> dict[str, object]:
+        return self._app.acceptance_gates()
+
     def tca(self) -> dict[str, object]:
         return self._app.operations_analytics.tca_summary(
             audit_metrics=self._app.audit.execution_metrics_summary(),

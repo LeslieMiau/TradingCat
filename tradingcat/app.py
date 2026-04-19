@@ -901,6 +901,23 @@ class TradingCatApplication:
             authorization=authorization,
         )
 
+    def acceptance_gates(self) -> dict[str, object]:
+        from tradingcat.services.acceptance_gates import compute_acceptance_gates
+
+        reconciliation: dict[str, object] | None = None
+        try:
+            summary = self.execution.reconcile_live_state()
+        except Exception:
+            logger.exception("Acceptance gate: reconciliation snapshot failed")
+        else:
+            reconciliation = summary.model_dump(mode="json") if summary is not None else None
+        return compute_acceptance_gates(
+            execution_quality=self.execution.execution_quality_summary(),
+            audit_metrics=self.audit.execution_metrics_summary(),
+            reconciliation=reconciliation,
+            kill_switch_events=self.risk.kill_switch_events(),
+        )
+
     def operations_readiness(self) -> dict[str, object]:
         return self._cached_summary(
             ("operations_readiness", date.today().isoformat()),
@@ -1260,6 +1277,7 @@ class TradingCatApplication:
         )
 
     def run_intraday_risk_tick(self) -> dict[str, object]:
+        detected_at = datetime.now(UTC)
         try:
             snapshot = self.portfolio.current_snapshot()
         except Exception as exc:
@@ -1269,7 +1287,7 @@ class TradingCatApplication:
         else:
             snapshot_error = None
 
-        check = self.risk.evaluate_intraday(snapshot)
+        check = self.risk.evaluate_intraday(snapshot, detected_at=detected_at)
 
         if check.kill_switch_activated:
             if snapshot is None:

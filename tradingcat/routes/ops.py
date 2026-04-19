@@ -93,6 +93,11 @@ def ops_acceptance_timeline(request: Request, window_days: int = 30):
     return get_app_state(request).operations.acceptance_timeline(window_days=window_days)
 
 
+@router.get("/acceptance/gates")
+def ops_acceptance_gates(request: Request):
+    return get_app_state(request).operations_facade.acceptance_gates()
+
+
 @router.get("/rollout")
 def ops_rollout(request: Request):
     return get_app_state(request).operations_facade.rollout()
