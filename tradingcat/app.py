@@ -901,6 +901,60 @@ class TradingCatApplication:
             authorization=authorization,
         )
 
+    def trade_ledger_service(self):
+        from tradingcat.services.trade_ledger import TradeLedgerService
+
+        return TradeLedgerService(
+            list_orders=self.execution.list_orders,
+            resolve_intent_context=self.execution.resolve_intent_context,
+            resolve_price_context=self.execution.resolve_price_context,
+            resolve_authorization_context=self.execution.resolve_authorization_context,
+        )
+
+    def trade_ledger_export(
+        self,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+        market: str | None = None,
+    ) -> dict[str, object]:
+        from tradingcat.domain.models import Market
+
+        parsed_market: Market | None = None
+        if market:
+            try:
+                parsed_market = Market(market.upper())
+            except ValueError:
+                parsed_market = None
+        service = self.trade_ledger_service()
+        entries = service.build_entries(start=start, end=end, market=parsed_market)
+        return {
+            "rows": [entry.model_dump(mode="json") for entry in entries],
+            "summary": service.summary(entries),
+            "filters": {
+                "start": start.isoformat() if start else None,
+                "end": end.isoformat() if end else None,
+                "market": parsed_market.value if parsed_market else None,
+            },
+        }
+
+    def acceptance_gates(self) -> dict[str, object]:
+        from tradingcat.services.acceptance_gates import compute_acceptance_gates
+
+        reconciliation: dict[str, object] | None = None
+        try:
+            summary = self.execution.reconcile_live_state()
+        except Exception:
+            logger.exception("Acceptance gate: reconciliation snapshot failed")
+        else:
+            reconciliation = summary.model_dump(mode="json") if summary is not None else None
+        return compute_acceptance_gates(
+            execution_quality=self.execution.execution_quality_summary(),
+            audit_metrics=self.audit.execution_metrics_summary(),
+            reconciliation=reconciliation,
+            kill_switch_events=self.risk.kill_switch_events(),
+        )
+
     def operations_readiness(self) -> dict[str, object]:
         return self._cached_summary(
             ("operations_readiness", date.today().isoformat()),
@@ -1260,6 +1314,7 @@ class TradingCatApplication:
         )
 
     def run_intraday_risk_tick(self) -> dict[str, object]:
+        detected_at = datetime.now(UTC)
         try:
             snapshot = self.portfolio.current_snapshot()
         except Exception as exc:
@@ -1269,7 +1324,7 @@ class TradingCatApplication:
         else:
             snapshot_error = None
 
-        check = self.risk.evaluate_intraday(snapshot)
+        check = self.risk.evaluate_intraday(snapshot, detected_at=detected_at)
 
         if check.kill_switch_activated:
             if snapshot is None:

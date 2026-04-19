@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from tradingcat.config import RiskConfig
 from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, PortfolioSnapshot, Signal
@@ -38,9 +39,15 @@ class RiskEngine:
             latest = max(self._kill_switch_events.values(), key=lambda event: event.changed_at)
             self._kill_switch = latest.enabled
 
-    def set_kill_switch(self, enabled: bool, reason: str | None = None) -> KillSwitchEvent:
+    def set_kill_switch(
+        self,
+        enabled: bool,
+        reason: str | None = None,
+        *,
+        detected_at: datetime | None = None,
+    ) -> KillSwitchEvent:
         self._kill_switch = enabled
-        event = KillSwitchEvent(enabled=enabled, reason=reason)
+        event = KillSwitchEvent(enabled=enabled, reason=reason, detected_at=detected_at)
         self._kill_switch_events[event.id] = event
         if self._kill_switch_repository is not None:
             self._kill_switch_repository.save(self._kill_switch_events)
@@ -54,6 +61,9 @@ class RiskEngine:
             "latest": events[0] if events else None,
             "recent": events[:10],
         }
+
+    def kill_switch_events(self) -> list[KillSwitchEvent]:
+        return sorted(self._kill_switch_events.values(), key=lambda item: item.changed_at)
 
     def config_snapshot(self) -> dict[str, object]:
         return self._config.model_dump(mode="json")
@@ -135,7 +145,12 @@ class RiskEngine:
                 )
         return intents
 
-    def evaluate_intraday(self, snapshot: PortfolioSnapshot | None) -> IntradayRiskCheck:
+    def evaluate_intraday(
+        self,
+        snapshot: PortfolioSnapshot | None,
+        *,
+        detected_at: datetime | None = None,
+    ) -> IntradayRiskCheck:
         """Read-only intraday risk check with automatic kill-switch activation on hard breaches.
 
         Fail-closed: if no snapshot is available (e.g. broker degraded), treat NAV as
@@ -146,7 +161,11 @@ class RiskEngine:
         if snapshot is None or snapshot.nav <= 0:
             result.nav_available = False
             if not self._kill_switch:
-                self.set_kill_switch(True, reason="Intraday tick: NAV unavailable (fail-closed)")
+                self.set_kill_switch(
+                    True,
+                    reason="Intraday tick: NAV unavailable (fail-closed)",
+                    detected_at=detected_at,
+                )
                 result.kill_switch_activated = True
             else:
                 result.kill_switch_already_active = True
@@ -186,7 +205,7 @@ class RiskEngine:
 
         if result.breached and not self._kill_switch:
             reason = "Intraday tick: " + "; ".join(str(item["message"]) for item in result.breached)
-            self.set_kill_switch(True, reason=reason)
+            self.set_kill_switch(True, reason=reason, detected_at=detected_at)
             result.kill_switch_activated = True
 
         return result
