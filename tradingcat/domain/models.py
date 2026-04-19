@@ -222,6 +222,7 @@ class ExecutionReport(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     order_intent_id: str = ""
     broker_order_id: str = ""
+    fill_id: str = ""
     status: OrderStatus = OrderStatus.SUBMITTED
     filled_quantity: float = 0.0
     average_price: float | None = None
@@ -269,6 +270,7 @@ class PortfolioSnapshot(BaseModel):
     positions: list[Position] = Field(default_factory=list)
     cash_by_market: dict[str, float] = Field(default_factory=dict)
     base_currency: str = "CNY"
+    source: str = "live"
 
 
 class ApprovalRequest(BaseModel):
@@ -566,6 +568,7 @@ class SchedulerJob(BaseModel):
     enabled: bool = True
     last_run_at: datetime | None = None
     next_run_at: datetime | None = None
+    interval_seconds: int | None = None
 
 
 class SchedulerRunResult(BaseModel):

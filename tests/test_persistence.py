@@ -1,8 +1,15 @@
-from datetime import date
+from datetime import date, datetime
 
 from tradingcat.config import AppConfig
 from tradingcat.main import TradingCatApplication
-from tradingcat.domain.models import ManualFill
+from tradingcat.domain.models import (
+    AssetClass,
+    Instrument,
+    ManualFill,
+    Market,
+    OrderSide,
+    Signal,
+)
 
 
 def test_approval_and_order_state_reload(tmp_path):
@@ -10,7 +17,22 @@ def test_approval_and_order_state_reload(tmp_path):
     app_one = TradingCatApplication(config=config)
     app_one.reset_state()
 
-    signals = app_one.get_signals(as_of=date(2026, 3, 7))
+    signals = list(app_one.get_signals(as_of=date(2026, 3, 7)))
+    signals.append(
+        Signal(
+            strategy_id="test_persistence_cn",
+            generated_at=datetime(2026, 3, 7, 9, 30),
+            instrument=Instrument(
+                symbol="510300",
+                market=Market.CN,
+                asset_class=AssetClass.ETF,
+                currency="CNY",
+            ),
+            side=OrderSide.BUY,
+            target_weight=0.05,
+            reason="persistence regression fixture",
+        )
+    )
     snapshot = app_one.portfolio.snapshot()
     intents = app_one.risk.check(
         signals,

@@ -318,6 +318,8 @@ class ReconciliationService:
         return self._state_machine.merge(current, incoming)
 
     def fill_fingerprint(self, report: ExecutionReport) -> str:
+        if report.fill_id:
+            return f"fill:{report.fill_id}"
         return "|".join(
             [
                 report.broker_order_id,

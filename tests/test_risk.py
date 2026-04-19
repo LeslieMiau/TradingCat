@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from tradingcat.config import RiskConfig
-from tradingcat.domain.models import AssetClass, Instrument, Market, OrderSide, Signal
+from tradingcat.domain.models import AssetClass, Instrument, Market, OrderSide, PortfolioSnapshot, Signal
 from tradingcat.repositories.state import KillSwitchRepository
 from tradingcat.services.risk import RiskEngine, RiskViolation
 from tradingcat.strategies.simple import EquityMomentumStrategy, EtfRotationStrategy
@@ -128,3 +128,63 @@ def test_risk_engine_rejects_total_option_budget_breach():
             weekly_pnl=0.0,
             prices={"SPYOPT0": 600.0, "SPYOPT1": 600.0},
         )
+
+
+def _snapshot(**kwargs) -> PortfolioSnapshot:
+    defaults = dict(nav=1_000_000.0, cash=1_000_000.0, drawdown=0.0, daily_pnl=0.0, weekly_pnl=0.0, positions=[])
+    defaults.update(kwargs)
+    return PortfolioSnapshot(**defaults)
+
+
+def test_evaluate_intraday_no_breach_leaves_kill_switch_untouched():
+    engine = RiskEngine(RiskConfig())
+    check = engine.evaluate_intraday(_snapshot())
+
+    assert check.breached == []
+    assert check.kill_switch_activated is False
+    assert check.kill_switch_already_active is False
+    assert check.nav_available is True
+    assert engine.kill_switch_status()["enabled"] is False
+
+
+def test_evaluate_intraday_activates_kill_switch_on_daily_stop_loss():
+    engine = RiskEngine(RiskConfig(daily_stop_loss=0.02))
+    snapshot = _snapshot(daily_pnl=-25_000.0)
+
+    check = engine.evaluate_intraday(snapshot)
+
+    assert check.kill_switch_activated is True
+    assert any(item["rule"] == "daily_stop_loss" for item in check.breached)
+    assert engine.kill_switch_status()["enabled"] is True
+
+
+def test_evaluate_intraday_activates_kill_switch_on_drawdown_lockout():
+    engine = RiskEngine(RiskConfig(no_new_risk_drawdown=0.15))
+    snapshot = _snapshot(drawdown=0.16)
+
+    check = engine.evaluate_intraday(snapshot)
+
+    assert check.kill_switch_activated is True
+    assert any(item["rule"] == "no_new_risk_drawdown" for item in check.breached)
+
+
+def test_evaluate_intraday_fail_closed_when_nav_unavailable():
+    engine = RiskEngine(RiskConfig())
+
+    check = engine.evaluate_intraday(None)
+
+    assert check.nav_available is False
+    assert check.kill_switch_activated is True
+    assert engine.kill_switch_status()["enabled"] is True
+
+
+def test_evaluate_intraday_idempotent_when_kill_switch_already_active():
+    engine = RiskEngine(RiskConfig(daily_stop_loss=0.02))
+    engine.set_kill_switch(True, reason="prior breach")
+    initial_count = engine.kill_switch_status()["count"]
+
+    check = engine.evaluate_intraday(_snapshot(daily_pnl=-30_000.0))
+
+    assert check.kill_switch_activated is False
+    assert check.kill_switch_already_active is True
+    assert engine.kill_switch_status()["count"] == initial_count

@@ -380,10 +380,12 @@ class FutuBrokerAdapter:
             if ret != self._ft.RET_OK:
                 raise RuntimeError(f"Futu deal query failed: {data}")
             for row in data.to_dict("records"):
+                deal_id = row.get("deal_id") or row.get("trd_id")
                 reports.append(
                     ExecutionReport(
                         order_intent_id=str(row["order_id"]),
                         broker_order_id=str(row["order_id"]),
+                        fill_id=str(deal_id) if deal_id is not None else "",
                         status=OrderStatus.FILLED,
                         filled_quantity=float(row.get("qty", 0.0)),
                         average_price=float(row.get("price", 0.0)),

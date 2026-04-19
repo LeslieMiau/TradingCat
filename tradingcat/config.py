@@ -571,12 +571,40 @@ class MarketSentimentConfig(BaseModel):
         )
 
 
+class NotifierConfig(BaseModel):
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    email_from: str = ""
+    email_to: list[str] = Field(default_factory=list)
+    min_severity: str = "error"
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str]) -> "NotifierConfig":
+        to_raw = _getenv("TRADINGCAT_ALERT_EMAIL_TO", "", dotenv_values)
+        return cls(
+            telegram_bot_token=_getenv("TRADINGCAT_ALERT_TELEGRAM_BOT_TOKEN", "", dotenv_values),
+            telegram_chat_id=_getenv("TRADINGCAT_ALERT_TELEGRAM_CHAT_ID", "", dotenv_values),
+            smtp_host=_getenv("TRADINGCAT_ALERT_SMTP_HOST", "", dotenv_values),
+            smtp_port=int(_getenv("TRADINGCAT_ALERT_SMTP_PORT", "587", dotenv_values)),
+            smtp_username=_getenv("TRADINGCAT_ALERT_SMTP_USERNAME", "", dotenv_values),
+            smtp_password=_getenv("TRADINGCAT_ALERT_SMTP_PASSWORD", "", dotenv_values),
+            email_from=_getenv("TRADINGCAT_ALERT_EMAIL_FROM", "", dotenv_values),
+            email_to=[addr.strip() for addr in to_raw.split(",") if addr.strip()],
+            min_severity=_getenv("TRADINGCAT_ALERT_MIN_SEVERITY", "error", dotenv_values).strip().lower(),
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
     data_dir: Path = Path("data")
     smoke_symbols: list[str] = Field(default_factory=list)
     approval_expiry_minutes: int = 60
+    intraday_risk_tick_seconds: int = 60
     seed_demo_data: bool = False
     manual_order_requires_approval: bool = True
     algo_twap_slices: int = 5
@@ -598,6 +626,7 @@ class AppConfig(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
+    notifier: NotifierConfig = Field(default_factory=NotifierConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -647,6 +676,7 @@ class AppConfig(BaseModel):
             data_dir=Path(_getenv("TRADINGCAT_DATA_DIR", "data", dotenv_values)),
             smoke_symbols=[item.strip() for item in smoke_symbols_raw.split(",") if item.strip()],
             approval_expiry_minutes=int(_getenv("TRADINGCAT_APPROVAL_EXPIRY_MINUTES", "60", dotenv_values)),
+            intraday_risk_tick_seconds=int(_getenv("TRADINGCAT_INTRADAY_RISK_TICK_SECONDS", "60", dotenv_values)),
             seed_demo_data=seed_demo_data_raw in {"1", "true", "yes", "on"},
             manual_order_requires_approval=manual_order_requires_approval_raw in {"1", "true", "yes", "on"},
             algo_twap_slices=int(_getenv("TRADINGCAT_ALGO_TWAP_SLICES", "5", dotenv_values)),
@@ -668,4 +698,5 @@ class AppConfig(BaseModel):
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
+            notifier=NotifierConfig.from_env(dotenv_values),
         )

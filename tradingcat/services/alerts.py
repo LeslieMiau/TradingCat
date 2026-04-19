@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import logging
+
 from tradingcat.domain.models import AlertEvent, PortfolioReconciliationSummary, ReconciliationSummary
 from tradingcat.repositories.state import AlertRepository
+from tradingcat.services.notifier import AlertDispatcher
+
+
+logger = logging.getLogger(__name__)
 
 
 class AlertService:
-    def __init__(self, repository: AlertRepository) -> None:
+    def __init__(self, repository: AlertRepository, dispatcher: AlertDispatcher | None = None) -> None:
         self._repository = repository
         self._alerts = repository.load()
+        self._dispatcher = dispatcher
+
+    def set_dispatcher(self, dispatcher: AlertDispatcher | None) -> None:
+        self._dispatcher = dispatcher
 
     def evaluate(
         self,
@@ -120,6 +130,23 @@ class AlertService:
         self._alerts = {}
         self._repository.save(self._alerts)
 
+    def record(
+        self,
+        *,
+        severity: str,
+        category: str,
+        message: str,
+        recovery_action: str = "",
+        details: dict[str, str | int | float | bool] | None = None,
+    ) -> AlertEvent:
+        return self._record(
+            severity=severity,
+            category=category,
+            message=message,
+            recovery_action=recovery_action,
+            details=details or {},
+        )
+
     def _record(
         self,
         severity: str,
@@ -137,4 +164,9 @@ class AlertService:
         )
         self._alerts[alert.id] = alert
         self._repository.save(self._alerts)
+        if self._dispatcher is not None:
+            try:
+                self._dispatcher.dispatch(alert)
+            except Exception:
+                logger.exception("Alert dispatcher failed for category=%s", alert.category)
         return alert
