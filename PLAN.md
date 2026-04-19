@@ -66,16 +66,18 @@
    - 输出策略研究报告：收益、回撤、换手、容量、市场分布、相关性。
    - 只保留通过门槛且互相关性低于 `0.7` 的策略进入下一阶段。
 4. `Phase 3: 模拟交易与人工确认链路`
-   - Status: `Mostly Done`
-   - Remaining: 功能闭环已通，但还需要更多长期运行样本来压实异常恢复和真实场景回放。
-   - 港美接富途模拟交易。
-   - A 股走建议单 + Web 确认 + 手工回填。
-   - 完成异常告警、订单状态跟踪、持仓对账、手工 kill switch。
+   - Status: `Code Complete · Awaiting Wall-Clock Evidence`
+   - Stage A 上线硬化（去重、盘中风控 tick、NAV fail-closed、EOD 历史同步、告警通道）已合并 `ccb060a` `94dddda`。
+   - Stage B 流水/税务 schema 与 OpenD 15-min runbook 已合并 `ff8a8ab`。
+   - Stage C 验收门 + wall-clock 证据管道已合并 `0d951ae` `c92ebac`。
+   - Stage D 自动门禁（pass-streak 不到不让升档）+ dashboard streak 暴露已合并 `1f8aa29` `9398609`。
+   - Remaining: 港美连续 6 周纸面 + A 股 4 周建议单的实际运行证据。
 5. `Phase 4: 小资金实盘`
-   - Status: `Blocked By Time`
+   - Status: `Blocked By Time · Auto-Gated`
    - Remaining: `10% -> 30% -> 100%` 的资金分阶段上线和 `4 周 / 8 周` 稳定性验收，必须依赖真实时间推进。
    - 先用 `10%` 资金跑 4 周；若成交偏差、异常率、风控命中都在预期内，升到 `30%`。
    - 连续 8 周稳定后，再决定是否开到全部资金。
+   - `acceptance_gate_readiness` 在每档要求 30/50/70 个连续 pass 日，未达 streak 不允许升档。
 6. `Phase 5: 二期扩展`
    - Status: `Deferred`
    - Remaining: 这部分按计划本来就要求 V1 稳定盈利后再开始，不属于当前一次性交付能完成的范围。
@@ -84,10 +86,10 @@
 ## Test Plan
 - Progress Snapshot
   - Unit tests: `Done`
-  - Integration tests: `Mostly Done`
+  - Integration tests: `Done`
   - Backtest reproducibility: `Done`
-  - Paper-trading acceptance: `Implemented in system, waiting for wall-clock evidence`
-  - Live-trading acceptance: `Partially implemented, waiting for wall-clock evidence`
+  - Paper-trading acceptance: `Auto-captured daily, waiting for wall-clock evidence`
+  - Live-trading acceptance: `Auto-gated by pass-streak, waiting for wall-clock evidence`
 - 单元测试：市场日历、公司行为、仓位计算、期权到期处理、风控阈值、订单状态机。
 - 集成测试：Futu 模拟下单、撤单、断线重连、重复成交回报去重、资金与持仓对账。
 - 回测一致性测试：相同输入必须可复现；参数变更必须写入实验记录。
