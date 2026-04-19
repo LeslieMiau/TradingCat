@@ -476,6 +476,17 @@ class OperationsFacade:
     ) -> dict[str, object]:
         return self._app.trade_ledger_export(start=start, end=end, market=market)
 
+    def capture_acceptance_evidence(
+        self,
+        *,
+        as_of: date | None = None,
+        notes: list[str] | None = None,
+    ) -> dict[str, object]:
+        return self._app.capture_acceptance_evidence(as_of=as_of, notes=notes)
+
+    def acceptance_evidence_timeline(self, *, window_days: int = 42) -> dict[str, object]:
+        return self._app.acceptance_evidence_timeline(window_days=window_days)
+
     def tca(self) -> dict[str, object]:
         return self._app.operations_analytics.tca_summary(
             audit_metrics=self._app.audit.execution_metrics_summary(),

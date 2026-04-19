@@ -103,6 +103,10 @@ class ApplicationSchedulerRuntime:
         self._app.record_operations_journal()
         return "Recorded operations journal entry"
 
+    def run_acceptance_evidence_job(self) -> str:
+        snapshot = self._app.capture_acceptance_evidence(notes=["scheduled_eod_capture"])
+        return f"Captured acceptance gates ({snapshot['status']}) for {snapshot['as_of']}"
+
     def run_daily_trading_plan_job(self) -> str:
         return self._app.generate_daily_trading_plan(date.today()).headline
 
@@ -211,6 +215,15 @@ _JOB_REGISTRATIONS = [
         local_time=time(8, 20),
         market=Market.CN,
         handler_name="run_daily_trading_plan_job",
+    ),
+    SchedulerRegistration(
+        job_id="acceptance_evidence_capture",
+        name="Acceptance Gate Evidence Capture",
+        description="Snapshot Stage-C acceptance gates for the wall-clock paper-trading timeline",
+        timezone="Asia/Shanghai",
+        local_time=time(18, 25),
+        market=Market.CN,
+        handler_name="run_acceptance_evidence_job",
     ),
     SchedulerRegistration(
         job_id="daily_trading_summary_archive",

@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from tradingcat.config import AppConfig, FutuConfig, RiskConfig
 from tradingcat.domain.models import KillSwitchEvent, PortfolioSnapshot
 from tradingcat.main import TradingCatApplication
+from tradingcat.repositories.state import AcceptanceGateSnapshotRepository
 from tradingcat.services.acceptance_gates import (
     EXCEPTION_RATE_THRESHOLD,
     KILL_SWITCH_LATENCY_SECONDS,
     SLIPPAGE_BPS_THRESHOLD,
+    AcceptanceGateEvidenceService,
     compute_acceptance_gates,
 )
 
@@ -94,6 +96,68 @@ def test_compute_gates_pending_when_no_samples():
     assert result["gates"]["kill_switch_latency"]["status"] == "pending"
     assert result["gates"]["reconciliation"]["status"] == "pass"
     assert result["status"] == "pending"
+
+
+def test_evidence_service_capture_is_idempotent_per_day(tmp_path):
+    repo = AcceptanceGateSnapshotRepository(tmp_path)
+    service = AcceptanceGateEvidenceService(repo)
+    payload = {
+        "status": "pass",
+        "gates": {"slippage": {"status": "pass"}},
+        "thresholds": {"slippage_bps": 20.0},
+    }
+    target_day = date(2026, 4, 19)
+    first = service.capture(payload, as_of=target_day, notes=["first"])
+    second = service.capture(payload, as_of=target_day, notes=["second"])
+    snapshots = AcceptanceGateEvidenceService(repo).list_snapshots()
+    assert len(snapshots) == 1
+    assert snapshots[0].notes == ["second"]
+    assert first.id == second.id  # Same id preserved across re-captures
+
+
+def test_evidence_timeline_summarises_pass_streak(tmp_path):
+    repo = AcceptanceGateSnapshotRepository(tmp_path)
+    service = AcceptanceGateEvidenceService(repo)
+    payload_pass = {"status": "pass", "gates": {}, "thresholds": {}}
+    payload_fail = {"status": "fail", "gates": {}, "thresholds": {}}
+    today = date.today()
+    service.capture(payload_fail, as_of=today - timedelta(days=4))
+    for offset in range(3, -1, -1):
+        service.capture(payload_pass, as_of=today - timedelta(days=offset))
+    timeline = service.timeline(window_days=7)
+    summary = timeline["summary"]
+    assert summary["pass_days"] == 4
+    assert summary["fail_days"] == 1
+    assert summary["current_pass_streak"] == 4
+    assert summary["max_pass_streak"] == 4
+    # Days outside the captured window register as missing.
+    assert summary["missing_days"] == 2
+
+
+def test_capture_acceptance_evidence_uses_live_gates(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    snapshot = app.capture_acceptance_evidence(notes=["test"])
+    assert "status" in snapshot
+    assert snapshot["status"] in {"pass", "fail", "pending"}
+    timeline = app.acceptance_evidence_timeline(window_days=14)
+    assert timeline["window_days"] == 14
+    assert any(point["status"] == snapshot["status"] for point in timeline["points"])
+
+
+def test_acceptance_evidence_job_handler(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    detail = app.scheduler_runtime.run_acceptance_evidence_job()
+    assert detail.startswith("Captured acceptance gates")
 
 
 def test_app_acceptance_gates_records_latency_on_intraday_tick(tmp_path):
