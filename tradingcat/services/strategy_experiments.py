@@ -176,7 +176,12 @@ class StrategyExperimentService:
         sample_start = date(2018, 1, 1)
         all_signals = self._probe_signals(strategy_id, as_of, signals, strategy=strategy) if include_probes else list(signals)
         source_signals = all_signals if all_signals else signals
-        signal_symbols = {signal.instrument.symbol for signal in source_signals if signal.instrument.asset_class.value != "option"}
+        signal_symbols = {
+            signal.instrument.symbol
+            for signal in source_signals
+            if signal.instrument.asset_class.value != "option"
+            and signal.instrument.market.value != "CN"
+        }
         history_by_symbol = self._load_signal_history(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
         complete_history = (not signal_symbols) or signal_symbols.issubset(set(history_by_symbol))
         corporate_action_coverage = self._load_signal_corporate_action_coverage(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
@@ -248,7 +253,14 @@ class StrategyExperimentService:
         threshold = 0.95
         if self._market_data is None or not signals:
             return {"ready": False, "reports": [], "minimum_coverage_ratio": 0.0, "minimum_required_ratio": threshold}
-        symbols = sorted({signal.instrument.symbol for signal in signals if signal.instrument.asset_class.value != "option"})
+        symbols = sorted(
+            {
+                signal.instrument.symbol
+                for signal in signals
+                if signal.instrument.asset_class.value != "option"
+                and signal.instrument.market.value != "CN"
+            }
+        )
         if not symbols:
             return {"ready": True, "reports": [], "minimum_coverage_ratio": 1.0, "minimum_required_ratio": threshold}
         coverage = self._market_data.summarize_history_coverage(symbols=symbols, start=start, end=end)
@@ -313,6 +325,7 @@ class StrategyExperimentService:
                 str(signal.metadata.get("underlying_symbol") or signal.instrument.symbol)
                 for signal in signals
                 if signal.instrument.asset_class.value != "option"
+                and signal.instrument.market.value != "CN"
             }
         )
         if not symbols:
@@ -342,13 +355,19 @@ class StrategyExperimentService:
                 "reports": [],
                 "rates_by_pair": {},
             }
-        quote_currencies = sorted(
-            {
-                signal.instrument.currency.upper()
-                for signal in signals
-                if signal.instrument.currency.upper() != base_currency.upper()
-            }
-        )
+        currencies: set[str] = {
+            signal.instrument.currency.upper()
+            for signal in signals
+            if signal.instrument.currency.upper() != base_currency.upper()
+        }
+        try:
+            for instrument in self._market_data.list_instruments():
+                code = instrument.currency.upper()
+                if code and code != base_currency.upper():
+                    currencies.add(code)
+        except Exception:
+            pass
+        quote_currencies = sorted(currencies)
         return self._market_data.summarize_fx_coverage(base_currency, quote_currencies, start, end, fetch_missing=fetch_missing)
 
     def _build_replay_inputs(self, strategy_id: str, as_of: date, signals: list[Signal], sample_start: date, data_source: str) -> dict[str, object]:
