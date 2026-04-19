@@ -737,6 +737,24 @@ class DailyTradingSummaryNote(BaseModel):
     metrics: dict[str, object] = Field(default_factory=dict)
 
 
+class AcceptanceGateSnapshot(BaseModel):
+    """Daily Stage-C wall-clock acceptance evidence row.
+
+    One row per day per evaluation; keyed by ISO date so re-running on the
+    same day overwrites instead of duplicating. The ``gates`` payload is
+    the structured output from :func:`compute_acceptance_gates` so the
+    timeline view can reconstruct per-gate detail without re-running.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    as_of: date
+    captured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    status: Literal["pass", "fail", "pending"] = "pending"
+    gates: dict[str, object] = Field(default_factory=dict)
+    thresholds: dict[str, object] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
 class StrategySelectionRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     reviewed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

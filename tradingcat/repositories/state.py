@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import (
+    AcceptanceGateSnapshot,
     AlertEvent,
     ApprovalRequest,
     AuditLogEntry,
@@ -182,6 +183,12 @@ class KillSwitchRepository(_DictRepository[KillSwitchEvent]):
     _bucket_name = "kill_switch_events"
     _model_class = KillSwitchEvent
     _key_field = "id"
+
+
+class AcceptanceGateSnapshotRepository(_DictRepository[AcceptanceGateSnapshot]):
+    _bucket_name = "acceptance_gate_snapshots"
+    _model_class = AcceptanceGateSnapshot
+    _key_field = "as_of"
 
 
 class PortfolioHistoryRepository(_DictRepository[PortfolioSnapshot]):

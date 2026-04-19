@@ -36,6 +36,7 @@ from tradingcat.repositories.state import (
     ExecutionStateRepository,
     HistorySyncRunRepository,
     KillSwitchRepository,
+    AcceptanceGateSnapshotRepository,
     OperationsJournalRepository,
     OrderRepository,
     PortfolioHistoryRepository,
@@ -129,6 +130,11 @@ class TradingCatApplication:
         self.allocations = StrategyAllocationService(StrategyAllocationRepository(self.config))
         self.history_sync = HistorySyncService(HistorySyncRunRepository(self.config))
         self.operations = OperationsJournalService(OperationsJournalRepository(self.config))
+        from tradingcat.services.acceptance_gates import AcceptanceGateEvidenceService
+
+        self.acceptance_evidence = AcceptanceGateEvidenceService(
+            AcceptanceGateSnapshotRepository(self.config)
+        )
         self.recovery = RecoveryService(RecoveryAttemptRepository(self.config))
         self.rollout_policy = RolloutPolicyService(RolloutPolicyRepository(self.config))
         self.rollout_promotions = RolloutPromotionService(RolloutPromotionRepository(self.config))
@@ -937,6 +943,21 @@ class TradingCatApplication:
                 "market": parsed_market.value if parsed_market else None,
             },
         }
+
+    def capture_acceptance_evidence(
+        self,
+        *,
+        as_of: date | None = None,
+        notes: list[str] | None = None,
+    ) -> dict[str, object]:
+        gates_payload = self.acceptance_gates()
+        snapshot = self.acceptance_evidence.capture(
+            gates_payload, as_of=as_of, notes=notes
+        )
+        return snapshot.model_dump(mode="json")
+
+    def acceptance_evidence_timeline(self, *, window_days: int = 42) -> dict[str, object]:
+        return self.acceptance_evidence.timeline(window_days=window_days)
 
     def acceptance_gates(self) -> dict[str, object]:
         from tradingcat.services.acceptance_gates import compute_acceptance_gates

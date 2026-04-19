@@ -98,6 +98,16 @@ def ops_acceptance_gates(request: Request):
     return get_app_state(request).operations_facade.acceptance_gates()
 
 
+@router.post("/acceptance/evidence/capture")
+def ops_capture_acceptance_evidence(request: Request):
+    return get_app_state(request).operations_facade.capture_acceptance_evidence()
+
+
+@router.get("/acceptance/evidence/timeline")
+def ops_acceptance_evidence_timeline(request: Request, window_days: int = 42):
+    return get_app_state(request).operations_facade.acceptance_evidence_timeline(window_days=window_days)
+
+
 @router.get("/rollout")
 def ops_rollout(request: Request):
     return get_app_state(request).operations_facade.rollout()

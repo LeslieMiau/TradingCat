@@ -1,5 +1,10 @@
 """Stage C acceptance gate checks.
 
+Includes both the pure-function gate computation (used by the live
+``/ops/acceptance/gates`` endpoint) and the wall-clock evidence pipeline
+(:class:`AcceptanceGateEvidenceService`) that persists one snapshot per
+day so 6-week paper-trading acceptance has machine-readable evidence.
+
 PLAN.md Stage C hard thresholds (wall-clock acceptance for paper-trading):
   * equity slippage <= 20 bps
   * order exception rate <= 1%
@@ -13,7 +18,7 @@ surface the same judgement.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Iterable
 
 
@@ -179,6 +184,99 @@ def compute_acceptance_gates(
     }
 
 
+class AcceptanceGateEvidenceService:
+    """Daily Stage-C wall-clock evidence capture + timeline rollup.
+
+    The capture is idempotent per ISO date — calling :meth:`capture` more
+    than once on the same day overwrites the row, which is the desired
+    behaviour for both manual ad-hoc captures and the EOD scheduler tick.
+    """
+
+    REQUIRED_PASS_DAYS_HK_US = 30  # 6 weeks of trading days (5/week * 6)
+    REQUIRED_PASS_DAYS_CN = 20  # 4 weeks for the A-share advisory window
+
+    def __init__(self, repository) -> None:
+        self._repository = repository
+        self._snapshots = repository.load()
+
+    def capture(
+        self,
+        gates_payload: dict[str, object],
+        *,
+        as_of: date | None = None,
+        notes: list[str] | None = None,
+    ):
+        from uuid import uuid4
+
+        from tradingcat.domain.models import AcceptanceGateSnapshot
+
+        target = as_of or date.today()
+        existing = self._find(target)
+        snapshot = AcceptanceGateSnapshot(
+            id=existing.id if existing else str(uuid4()),
+            as_of=target,
+            status=str(gates_payload.get("status", "pending")),
+            gates=dict(gates_payload.get("gates", {}) or {}),
+            thresholds=dict(gates_payload.get("thresholds", {}) or {}),
+            notes=list(notes or []),
+        )
+        self._snapshots[snapshot.as_of.isoformat()] = snapshot
+        self._repository.save(self._snapshots)
+        return snapshot
+
+    def list_snapshots(self):
+        return sorted(self._snapshots.values(), key=lambda item: item.as_of)
+
+    def timeline(self, *, window_days: int = 42):
+        snapshots = {snap.as_of: snap for snap in self.list_snapshots()}
+        today = date.today()
+        points: list[dict[str, object]] = []
+        pass_streak = 0
+        max_pass_streak = 0
+        for offset in range(window_days):
+            day = today - timedelta(days=window_days - 1 - offset)
+            snap = snapshots.get(day)
+            status = snap.status if snap else "missing"
+            if status == "pass":
+                pass_streak += 1
+                max_pass_streak = max(max_pass_streak, pass_streak)
+            else:
+                pass_streak = 0
+            points.append(
+                {
+                    "date": day.isoformat(),
+                    "status": status,
+                    "gate_status": {
+                        name: str((gate or {}).get("status", "pending"))
+                        for name, gate in (snap.gates if snap else {}).items()
+                    },
+                }
+            )
+        passes = sum(1 for point in points if point["status"] == "pass")
+        fails = sum(1 for point in points if point["status"] == "fail")
+        pendings = sum(1 for point in points if point["status"] == "pending")
+        missing = sum(1 for point in points if point["status"] == "missing")
+        return {
+            "window_days": window_days,
+            "points": points,
+            "summary": {
+                "pass_days": passes,
+                "fail_days": fails,
+                "pending_days": pendings,
+                "missing_days": missing,
+                "current_pass_streak": pass_streak,
+                "max_pass_streak": max_pass_streak,
+                "required_pass_days_hk_us": self.REQUIRED_PASS_DAYS_HK_US,
+                "required_pass_days_cn": self.REQUIRED_PASS_DAYS_CN,
+                "hk_us_paper_complete": passes >= self.REQUIRED_PASS_DAYS_HK_US,
+                "cn_advisory_complete": passes >= self.REQUIRED_PASS_DAYS_CN,
+            },
+        }
+
+    def _find(self, target: date):
+        return self._snapshots.get(target.isoformat())
+
+
 __all__ = [
     "SLIPPAGE_BPS_THRESHOLD",
     "EXCEPTION_RATE_THRESHOLD",
@@ -189,4 +287,5 @@ __all__ = [
     "evaluate_kill_switch_latency",
     "combined_status",
     "compute_acceptance_gates",
+    "AcceptanceGateEvidenceService",
 ]
