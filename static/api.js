@@ -46,6 +46,8 @@ const API = {
   opsTca: "/ops/tca",
   opsRiskConfig: "/ops/risk/config",
   opsEvaluateTriggers: "/ops/evaluate-triggers",
+  opsAcceptanceEvidenceCapture: "/ops/acceptance/evidence/capture",
+  opsAcceptanceEvidenceTimeline: (windowDays = 42) => `/ops/acceptance/evidence/timeline?window_days=${encodeURIComponent(windowDays)}`,
 
   /* ── Research ── */
   researchStrategies: (id) => `/research/strategies/${encodeURIComponent(id)}`,

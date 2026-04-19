@@ -195,6 +195,17 @@ class AcceptanceGateEvidenceService:
     REQUIRED_PASS_DAYS_HK_US = 30  # 6 weeks of trading days (5/week * 6)
     REQUIRED_PASS_DAYS_CN = 20  # 4 weeks for the A-share advisory window
 
+    # Stage-D promotion gates — minimum **current** clean-day streak required
+    # before each rollout stage. The numbers correspond to PLAN.md:
+    #   * to 10%: Stage C (6 weeks paper trading) completed cleanly
+    #   * to 30%: + 4 weeks at 10% with no breach
+    #   * to 100%: + 4 weeks at 30% with no breach
+    STAGE_PASS_STREAK_REQUIREMENTS = {
+        "10%": 30,
+        "30%": 50,
+        "100%": 70,
+    }
+
     def __init__(self, repository) -> None:
         self._repository = repository
         self._snapshots = repository.load()
@@ -271,6 +282,53 @@ class AcceptanceGateEvidenceService:
                 "hk_us_paper_complete": passes >= self.REQUIRED_PASS_DAYS_HK_US,
                 "cn_advisory_complete": passes >= self.REQUIRED_PASS_DAYS_CN,
             },
+        }
+
+    def gate_readiness(self, target_stage: str, *, window_days: int = 90) -> dict[str, object]:
+        """Decide whether Stage-C evidence supports promoting to ``target_stage``.
+
+        Returns a structured payload with ``eligible`` and ``blockers`` so it
+        can be folded into the rollout summary as a hard gate alongside the
+        existing journal-based readiness check.
+        """
+
+        required = self.STAGE_PASS_STREAK_REQUIREMENTS.get(target_stage)
+        if required is None:
+            return {
+                "target_stage": target_stage,
+                "required_pass_streak": None,
+                "current_pass_streak": 0,
+                "max_pass_streak": 0,
+                "eligible": True,
+                "blockers": [],
+            }
+        timeline = self.timeline(window_days=window_days)
+        summary = timeline["summary"]
+        current = int(summary["current_pass_streak"])
+        peak = int(summary["max_pass_streak"])
+        fail_days = int(summary["fail_days"])
+        missing_days = int(summary["missing_days"])
+        blockers: list[str] = []
+        if current < required:
+            blockers.append(
+                f"Stage-C evidence: need {required} consecutive clean gate days for {target_stage}, "
+                f"currently at {current} (max ever: {peak})."
+            )
+        if fail_days > 0 and current < required:
+            blockers.append(
+                f"Stage-C evidence: {fail_days} fail day(s) in the last {window_days} days — "
+                "investigate root cause before retry."
+            )
+        eligible = not blockers
+        return {
+            "target_stage": target_stage,
+            "required_pass_streak": required,
+            "current_pass_streak": current,
+            "max_pass_streak": peak,
+            "fail_days": fail_days,
+            "missing_days": missing_days,
+            "eligible": eligible,
+            "blockers": blockers,
         }
 
     def _find(self, target: date):

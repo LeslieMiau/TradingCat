@@ -160,6 +160,58 @@ def test_acceptance_evidence_job_handler(tmp_path):
     assert detail.startswith("Captured acceptance gates")
 
 
+def test_gate_readiness_blocks_promotion_when_streak_short(tmp_path):
+    repo = AcceptanceGateSnapshotRepository(tmp_path)
+    service = AcceptanceGateEvidenceService(repo)
+    today = date.today()
+    payload_pass = {"status": "pass", "gates": {}, "thresholds": {}}
+    for offset in range(2, -1, -1):
+        service.capture(payload_pass, as_of=today - timedelta(days=offset))
+    readiness = service.gate_readiness("10%")
+    assert readiness["eligible"] is False
+    assert readiness["current_pass_streak"] == 3
+    assert readiness["required_pass_streak"] == AcceptanceGateEvidenceService.STAGE_PASS_STREAK_REQUIREMENTS["10%"]
+    assert readiness["blockers"]
+
+
+def test_gate_readiness_allows_when_streak_meets_requirement(tmp_path):
+    repo = AcceptanceGateSnapshotRepository(tmp_path)
+    service = AcceptanceGateEvidenceService(repo)
+    today = date.today()
+    payload_pass = {"status": "pass", "gates": {}, "thresholds": {}}
+    required = AcceptanceGateEvidenceService.STAGE_PASS_STREAK_REQUIREMENTS["10%"]
+    for offset in range(required - 1, -1, -1):
+        service.capture(payload_pass, as_of=today - timedelta(days=offset))
+    readiness = service.gate_readiness("10%")
+    assert readiness["eligible"] is True
+    assert readiness["current_pass_streak"] >= required
+    assert readiness["blockers"] == []
+
+
+def test_gate_readiness_passthrough_for_hold_stage(tmp_path):
+    repo = AcceptanceGateSnapshotRepository(tmp_path)
+    service = AcceptanceGateEvidenceService(repo)
+    readiness = service.gate_readiness("hold")
+    assert readiness["eligible"] is True
+    assert readiness["blockers"] == []
+
+
+def test_operations_rollout_is_blocked_when_evidence_missing(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(
+            data_dir=tmp_path,
+            futu=FutuConfig(enabled=False),
+        )
+    )
+    rollout = app.operations_rollout()
+    gate_readiness = rollout["acceptance_gate_readiness"]
+    if gate_readiness["required_pass_streak"] is not None:
+        # No paper-trading data → must be blocked.
+        assert gate_readiness["eligible"] is False
+        assert rollout["ready_for_rollout"] is False
+        assert any("Stage-C evidence" in str(b) for b in rollout["blockers"])
+
+
 def test_app_acceptance_gates_records_latency_on_intraday_tick(tmp_path):
     app = TradingCatApplication(
         config=AppConfig(
