@@ -993,12 +993,23 @@ class TradingCatApplication:
     def operations_rollout(self) -> dict[str, object]:
         return self._cached_summary(
             ("operations_rollout", date.today().isoformat()),
-            lambda: self.operations.rollout_summary(
-                readiness=self.operations_readiness(),
-                compliance_summary=self.compliance.summary(),
-                alerts_summary=self.alerts.latest_summary(),
-            ),
+            self._build_operations_rollout,
         )
+
+    def _build_operations_rollout(self) -> dict[str, object]:
+        rollout = self.operations.rollout_summary(
+            readiness=self.operations_readiness(),
+            compliance_summary=self.compliance.summary(),
+            alerts_summary=self.alerts.latest_summary(),
+        )
+        target_stage = str(rollout.get("current_recommendation", "hold"))
+        gate_readiness = self.acceptance_evidence.gate_readiness(target_stage)
+        rollout["acceptance_gate_readiness"] = gate_readiness
+        if gate_readiness.get("blockers"):
+            rollout = dict(rollout)
+            rollout["blockers"] = list(rollout.get("blockers", [])) + list(gate_readiness["blockers"])
+            rollout["ready_for_rollout"] = False
+        return rollout
 
     def rollout_policy_summary(self) -> dict[str, object]:
         summary = self.rollout_policy.summary()

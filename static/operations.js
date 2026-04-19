@@ -1,5 +1,5 @@
 async function loadPayloads() {
-  const [summaryRes, planRes, summaryListRes, liveRes, rolloutRes, qualityRes, incidentsRes, triggersRes, tcaRes, riskConfigRes, killSwitchRes] = await Promise.all([
+  const [summaryRes, planRes, summaryListRes, liveRes, rolloutRes, qualityRes, incidentsRes, triggersRes, tcaRes, riskConfigRes, killSwitchRes, evidenceTimelineRes] = await Promise.all([
     apiFetch(API.dashboardSummary),
     apiFetch(API.journalPlans()),
     apiFetch(API.journalSummaries()),
@@ -11,6 +11,7 @@ async function loadPayloads() {
     apiFetch(API.opsTca),
     apiFetch(API.opsRiskConfig),
     apiFetch(API.killSwitch),
+    apiFetch(API.opsAcceptanceEvidenceTimeline(42)),
   ]);
   if (!summaryRes.ok) throw new Error(summaryRes.error);
   return {
@@ -25,6 +26,7 @@ async function loadPayloads() {
     tca: tcaRes.data ?? {},
     riskConfig: riskConfigRes.data ?? {},
     killSwitch: killSwitchRes.data ?? {},
+    evidenceTimeline: evidenceTimelineRes.data ?? {},
   };
 }
 
@@ -45,6 +47,8 @@ function buildOperationsContext(payload) {
     risk: payload.riskConfig ?? {},
     killSwitch: payload.killSwitch ?? {},
     smartOrders: payload.smartOrders ?? [],
+    evidenceTimeline: payload.evidenceTimeline ?? {},
+    gateReadiness: (payload.rollout ?? {}).acceptance_gate_readiness ?? {},
   };
 }
 
@@ -92,9 +96,23 @@ function renderOperationsSummary(context) {
 }
 
 function renderOperationsQuality(context) {
+  const readiness = context.gateReadiness ?? {};
+  const required = readiness.required_pass_streak;
+  const current = readiness.current_pass_streak ?? 0;
+  const streakLabel = required != null ? `${current} / ${required}` : `${current}`;
+  const streakStatus = readiness.eligible
+    ? "ok"
+    : required != null && current >= required
+      ? "ok"
+      : required != null
+        ? "blocked"
+        : "warning";
+  const summary = (context.evidenceTimeline ?? {}).summary ?? {};
   document.getElementById("operations-quality-metrics").innerHTML = [
     metricTile("Ready For Live", fmt(context.live.ready_for_live), `Incidents ${fmt(context.live.incident_count)}`, context.live.ready_for_live ? "ok" : "warning"),
     metricTile("Rollout", fmt(context.rollout.current_recommendation), `Next ${fmt(context.rollout.next_stage ?? "N/A")}`, context.rollout.ready_for_rollout ? "ok" : "warning"),
+    metricTile("Pass Streak", streakLabel, `Target ${fmt(readiness.target_stage ?? "N/A")} · max ${fmt(readiness.max_pass_streak ?? 0)}`, streakStatus),
+    metricTile("Evidence (42d)", `${fmt(summary.pass_days ?? 0)} pass`, `Fail ${fmt(summary.fail_days ?? 0)} · miss ${fmt(summary.missing_days ?? 0)}`, (summary.fail_days ?? 0) === 0 ? "ok" : "warning"),
     metricTile("异常率", fmtPct(context.quality.exception_rate || 0), `Risk hit ${fmtPct(context.quality.risk_hit_rate || 0)}`, Number(context.quality.exception_rate || 0) <= 0.05 ? "ok" : "blocked"),
     metricTile("授权状态", context.quality.authorization_ok ? "AUTHORIZED" : "UNAUTHORIZED", `Filled ${fmt(context.quality.filled_samples || 0)}`, context.quality.authorization_ok ? "ok" : "blocked"),
   ].join("");
@@ -103,6 +121,7 @@ function renderOperationsQuality(context) {
     [
       ...(context.live.blockers ?? []),
       ...((context.rollout.blockers ?? []).map((item) => `Rollout blocker: ${item}`)),
+      ...((readiness.blockers ?? []).map((item) => `Gate blocker: ${item}`)),
     ],
     "当前没有上线阻塞项。",
   );
@@ -112,6 +131,8 @@ function renderOperationsQuality(context) {
       `current_recommendation: ${fmt(context.rollout.current_recommendation)}`,
       `next_stage: ${fmt(context.rollout.next_stage)}`,
       `ready_for_rollout: ${fmt(context.rollout.ready_for_rollout)}`,
+      `gate_eligible (${fmt(readiness.target_stage ?? "N/A")}): ${fmt(readiness.eligible)}`,
+      `pass_streak: ${streakLabel}`,
       ...((context.rollout.recommendations ?? []).slice(0, 4)),
     ],
     "当前没有阶段建议。",
