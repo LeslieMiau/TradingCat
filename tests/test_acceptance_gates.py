@@ -11,9 +11,11 @@ from tradingcat.services.acceptance_gates import (
     PORTFOLIO_CASH_TOLERANCE,
     SCHEDULER_DAILY_STALE_HOURS,
     SLIPPAGE_BPS_THRESHOLD,
+    TRADE_LEDGER_RECONCILIATION_STALE_HOURS,
     AcceptanceGateEvidenceService,
     compute_acceptance_gates,
     evaluate_scheduler_health,
+    evaluate_trade_ledger_reconciliation,
 )
 
 
@@ -26,6 +28,21 @@ _CLEAN_PORTFOLIO_RECON = {
     "missing_symbols": [],
     "unexpected_symbols": [],
 }
+
+
+def _clean_ledger_recon(now: datetime | None = None) -> dict[str, object]:
+    now = now or datetime.now(UTC)
+    return {
+        "as_of": now.date().isoformat(),
+        "captured_at": now.isoformat(),
+        "status": "ok",
+        "broker_fill_count": 5,
+        "ledger_entry_count": 5,
+        "missing_ledger_count": 0,
+        "missing_broker_count": 0,
+        "amount_drift_count": 0,
+        "max_amount_drift_pct": 0.0,
+    }
 
 
 @dataclass
@@ -70,12 +87,14 @@ def test_compute_gates_all_green_when_inputs_clean():
         ],
         scheduler_jobs=jobs,
         scheduler_runs=runs,
+        trade_ledger_reconciliation=_clean_ledger_recon(),
     )
     assert result["status"] == "pass"
     assert result["gates"]["slippage"]["status"] == "pass"
     assert result["gates"]["exception_rate"]["status"] == "pass"
     assert result["gates"]["reconciliation"]["status"] == "pass"
     assert result["gates"]["portfolio_reconciliation"]["status"] == "pass"
+    assert result["gates"]["trade_ledger_reconciliation"]["status"] == "pass"
     assert result["gates"]["kill_switch_latency"]["status"] == "pass"
     assert result["gates"]["scheduler_health"]["status"] == "pass"
     assert result["thresholds"]["slippage_bps"] == SLIPPAGE_BPS_THRESHOLD
@@ -83,6 +102,7 @@ def test_compute_gates_all_green_when_inputs_clean():
     assert result["thresholds"]["kill_switch_latency_seconds"] == KILL_SWITCH_LATENCY_SECONDS
     assert result["thresholds"]["portfolio_cash_tolerance"] == PORTFOLIO_CASH_TOLERANCE
     assert result["thresholds"]["scheduler_daily_stale_hours"] == SCHEDULER_DAILY_STALE_HOURS
+    assert result["thresholds"]["trade_ledger_reconciliation_stale_hours"] == TRADE_LEDGER_RECONCILIATION_STALE_HOURS
 
 
 def test_compute_gates_flag_slippage_breach():
@@ -409,3 +429,102 @@ def test_app_acceptance_gates_records_latency_on_intraday_tick(tmp_path):
     assert latency_gate["status"] in {"pass", "fail"}
     # Either way, a latency number should be present.
     assert "max_seconds" in latency_gate["metric"]
+
+
+# ---------------------------------------------------------------------------
+# Trade ledger reconciliation gate
+# ---------------------------------------------------------------------------
+
+
+def test_trade_ledger_gate_pending_when_no_run_recorded():
+    gate = evaluate_trade_ledger_reconciliation(None)
+    assert gate["status"] == "pending"
+
+
+def test_trade_ledger_gate_passes_when_run_is_clean_and_fresh():
+    gate = evaluate_trade_ledger_reconciliation(_clean_ledger_recon())
+    assert gate["status"] == "pass"
+    assert gate["metric"]["broker_fill_count"] == 5
+    assert gate["metric"]["ledger_entry_count"] == 5
+
+
+def test_trade_ledger_gate_fails_on_drift_status():
+    now = datetime.now(UTC)
+    payload = dict(
+        _clean_ledger_recon(now),
+        status="drift",
+        missing_ledger_count=1,
+    )
+    gate = evaluate_trade_ledger_reconciliation(payload)
+    assert gate["status"] == "fail"
+    assert gate["metric"]["missing_ledger_count"] == 1
+
+
+def test_trade_ledger_gate_fails_on_critical_status():
+    now = datetime.now(UTC)
+    payload = dict(
+        _clean_ledger_recon(now),
+        status="critical",
+        amount_drift_count=1,
+        max_amount_drift_pct=0.05,
+    )
+    gate = evaluate_trade_ledger_reconciliation(payload)
+    assert gate["status"] == "fail"
+    assert "5.00%" in gate["detail"]
+
+
+def test_trade_ledger_gate_fails_on_stale_clean_run():
+    # A clean run from 2 days ago is as dangerous as a drift today — the audit
+    # didn't tick, so we have no coverage for the interim.
+    stale_clock = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    stale_captured = stale_clock - timedelta(hours=36)
+    payload = {
+        "as_of": stale_captured.date().isoformat(),
+        "captured_at": stale_captured.isoformat(),
+        "status": "ok",
+        "broker_fill_count": 0,
+        "ledger_entry_count": 0,
+        "missing_ledger_count": 0,
+        "missing_broker_count": 0,
+        "amount_drift_count": 0,
+        "max_amount_drift_pct": 0.0,
+    }
+    gate = evaluate_trade_ledger_reconciliation(payload, now=stale_clock)
+    assert gate["status"] == "fail"
+    assert "stale" in gate["detail"].lower()
+
+
+def test_compute_gates_trade_ledger_drift_flips_overall_status():
+    jobs, runs = _fresh_scheduler_payload()
+    now = datetime.now(UTC)
+    result = compute_acceptance_gates(
+        execution_quality={"equity_samples": 5, "equity_breaches": 0},
+        audit_metrics={"cycle_count": 100, "exception_count": 0},
+        reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
+        kill_switch_events=[
+            KillSwitchEvent(
+                enabled=True,
+                detected_at=datetime(2026, 4, 18, 10, 0, 0),
+                changed_at=datetime(2026, 4, 18, 10, 0, 30),
+            )
+        ],
+        scheduler_jobs=jobs,
+        scheduler_runs=runs,
+        trade_ledger_reconciliation=dict(
+            _clean_ledger_recon(now), status="drift", missing_ledger_count=2
+        ),
+    )
+    assert result["status"] == "fail"
+    assert result["gates"]["trade_ledger_reconciliation"]["status"] == "fail"
+
+
+def test_application_acceptance_gates_includes_trade_ledger(tmp_path):
+    app = TradingCatApplication(
+        config=AppConfig(data_dir=tmp_path, futu=FutuConfig(enabled=False))
+    )
+    # Seed one clean run so the gate is pass, not pending.
+    app.run_trade_ledger_reconciliation(as_of=date.today())
+    gates = app.acceptance_gates()
+    assert "trade_ledger_reconciliation" in gates["gates"]
+    assert gates["gates"]["trade_ledger_reconciliation"]["status"] == "pass"

@@ -28,6 +28,7 @@ KILL_SWITCH_LATENCY_SECONDS = 60.0
 PORTFOLIO_CASH_TOLERANCE = 1.0  # Absolute units in base currency — broker rounding
 SCHEDULER_DAILY_STALE_HOURS = 30.0  # 24h + 6h grace across DST / holiday calendars
 SCHEDULER_INTERVAL_STALE_MULTIPLIER = 3  # Missed ticks allowed = 3× interval
+TRADE_LEDGER_RECONCILIATION_STALE_HOURS = 30.0  # Daily EOD audit + 6h grace
 
 
 def _gate(status: str, detail: str, metric: dict[str, object] | None = None) -> dict[str, object]:
@@ -147,6 +148,88 @@ def evaluate_portfolio_reconciliation(
             metric,
         )
     return _gate("fail", "Portfolio drift: " + ", ".join(failures) + ".", metric)
+
+
+def evaluate_trade_ledger_reconciliation(
+    latest: dict[str, object] | None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Gate on daily trade ledger completeness audit.
+
+    Third layer of "对账零差异" evidence (after execution + portfolio
+    reconciliation): catches the silent-failure class where a filled
+    ExecutionReport never materialises into a TradeLedgerEntry.
+
+    - ``critical`` -> fail (large amount drift or >3 incidents)
+    - ``drift``    -> fail (any missing entry / missing fill / minor drift)
+    - ``ok``       -> pass, but flipped to ``fail`` if the latest run is stale
+      (>30h old) since a missed audit is itself a reconciliation gap.
+    - No run on record yet -> pending (fresh install / pre-launch).
+    """
+    if not latest:
+        return _gate(
+            "pending",
+            "No trade ledger reconciliation run recorded yet.",
+            {"stale_hours": TRADE_LEDGER_RECONCILIATION_STALE_HOURS},
+        )
+    status = str(latest.get("status", "pending"))
+    captured_at_raw = latest.get("captured_at") or latest.get("as_of")
+    captured_at: datetime | None = None
+    if isinstance(captured_at_raw, datetime):
+        captured_at = captured_at_raw
+    elif isinstance(captured_at_raw, str):
+        try:
+            captured_at = datetime.fromisoformat(captured_at_raw.replace("Z", "+00:00"))
+        except ValueError:
+            captured_at = None
+        if captured_at is not None and captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=UTC)
+    metric = {
+        "status": status,
+        "as_of": str(latest.get("as_of", "")),
+        "broker_fill_count": int(latest.get("broker_fill_count", 0) or 0),
+        "ledger_entry_count": int(latest.get("ledger_entry_count", 0) or 0),
+        "missing_ledger_count": int(latest.get("missing_ledger_count", 0) or 0),
+        "missing_broker_count": int(latest.get("missing_broker_count", 0) or 0),
+        "amount_drift_count": int(latest.get("amount_drift_count", 0) or 0),
+        "max_amount_drift_pct": float(latest.get("max_amount_drift_pct", 0.0) or 0.0),
+        "stale_hours": TRADE_LEDGER_RECONCILIATION_STALE_HOURS,
+    }
+    reference = now or datetime.now(UTC)
+    if captured_at is not None:
+        age_hours = (reference - captured_at).total_seconds() / 3600.0
+        metric["age_hours"] = round(age_hours, 2)
+        if age_hours > TRADE_LEDGER_RECONCILIATION_STALE_HOURS:
+            return _gate(
+                "fail",
+                f"Trade ledger reconciliation is stale "
+                f"({age_hours:.1f}h old, threshold {TRADE_LEDGER_RECONCILIATION_STALE_HOURS:.0f}h).",
+                metric,
+            )
+    if status == "ok":
+        return _gate(
+            "pass",
+            f"Trade ledger reconciliation clean: {metric['broker_fill_count']} fill(s) matched "
+            f"{metric['ledger_entry_count']} ledger row(s).",
+            metric,
+        )
+    if status == "drift":
+        return _gate(
+            "fail",
+            f"Trade ledger drift: missing_ledger={metric['missing_ledger_count']} "
+            f"missing_broker={metric['missing_broker_count']} amount_drift={metric['amount_drift_count']}.",
+            metric,
+        )
+    if status == "critical":
+        return _gate(
+            "fail",
+            f"Trade ledger critical: max drift {metric['max_amount_drift_pct'] * 100:.2f}% "
+            f"across {metric['amount_drift_count']} fill(s); "
+            f"missing_ledger={metric['missing_ledger_count']} missing_broker={metric['missing_broker_count']}.",
+            metric,
+        )
+    return _gate("pending", f"Unknown trade ledger reconciliation status: {status}.", metric)
 
 
 def evaluate_kill_switch_latency(
@@ -319,12 +402,14 @@ def compute_acceptance_gates(
     kill_switch_events: Iterable[object] = (),
     scheduler_jobs: Iterable[object] | None = None,
     scheduler_runs: Iterable[object] | None = None,
+    trade_ledger_reconciliation: dict[str, object] | None = None,
 ) -> dict[str, object]:
     gates = {
         "slippage": evaluate_slippage(execution_quality),
         "exception_rate": evaluate_exception_rate(audit_metrics),
         "reconciliation": evaluate_reconciliation(reconciliation),
         "portfolio_reconciliation": evaluate_portfolio_reconciliation(portfolio_reconciliation),
+        "trade_ledger_reconciliation": evaluate_trade_ledger_reconciliation(trade_ledger_reconciliation),
         "kill_switch_latency": evaluate_kill_switch_latency(kill_switch_events),
         "scheduler_health": evaluate_scheduler_health(scheduler_jobs, scheduler_runs),
     }
@@ -338,6 +423,7 @@ def compute_acceptance_gates(
             "reconciliation_diff": 0,
             "portfolio_cash_tolerance": PORTFOLIO_CASH_TOLERANCE,
             "scheduler_daily_stale_hours": SCHEDULER_DAILY_STALE_HOURS,
+            "trade_ledger_reconciliation_stale_hours": TRADE_LEDGER_RECONCILIATION_STALE_HOURS,
         },
     }
 
@@ -500,10 +586,12 @@ __all__ = [
     "PORTFOLIO_CASH_TOLERANCE",
     "SCHEDULER_DAILY_STALE_HOURS",
     "SCHEDULER_INTERVAL_STALE_MULTIPLIER",
+    "TRADE_LEDGER_RECONCILIATION_STALE_HOURS",
     "evaluate_slippage",
     "evaluate_exception_rate",
     "evaluate_reconciliation",
     "evaluate_portfolio_reconciliation",
+    "evaluate_trade_ledger_reconciliation",
     "evaluate_kill_switch_latency",
     "evaluate_scheduler_health",
     "combined_status",

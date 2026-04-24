@@ -1028,6 +1028,7 @@ class TradingCatApplication:
                 portfolio_summary.model_dump(mode="json") if portfolio_summary is not None else None
             )
 
+        latest_ledger_recon = self.trade_ledger_reconciliation.latest()
         return compute_acceptance_gates(
             execution_quality=self.execution.execution_quality_summary(),
             audit_metrics=self.audit.execution_metrics_summary(),
@@ -1036,6 +1037,11 @@ class TradingCatApplication:
             kill_switch_events=self.risk.kill_switch_events(),
             scheduler_jobs=self.scheduler.list_jobs(),
             scheduler_runs=self.scheduler.run_history(limit=500),
+            trade_ledger_reconciliation=(
+                latest_ledger_recon.model_dump(mode="json")
+                if latest_ledger_recon is not None
+                else None
+            ),
         )
 
     def operations_readiness(self) -> dict[str, object]:
