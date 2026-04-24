@@ -29,6 +29,7 @@ from tradingcat.domain.models import (
     RecoveryAttempt,
     RolloutPolicy,
     RolloutPromotionAttempt,
+    SchedulerRunRecord,
     StrategyAllocationRecord,
     StrategySelectionRecord,
 )
@@ -196,6 +197,12 @@ class HistoryAuditRunRepository(_DictRepository[HistoryAuditRun]):
     _bucket_name = "history_audit_runs"
     _model_class = HistoryAuditRun
     _key_field = "as_of"
+
+
+class SchedulerRunRecordRepository(_DictRepository[SchedulerRunRecord]):
+    _bucket_name = "scheduler_run_records"
+    _model_class = SchedulerRunRecord
+    _key_field = "id"
 
 
 class PortfolioHistoryRepository(_DictRepository[PortfolioSnapshot]):
