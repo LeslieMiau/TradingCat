@@ -18,7 +18,7 @@ surface the same judgement.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Iterable
 
 
@@ -26,6 +26,8 @@ SLIPPAGE_BPS_THRESHOLD = 20.0
 EXCEPTION_RATE_THRESHOLD = 0.01
 KILL_SWITCH_LATENCY_SECONDS = 60.0
 PORTFOLIO_CASH_TOLERANCE = 1.0  # Absolute units in base currency — broker rounding
+SCHEDULER_DAILY_STALE_HOURS = 30.0  # 24h + 6h grace across DST / holiday calendars
+SCHEDULER_INTERVAL_STALE_MULTIPLIER = 3  # Missed ticks allowed = 3× interval
 
 
 def _gate(status: str, detail: str, metric: dict[str, object] | None = None) -> dict[str, object]:
@@ -195,6 +197,110 @@ def evaluate_kill_switch_latency(
     )
 
 
+def evaluate_scheduler_health(
+    jobs: Iterable[object] | None = None,
+    runs: Iterable[object] | None = None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Gate on scheduled-job liveness.
+
+    For each enabled job, check whether a **successful** run happened recently:
+      * Daily jobs (``interval_seconds is None``): must have a success within
+        ``SCHEDULER_DAILY_STALE_HOURS`` hours — catches calendars where a job
+        silently stopped firing after OpenD reconnection or timezone glitches.
+      * Interval jobs: must have a success within
+        ``SCHEDULER_INTERVAL_STALE_MULTIPLIER`` × interval_seconds.
+
+    Jobs that haven't run at all yet within the required window count as stale.
+    Failed last runs also count as stale (a previous success farther back does
+    not rescue a current failure).
+    """
+    job_list = list(jobs or [])
+    if not job_list:
+        return _gate("pending", "No scheduler jobs registered.", {"enabled_jobs": 0})
+
+    run_list = list(runs or [])
+    latest_success_by_job: dict[str, datetime] = {}
+    latest_any_by_job: dict[str, tuple[datetime, str]] = {}
+    for run in run_list:
+        job_id = getattr(run, "job_id", None)
+        executed_at = getattr(run, "executed_at", None)
+        status = getattr(run, "status", None)
+        if not job_id or not isinstance(executed_at, datetime):
+            continue
+        if status == "success":
+            existing = latest_success_by_job.get(job_id)
+            if existing is None or executed_at > existing:
+                latest_success_by_job[job_id] = executed_at
+        existing_any = latest_any_by_job.get(job_id)
+        if existing_any is None or executed_at > existing_any[0]:
+            latest_any_by_job[job_id] = (executed_at, status or "unknown")
+
+    reference = now or datetime.now(UTC)
+    stale: list[dict[str, object]] = []
+    enabled_count = 0
+    for job in job_list:
+        if not getattr(job, "enabled", True):
+            continue
+        enabled_count += 1
+        job_id = getattr(job, "id", None)
+        if job_id is None:
+            continue
+        interval_seconds = getattr(job, "interval_seconds", None)
+        if interval_seconds:
+            threshold = timedelta(seconds=int(interval_seconds) * SCHEDULER_INTERVAL_STALE_MULTIPLIER)
+            job_kind = "interval"
+        else:
+            threshold = timedelta(hours=SCHEDULER_DAILY_STALE_HOURS)
+            job_kind = "daily"
+        last_success = latest_success_by_job.get(job_id)
+        last_any = latest_any_by_job.get(job_id)
+        if last_success is not None and reference - last_success <= threshold:
+            continue
+        # Stale — collect context for the caller.
+        reason = "never_succeeded" if last_success is None else "stale_success"
+        if last_any is not None and last_any[1] == "error":
+            reason = "last_run_failed"
+        stale.append(
+            {
+                "job_id": job_id,
+                "job_kind": job_kind,
+                "reason": reason,
+                "last_success_at": last_success.isoformat() if last_success else None,
+                "last_status": last_any[1] if last_any else None,
+            }
+        )
+
+    metric = {
+        "enabled_jobs": enabled_count,
+        "stale_jobs": len(stale),
+        "stale": stale[:10],
+        "daily_stale_hours": SCHEDULER_DAILY_STALE_HOURS,
+        "interval_stale_multiplier": SCHEDULER_INTERVAL_STALE_MULTIPLIER,
+    }
+    if not stale:
+        return _gate(
+            "pass",
+            f"All {enabled_count} scheduled jobs have a recent successful run.",
+            metric,
+        )
+    # We need at least *some* successful run on record to call this a real pass
+    # or real fail — otherwise it's genuinely pending (fresh install).
+    total_successes = len(latest_success_by_job)
+    if total_successes == 0:
+        return _gate(
+            "pending",
+            f"{len(stale)} job(s) have not run yet — awaiting first scheduler tick.",
+            metric,
+        )
+    return _gate(
+        "fail",
+        f"{len(stale)} of {enabled_count} scheduled jobs are stale (see metric.stale).",
+        metric,
+    )
+
+
 def combined_status(gates: dict[str, dict[str, object]]) -> str:
     statuses = {str(gate.get("status", "pending")) for gate in gates.values()}
     if "fail" in statuses:
@@ -211,6 +317,8 @@ def compute_acceptance_gates(
     reconciliation: dict[str, object] | None = None,
     portfolio_reconciliation: dict[str, object] | None = None,
     kill_switch_events: Iterable[object] = (),
+    scheduler_jobs: Iterable[object] | None = None,
+    scheduler_runs: Iterable[object] | None = None,
 ) -> dict[str, object]:
     gates = {
         "slippage": evaluate_slippage(execution_quality),
@@ -218,6 +326,7 @@ def compute_acceptance_gates(
         "reconciliation": evaluate_reconciliation(reconciliation),
         "portfolio_reconciliation": evaluate_portfolio_reconciliation(portfolio_reconciliation),
         "kill_switch_latency": evaluate_kill_switch_latency(kill_switch_events),
+        "scheduler_health": evaluate_scheduler_health(scheduler_jobs, scheduler_runs),
     }
     return {
         "status": combined_status(gates),
@@ -228,6 +337,7 @@ def compute_acceptance_gates(
             "kill_switch_latency_seconds": KILL_SWITCH_LATENCY_SECONDS,
             "reconciliation_diff": 0,
             "portfolio_cash_tolerance": PORTFOLIO_CASH_TOLERANCE,
+            "scheduler_daily_stale_hours": SCHEDULER_DAILY_STALE_HOURS,
         },
     }
 
@@ -388,11 +498,14 @@ __all__ = [
     "EXCEPTION_RATE_THRESHOLD",
     "KILL_SWITCH_LATENCY_SECONDS",
     "PORTFOLIO_CASH_TOLERANCE",
+    "SCHEDULER_DAILY_STALE_HOURS",
+    "SCHEDULER_INTERVAL_STALE_MULTIPLIER",
     "evaluate_slippage",
     "evaluate_exception_rate",
     "evaluate_reconciliation",
     "evaluate_portfolio_reconciliation",
     "evaluate_kill_switch_latency",
+    "evaluate_scheduler_health",
     "combined_status",
     "compute_acceptance_gates",
     "AcceptanceGateEvidenceService",

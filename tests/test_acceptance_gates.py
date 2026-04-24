@@ -1,4 +1,5 @@
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 
 from tradingcat.config import AppConfig, FutuConfig, RiskConfig
 from tradingcat.domain.models import KillSwitchEvent, PortfolioSnapshot
@@ -8,9 +9,11 @@ from tradingcat.services.acceptance_gates import (
     EXCEPTION_RATE_THRESHOLD,
     KILL_SWITCH_LATENCY_SECONDS,
     PORTFOLIO_CASH_TOLERANCE,
+    SCHEDULER_DAILY_STALE_HOURS,
     SLIPPAGE_BPS_THRESHOLD,
     AcceptanceGateEvidenceService,
     compute_acceptance_gates,
+    evaluate_scheduler_health,
 )
 
 
@@ -25,7 +28,34 @@ _CLEAN_PORTFOLIO_RECON = {
 }
 
 
+@dataclass
+class _StubJob:
+    id: str
+    enabled: bool = True
+    interval_seconds: int | None = None
+
+
+@dataclass
+class _StubRun:
+    job_id: str
+    executed_at: datetime
+    status: str = "success"
+
+
+def _fresh_scheduler_payload(now: datetime | None = None) -> tuple[list[_StubJob], list[_StubRun]]:
+    """Return (jobs, runs) where every daily job has a recent successful run."""
+    now = now or datetime.now(UTC)
+    jobs = [_StubJob(id="daily_one"), _StubJob(id="daily_two"), _StubJob(id="tick", interval_seconds=60)]
+    runs = [
+        _StubRun(job_id="daily_one", executed_at=now - timedelta(hours=1)),
+        _StubRun(job_id="daily_two", executed_at=now - timedelta(hours=2)),
+        _StubRun(job_id="tick", executed_at=now - timedelta(seconds=30)),
+    ]
+    return jobs, runs
+
+
 def test_compute_gates_all_green_when_inputs_clean():
+    jobs, runs = _fresh_scheduler_payload()
     result = compute_acceptance_gates(
         execution_quality={"equity_samples": 5, "equity_breaches": 0},
         audit_metrics={"cycle_count": 100, "exception_count": 0},
@@ -38,6 +68,8 @@ def test_compute_gates_all_green_when_inputs_clean():
                 changed_at=datetime(2026, 4, 18, 10, 0, 30),
             )
         ],
+        scheduler_jobs=jobs,
+        scheduler_runs=runs,
     )
     assert result["status"] == "pass"
     assert result["gates"]["slippage"]["status"] == "pass"
@@ -45,10 +77,12 @@ def test_compute_gates_all_green_when_inputs_clean():
     assert result["gates"]["reconciliation"]["status"] == "pass"
     assert result["gates"]["portfolio_reconciliation"]["status"] == "pass"
     assert result["gates"]["kill_switch_latency"]["status"] == "pass"
+    assert result["gates"]["scheduler_health"]["status"] == "pass"
     assert result["thresholds"]["slippage_bps"] == SLIPPAGE_BPS_THRESHOLD
     assert result["thresholds"]["exception_rate"] == EXCEPTION_RATE_THRESHOLD
     assert result["thresholds"]["kill_switch_latency_seconds"] == KILL_SWITCH_LATENCY_SECONDS
     assert result["thresholds"]["portfolio_cash_tolerance"] == PORTFOLIO_CASH_TOLERANCE
+    assert result["thresholds"]["scheduler_daily_stale_hours"] == SCHEDULER_DAILY_STALE_HOURS
 
 
 def test_compute_gates_flag_slippage_breach():
@@ -146,6 +180,88 @@ def test_compute_gates_flag_kill_latency_breach():
     assert result["status"] == "fail"
     assert result["gates"]["kill_switch_latency"]["status"] == "fail"
     assert result["gates"]["kill_switch_latency"]["metric"]["max_seconds"] == 300.0
+
+
+def test_scheduler_health_passes_when_all_jobs_recent():
+    jobs, runs = _fresh_scheduler_payload()
+    gate = evaluate_scheduler_health(jobs, runs)
+    assert gate["status"] == "pass"
+    assert gate["metric"]["stale_jobs"] == 0
+    assert gate["metric"]["enabled_jobs"] == 3
+
+
+def test_scheduler_health_flags_stale_daily_job():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="stale_daily"), _StubJob(id="fresh_daily")]
+    runs = [
+        _StubRun(job_id="stale_daily", executed_at=now - timedelta(hours=48)),
+        _StubRun(job_id="fresh_daily", executed_at=now - timedelta(hours=2)),
+    ]
+    gate = evaluate_scheduler_health(jobs, runs, now=now)
+    assert gate["status"] == "fail"
+    assert gate["metric"]["stale_jobs"] == 1
+    stale_entry = gate["metric"]["stale"][0]
+    assert stale_entry["job_id"] == "stale_daily"
+    assert stale_entry["job_kind"] == "daily"
+
+
+def test_scheduler_health_flags_last_failed_run():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="errored")]
+    runs = [
+        _StubRun(job_id="errored", executed_at=now - timedelta(hours=1), status="error"),
+    ]
+    gate = evaluate_scheduler_health(jobs, runs, now=now)
+    # No successful run ever — status is pending rather than fail, because we
+    # need at least some success on record to confirm the scheduler is up.
+    assert gate["status"] == "pending"
+    stale_entry = gate["metric"]["stale"][0]
+    assert stale_entry["reason"] == "last_run_failed"
+
+
+def test_scheduler_health_flags_last_failed_after_earlier_success():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="flaky"), _StubJob(id="healthy")]
+    runs = [
+        _StubRun(job_id="healthy", executed_at=now - timedelta(hours=1)),
+        _StubRun(job_id="flaky", executed_at=now - timedelta(hours=48)),  # old success
+        _StubRun(job_id="flaky", executed_at=now - timedelta(hours=1), status="error"),
+    ]
+    gate = evaluate_scheduler_health(jobs, runs, now=now)
+    assert gate["status"] == "fail"
+    stale = {entry["job_id"]: entry for entry in gate["metric"]["stale"]}
+    assert "flaky" in stale
+    assert stale["flaky"]["reason"] == "last_run_failed"
+
+
+def test_scheduler_health_flags_stale_interval_job():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="tick", interval_seconds=60), _StubJob(id="daily_ok")]
+    runs = [
+        _StubRun(job_id="tick", executed_at=now - timedelta(seconds=600)),  # way past 3×60s
+        _StubRun(job_id="daily_ok", executed_at=now - timedelta(hours=1)),
+    ]
+    gate = evaluate_scheduler_health(jobs, runs, now=now)
+    assert gate["status"] == "fail"
+    stale = {entry["job_id"]: entry for entry in gate["metric"]["stale"]}
+    assert stale["tick"]["job_kind"] == "interval"
+
+
+def test_scheduler_health_ignores_disabled_jobs():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="muted", enabled=False), _StubJob(id="live")]
+    runs = [_StubRun(job_id="live", executed_at=now - timedelta(hours=1))]
+    gate = evaluate_scheduler_health(jobs, runs, now=now)
+    assert gate["status"] == "pass"
+    assert gate["metric"]["enabled_jobs"] == 1
+
+
+def test_scheduler_health_pending_before_first_tick():
+    now = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+    jobs = [_StubJob(id="fresh_install")]
+    gate = evaluate_scheduler_health(jobs, runs=[], now=now)
+    assert gate["status"] == "pending"
+    assert gate["metric"]["stale_jobs"] == 1
 
 
 def test_compute_gates_pending_when_no_samples():

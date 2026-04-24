@@ -1015,6 +1015,8 @@ class TradingCatApplication:
             reconciliation=reconciliation,
             portfolio_reconciliation=portfolio_reconciliation,
             kill_switch_events=self.risk.kill_switch_events(),
+            scheduler_jobs=self.scheduler.list_jobs(),
+            scheduler_runs=self.scheduler.run_history(limit=500),
         )
 
     def operations_readiness(self) -> dict[str, object]:
