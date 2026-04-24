@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from tradingcat.config import AppConfig, FutuConfig, NotifierConfig
 from tradingcat.domain.models import AlertEvent
@@ -79,6 +80,48 @@ def test_application_builds_no_dispatcher_when_notifier_config_empty(tmp_path):
     )
 
     assert app.alerts._dispatcher is None  # type: ignore[attr-defined]
+
+
+def test_dispatcher_throttles_repeated_category_within_cooldown():
+    channel = _RecordingChannel()
+    dispatcher = AlertDispatcher(channels=[channel], min_severity="info", cooldown_seconds=600)
+    base = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+    first = dispatcher.dispatch(_alert(category="broker_unhealthy"), now=base)
+    second = dispatcher.dispatch(_alert(category="broker_unhealthy"), now=base + timedelta(seconds=120))
+    third = dispatcher.dispatch(_alert(category="broker_unhealthy"), now=base + timedelta(seconds=700))
+
+    assert first == {"recording": True}
+    assert second == {"throttled": True}
+    assert third == {"recording": True, "suppressed_since_last": "1"}
+    assert len(channel.delivered) == 2
+
+
+def test_dispatcher_escalation_bypasses_cooldown():
+    channel = _RecordingChannel()
+    dispatcher = AlertDispatcher(channels=[channel], min_severity="info", cooldown_seconds=600)
+    base = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+    dispatcher.dispatch(_alert(severity="warning", category="drawdown"), now=base)
+    result = dispatcher.dispatch(
+        _alert(severity="error", category="drawdown"),
+        now=base + timedelta(seconds=60),
+    )
+
+    assert result == {"recording": True}
+    assert len(channel.delivered) == 2
+    assert channel.delivered[-1].severity == "error"
+
+
+def test_dispatcher_cooldown_zero_disables_throttle():
+    channel = _RecordingChannel()
+    dispatcher = AlertDispatcher(channels=[channel], min_severity="info", cooldown_seconds=0)
+    base = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+    for delta in (0, 30, 60):
+        dispatcher.dispatch(_alert(category="tick"), now=base + timedelta(seconds=delta))
+
+    assert len(channel.delivered) == 3
 
 
 def test_application_builds_telegram_dispatcher_when_configured(tmp_path):

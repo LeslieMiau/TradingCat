@@ -6,6 +6,7 @@ import smtplib
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import Protocol
 
@@ -97,21 +98,57 @@ class EmailNotifier:
 
 
 @dataclass
+class _ThrottleEntry:
+    last_dispatched_at: datetime
+    last_severity_rank: int
+
+
+@dataclass
 class AlertDispatcher:
+    """Dispatches alerts to configured channels with per-category cooldown.
+
+    A repeat alert in the same category within `cooldown_seconds` is suppressed,
+    *unless* its severity is strictly higher than the last-dispatched severity for
+    that category — escalations always punch through so operators never miss a
+    warning-to-error upgrade.
+    """
+
     channels: list[NotifierChannel] = field(default_factory=list)
     min_severity: str = "error"
+    cooldown_seconds: int = 900
+    _last_dispatch: dict[str, _ThrottleEntry] = field(default_factory=dict, repr=False)
+    _suppressed_counts: dict[str, int] = field(default_factory=dict, repr=False)
 
-    def dispatch(self, alert: AlertEvent) -> dict[str, bool]:
+    def dispatch(self, alert: AlertEvent, *, now: datetime | None = None) -> dict[str, bool | str]:
         if _severity_rank(alert.severity) < _severity_rank(self.min_severity):
             return {}
-        results: dict[str, bool] = {}
+        moment = now or datetime.now(UTC)
+        severity_rank = _severity_rank(alert.severity)
+        entry = self._last_dispatch.get(alert.category)
+        if entry is not None and self.cooldown_seconds > 0:
+            cooled = moment - entry.last_dispatched_at < timedelta(seconds=self.cooldown_seconds)
+            escalation = severity_rank > entry.last_severity_rank
+            if cooled and not escalation:
+                self._suppressed_counts[alert.category] = self._suppressed_counts.get(alert.category, 0) + 1
+                return {"throttled": True}
+        results: dict[str, bool | str] = {}
         for channel in self.channels:
             try:
                 results[channel.name] = bool(channel.send(alert))
             except Exception as exc:
                 logger.exception("Notifier channel %s raised: %s", channel.name, exc)
                 results[channel.name] = False
+        self._last_dispatch[alert.category] = _ThrottleEntry(
+            last_dispatched_at=moment,
+            last_severity_rank=severity_rank,
+        )
+        suppressed = self._suppressed_counts.pop(alert.category, 0)
+        if suppressed:
+            results["suppressed_since_last"] = str(suppressed)
         return results
+
+    def suppressed_counts(self) -> dict[str, int]:
+        return dict(self._suppressed_counts)
 
 
 def build_default_dispatcher(
@@ -125,6 +162,7 @@ def build_default_dispatcher(
     email_from: str = "",
     email_to: list[str] | None = None,
     min_severity: str = "error",
+    cooldown_seconds: int = 900,
 ) -> AlertDispatcher | None:
     channels: list[NotifierChannel] = []
     if telegram_bot_token and telegram_chat_id:
@@ -142,4 +180,4 @@ def build_default_dispatcher(
         )
     if not channels:
         return None
-    return AlertDispatcher(channels=channels, min_severity=min_severity)
+    return AlertDispatcher(channels=channels, min_severity=min_severity, cooldown_seconds=cooldown_seconds)
