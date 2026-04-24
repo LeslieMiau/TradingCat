@@ -107,6 +107,13 @@ class ApplicationSchedulerRuntime:
         snapshot = self._app.capture_acceptance_evidence(notes=["scheduled_eod_capture"])
         return f"Captured acceptance gates ({snapshot['status']}) for {snapshot['as_of']}"
 
+    def run_history_audit_job(self) -> str:
+        run = self._app.run_history_audit(window_days=90, notes=["scheduled_weekly_audit"])
+        return (
+            f"History audit ({run['status']}): min_coverage={run['minimum_coverage_ratio']} "
+            f"missing={run['missing_symbol_count']}"
+        )
+
     def run_daily_trading_plan_job(self) -> str:
         return self._app.generate_daily_trading_plan(date.today()).headline
 
@@ -233,6 +240,15 @@ _JOB_REGISTRATIONS = [
         local_time=time(18, 20),
         market=Market.CN,
         handler_name="run_daily_trading_summary_job",
+    ),
+    SchedulerRegistration(
+        job_id="history_audit_daily",
+        name="History Audit",
+        description="Deep 90-day coverage audit to catch silent gaps missed by daily sync",
+        timezone="Asia/Shanghai",
+        local_time=time(6, 30),
+        market=Market.CN,
+        handler_name="run_history_audit_job",
     ),
     SchedulerRegistration(
         job_id="sentiment_history_persist",

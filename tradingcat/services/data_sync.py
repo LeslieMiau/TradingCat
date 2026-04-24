@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
+from uuid import uuid4
 
-from tradingcat.domain.models import HistorySyncRun
-from tradingcat.repositories.state import HistorySyncRunRepository
+from tradingcat.domain.models import HistoryAuditRun, HistorySyncRun
+from tradingcat.repositories.state import HistoryAuditRunRepository, HistorySyncRunRepository
 
 
 class HistorySyncService:
@@ -174,3 +175,110 @@ class HistorySyncService:
                 }
             )
         return rows
+
+
+class HistoryAuditService:
+    """Long-window data-coverage audit, separate from daily sync.
+
+    Daily sync reports "today's job ran." An audit answers the different
+    question: "are there silent gaps inside the last N trading days that
+    slipped through previous daily runs?" Weekly cadence is enough — drift
+    rarely compounds faster than that.
+    """
+
+    CRITICAL_COVERAGE_RATIO = 0.95
+    DRIFT_COVERAGE_RATIO = 0.99
+    TOP_FINDINGS_LIMIT = 10
+
+    def __init__(self, repository: HistoryAuditRunRepository) -> None:
+        self._repository = repository
+        self._runs = repository.load()
+
+    def capture(
+        self,
+        coverage_result: dict[str, object],
+        *,
+        as_of: date | None = None,
+        window_days: int = 90,
+        notes: list[str] | None = None,
+    ) -> HistoryAuditRun:
+        target = as_of or date.today()
+        existing = self._runs.get(target.isoformat())
+        reports = coverage_result.get("reports", []) if isinstance(coverage_result, dict) else []
+        instrument_count = int(coverage_result.get("instrument_count", len(reports)))
+        complete = int(coverage_result.get("complete_instruments", 0))
+        minimum_ratio = float(coverage_result.get("minimum_coverage_ratio", 1.0))
+        missing_count = len(coverage_result.get("missing_symbols", []) or [])
+        top_findings = self._top_findings(reports)
+        status = self._classify_status(minimum_ratio, missing_count)
+        run = HistoryAuditRun(
+            id=existing.id if existing else str(uuid4()),
+            as_of=target,
+            window_days=window_days,
+            instrument_count=instrument_count,
+            complete_instruments=complete,
+            minimum_coverage_ratio=round(minimum_ratio, 4),
+            missing_symbol_count=missing_count,
+            top_findings=top_findings,
+            status=status,
+            notes=list(notes or []),
+        )
+        self._runs[target.isoformat()] = run
+        self._repository.save(self._runs)
+        return run
+
+    def list_runs(self) -> list[HistoryAuditRun]:
+        return sorted(self._runs.values(), key=lambda item: item.as_of, reverse=True)
+
+    def latest(self) -> HistoryAuditRun | None:
+        runs = self.list_runs()
+        return runs[0] if runs else None
+
+    def timeline(self, *, window_days: int = 90) -> dict[str, object]:
+        today = date.today()
+        window_start = today - timedelta(days=max(window_days - 1, 0))
+        points = [
+            run
+            for run in self.list_runs()
+            if window_start <= run.as_of <= today
+        ]
+        points.sort(key=lambda item: item.as_of)
+        status_counts = {"ok": 0, "drift": 0, "critical": 0}
+        for run in points:
+            status_counts[run.status] = status_counts.get(run.status, 0) + 1
+        latest = points[-1] if points else None
+        return {
+            "window_days": window_days,
+            "points": [run.model_dump(mode="json") for run in points],
+            "summary": {
+                "audit_count": len(points),
+                "ok_count": status_counts.get("ok", 0),
+                "drift_count": status_counts.get("drift", 0),
+                "critical_count": status_counts.get("critical", 0),
+                "latest_status": latest.status if latest else None,
+                "latest_as_of": latest.as_of.isoformat() if latest else None,
+                "latest_missing_symbol_count": latest.missing_symbol_count if latest else 0,
+            },
+        }
+
+    def _top_findings(self, reports: list[dict[str, object]]) -> list[dict[str, object]]:
+        ranked = [
+            {
+                "symbol": str(report.get("symbol", "")),
+                "market": str(report.get("market", "")),
+                "coverage_ratio": round(float(report.get("coverage_ratio", 0.0)), 4),
+                "missing_count": int(report.get("missing_count", 0)),
+                "missing_preview": list(report.get("missing_preview", []) or [])[:5],
+            }
+            for report in reports
+            if int(report.get("missing_count", 0)) > 0
+        ]
+        ranked.sort(key=lambda item: (-item["missing_count"], item["coverage_ratio"], item["symbol"]))
+        return ranked[: self.TOP_FINDINGS_LIMIT]
+
+    def _classify_status(self, minimum_ratio: float, missing_count: int) -> str:
+        if minimum_ratio < self.CRITICAL_COVERAGE_RATIO or missing_count > 20:
+            return "critical"
+        if minimum_ratio < self.DRIFT_COVERAGE_RATIO or missing_count > 0:
+            return "drift"
+        return "ok"
