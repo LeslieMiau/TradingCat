@@ -45,6 +45,7 @@ from tradingcat.repositories.state import (
     RecoveryAttemptRepository,
     RolloutPolicyRepository,
     RolloutPromotionRepository,
+    SchedulerRunRecordRepository,
     StrategyAllocationRepository,
     StrategySelectionRepository,
 )
@@ -74,7 +75,7 @@ from tradingcat.services.research import ResearchService
 from tradingcat.services.risk import RiskEngine, RiskViolation
 from tradingcat.services.rollout import RolloutPolicyService, RolloutPromotionService
 from tradingcat.services.rule_engine import RuleEngine
-from tradingcat.services.scheduler import SchedulerService
+from tradingcat.services.scheduler import SchedulerRunHistory, SchedulerService
 from tradingcat.services.selection import StrategySelectionService
 from tradingcat.services.trading_journal import TradingJournalService
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
@@ -110,10 +111,12 @@ class TradingCatApplication:
             cooldown_seconds=self.config.notifier.dispatch_cooldown_seconds,
         )
         self.alerts = AlertService(AlertRepository(self.config), dispatcher=dispatcher)
+        self.scheduler_run_history = SchedulerRunHistory(SchedulerRunRecordRepository(self.config))
         self.scheduler = SchedulerService(
             self.market_calendar,
             backend=self.config.scheduler.backend,
             failure_listener=self._record_scheduler_failure_alert,
+            run_history=self.scheduler_run_history,
         )
 
         self.instrument_catalog_repository = InstrumentCatalogRepository(self.config)

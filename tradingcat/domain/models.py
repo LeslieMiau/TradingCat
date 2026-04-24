@@ -637,6 +637,25 @@ class SchedulerRunResult(BaseModel):
     detail: str | None = None
 
 
+class SchedulerRunRecord(BaseModel):
+    """Persisted scheduler run history — one row per job execution.
+
+    Survives process restart so Stage-C auditors can reconstruct 'did this
+    job actually fire at the expected wall-clock time?' without relying on
+    the in-memory ``SchedulerJob.last_run_at`` which is lost on reboot.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    job_id: str
+    job_name: str = ""
+    status: str  # "success", "skipped", "error"
+    trigger: str = "scheduled"  # "scheduled" | "manual"
+    executed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    duration_ms: int = 0
+    detail: str | None = None
+
+
 class MarketSession(BaseModel):
     market: Market
     timezone: str
