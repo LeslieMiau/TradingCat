@@ -579,6 +579,31 @@ class HistoryAuditRun(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class TradeLedgerReconciliationRun(BaseModel):
+    """Daily ledger completeness audit — second layer of "对账零差异" evidence.
+
+    Portfolio reconciliation catches cash/position drift. Execution
+    reconciliation catches duplicate fills. Neither catches the case where a
+    filled order silently failed to materialise into a TradeLedgerEntry (e.g.
+    intent context resolution returned None, fee schedule lookup dropped it).
+
+    One row per as_of date, keyed by ISO date so a same-day rerun overwrites.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    as_of: date
+    captured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    broker_fill_count: int = 0
+    ledger_entry_count: int = 0
+    missing_ledger_count: int = 0
+    missing_broker_count: int = 0
+    amount_drift_count: int = 0
+    max_amount_drift_pct: float = 0.0
+    top_findings: list[dict[str, object]] = Field(default_factory=list)
+    status: Literal["ok", "drift", "critical"] = "ok"
+    notes: list[str] = Field(default_factory=list)
+
+
 class RolloutPolicy(BaseModel):
     stage: str = "100%"
     allocation_ratio: float = 1.0

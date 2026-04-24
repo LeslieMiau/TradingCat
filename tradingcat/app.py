@@ -48,6 +48,7 @@ from tradingcat.repositories.state import (
     SchedulerRunRecordRepository,
     StrategyAllocationRepository,
     StrategySelectionRepository,
+    TradeLedgerReconciliationRunRepository,
 )
 from tradingcat.services.alerts import AlertService
 from tradingcat.services.notifier import build_default_dispatcher
@@ -77,6 +78,7 @@ from tradingcat.services.rollout import RolloutPolicyService, RolloutPromotionSe
 from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerRunHistory, SchedulerService
 from tradingcat.services.selection import StrategySelectionService
+from tradingcat.services.trade_ledger_reconciliation import TradeLedgerReconciliationService
 from tradingcat.services.trading_journal import TradingJournalService
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
 from tradingcat.scheduler_runtime import ApplicationSchedulerRuntime
@@ -135,6 +137,11 @@ class TradingCatApplication:
         self.allocations = StrategyAllocationService(StrategyAllocationRepository(self.config))
         self.history_sync = HistorySyncService(HistorySyncRunRepository(self.config))
         self.history_audit = HistoryAuditService(HistoryAuditRunRepository(self.config))
+        self.trade_ledger_reconciliation = TradeLedgerReconciliationService(
+            TradeLedgerReconciliationRunRepository(self.config),
+            list_orders=lambda: self.execution.list_orders(),
+            build_ledger_entries=lambda **kwargs: self.trade_ledger_service().build_entries(**kwargs),
+        )
         self.operations = OperationsJournalService(OperationsJournalRepository(self.config))
         from tradingcat.services.acceptance_gates import AcceptanceGateEvidenceService
 
@@ -987,6 +994,18 @@ class TradingCatApplication:
 
     def history_audit_timeline(self, *, window_days: int = 90) -> dict[str, object]:
         return self.history_audit.timeline(window_days=window_days)
+
+    def run_trade_ledger_reconciliation(
+        self,
+        *,
+        as_of: date | None = None,
+        notes: list[str] | None = None,
+    ) -> dict[str, object]:
+        run = self.trade_ledger_reconciliation.capture(as_of=as_of, notes=notes)
+        return run.model_dump(mode="json")
+
+    def trade_ledger_reconciliation_timeline(self, *, window_days: int = 30) -> dict[str, object]:
+        return self.trade_ledger_reconciliation.timeline(window_days=window_days)
 
     def acceptance_gates(self) -> dict[str, object]:
         from tradingcat.services.acceptance_gates import compute_acceptance_gates
