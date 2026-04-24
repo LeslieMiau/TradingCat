@@ -581,6 +581,7 @@ class NotifierConfig(BaseModel):
     email_from: str = ""
     email_to: list[str] = Field(default_factory=list)
     min_severity: str = "error"
+    dispatch_cooldown_seconds: int = 900
 
     @classmethod
     def from_env(cls, dotenv_values: dict[str, str]) -> "NotifierConfig":
@@ -595,6 +596,7 @@ class NotifierConfig(BaseModel):
             email_from=_getenv("TRADINGCAT_ALERT_EMAIL_FROM", "", dotenv_values),
             email_to=[addr.strip() for addr in to_raw.split(",") if addr.strip()],
             min_severity=_getenv("TRADINGCAT_ALERT_MIN_SEVERITY", "error", dotenv_values).strip().lower(),
+            dispatch_cooldown_seconds=int(_getenv("TRADINGCAT_ALERT_COOLDOWN_SECONDS", "900", dotenv_values)),
         )
 
 

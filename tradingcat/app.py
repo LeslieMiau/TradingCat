@@ -107,6 +107,7 @@ class TradingCatApplication:
             email_from=self.config.notifier.email_from,
             email_to=self.config.notifier.email_to,
             min_severity=self.config.notifier.min_severity,
+            cooldown_seconds=self.config.notifier.dispatch_cooldown_seconds,
         )
         self.alerts = AlertService(AlertRepository(self.config), dispatcher=dispatcher)
         self.scheduler = SchedulerService(
