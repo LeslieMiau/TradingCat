@@ -559,6 +559,26 @@ class HistorySyncRun(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class HistoryAuditRun(BaseModel):
+    """Deep long-window history coverage audit, complementing HistorySyncRun.
+
+    One row per audit date, keyed by as_of ISO so weekly reruns overwrite.
+    Retains only top findings + summary counts; re-run to get full detail.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    as_of: date
+    captured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    window_days: int = 90
+    instrument_count: int = 0
+    complete_instruments: int = 0
+    minimum_coverage_ratio: float = 1.0
+    missing_symbol_count: int = 0
+    top_findings: list[dict[str, object]] = Field(default_factory=list)
+    status: Literal["ok", "drift", "critical"] = "ok"
+    notes: list[str] = Field(default_factory=list)
+
+
 class RolloutPolicy(BaseModel):
     stage: str = "100%"
     allocation_ratio: float = 1.0

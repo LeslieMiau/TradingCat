@@ -3,10 +3,12 @@ from tradingcat.main import TradingCatApplication
 
 
 EXPECTED_JOB_IDS = {
+    "acceptance_evidence_capture",
     "approval_expiry_sweep",
     "broker_auto_recovery",
     "daily_trading_plan_archive",
     "daily_trading_summary_archive",
+    "history_audit_daily",
     "intraday_risk_tick",
     "market_data_gap_repair",
     "market_data_history_sync",

@@ -21,6 +21,7 @@ from tradingcat.domain.models import (
     DailyTradingPlanNote,
     DailyTradingSummaryNote,
     ExecutionReport,
+    HistoryAuditRun,
     HistorySyncRun,
     KillSwitchEvent,
     OperationsJournalEntry,
@@ -188,6 +189,12 @@ class KillSwitchRepository(_DictRepository[KillSwitchEvent]):
 class AcceptanceGateSnapshotRepository(_DictRepository[AcceptanceGateSnapshot]):
     _bucket_name = "acceptance_gate_snapshots"
     _model_class = AcceptanceGateSnapshot
+    _key_field = "as_of"
+
+
+class HistoryAuditRunRepository(_DictRepository[HistoryAuditRun]):
+    _bucket_name = "history_audit_runs"
+    _model_class = HistoryAuditRun
     _key_field = "as_of"
 
 

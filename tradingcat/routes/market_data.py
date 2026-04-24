@@ -98,6 +98,22 @@ def data_history_sync_status(request: Request):
     return get_app_state(request).history_sync.summary()
 
 
+@router.post("/data/history/audit/run")
+def data_history_audit_run(request: Request, window_days: int = 90):
+    return get_app_state(request).run_history_audit(window_days=window_days)
+
+
+@router.get("/data/history/audit/latest")
+def data_history_audit_latest(request: Request):
+    run = get_app_state(request).history_audit.latest()
+    return run.model_dump(mode="json") if run else None
+
+
+@router.get("/data/history/audit/timeline")
+def data_history_audit_timeline(request: Request, window_days: int = 90):
+    return get_app_state(request).history_audit_timeline(window_days=window_days)
+
+
 @router.get("/data/history/repair-plan")
 def data_history_repair_plan(request: Request, symbols: str | None = None, start: date | None = None, end: date | None = None):
     return get_app_state(request).history_sync_repair_plan(split_csv_param(symbols), start, end)

@@ -34,6 +34,7 @@ from tradingcat.repositories.state import (
     DailyTradingPlanRepository,
     DailyTradingSummaryRepository,
     ExecutionStateRepository,
+    HistoryAuditRunRepository,
     HistorySyncRunRepository,
     KillSwitchRepository,
     AcceptanceGateSnapshotRepository,
@@ -53,7 +54,7 @@ from tradingcat.services.allocation import StrategyAllocationService
 from tradingcat.services.approval import ApprovalService
 from tradingcat.services.audit import AuditService
 from tradingcat.services.compliance import ComplianceService
-from tradingcat.services.data_sync import HistorySyncService
+from tradingcat.services.data_sync import HistoryAuditService, HistorySyncService
 from tradingcat.services.dashboard_snapshots import DashboardSnapshotService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.market_calendar import MarketCalendarService
@@ -129,6 +130,7 @@ class TradingCatApplication:
         self.selection = StrategySelectionService(StrategySelectionRepository(self.config))
         self.allocations = StrategyAllocationService(StrategyAllocationRepository(self.config))
         self.history_sync = HistorySyncService(HistorySyncRunRepository(self.config))
+        self.history_audit = HistoryAuditService(HistoryAuditRunRepository(self.config))
         self.operations = OperationsJournalService(OperationsJournalRepository(self.config))
         from tradingcat.services.acceptance_gates import AcceptanceGateEvidenceService
 
@@ -958,6 +960,29 @@ class TradingCatApplication:
 
     def acceptance_evidence_timeline(self, *, window_days: int = 42) -> dict[str, object]:
         return self.acceptance_evidence.timeline(window_days=window_days)
+
+    def run_history_audit(
+        self,
+        *,
+        window_days: int = 90,
+        as_of: date | None = None,
+        notes: list[str] | None = None,
+    ) -> dict[str, object]:
+        target = as_of or date.today()
+        coverage = self.market_history.summarize_history_coverage(
+            start=target - timedelta(days=window_days - 1),
+            end=target,
+        )
+        run = self.history_audit.capture(
+            coverage,
+            as_of=target,
+            window_days=window_days,
+            notes=notes,
+        )
+        return run.model_dump(mode="json")
+
+    def history_audit_timeline(self, *, window_days: int = 90) -> dict[str, object]:
+        return self.history_audit.timeline(window_days=window_days)
 
     def acceptance_gates(self) -> dict[str, object]:
         from tradingcat.services.acceptance_gates import compute_acceptance_gates
