@@ -995,10 +995,22 @@ class TradingCatApplication:
             logger.exception("Acceptance gate: reconciliation snapshot failed")
         else:
             reconciliation = summary.model_dump(mode="json") if summary is not None else None
+
+        portfolio_reconciliation: dict[str, object] | None = None
+        try:
+            portfolio_summary = self.reconcile_portfolio_with_live_broker()
+        except Exception:
+            logger.exception("Acceptance gate: portfolio reconciliation snapshot failed")
+        else:
+            portfolio_reconciliation = (
+                portfolio_summary.model_dump(mode="json") if portfolio_summary is not None else None
+            )
+
         return compute_acceptance_gates(
             execution_quality=self.execution.execution_quality_summary(),
             audit_metrics=self.audit.execution_metrics_summary(),
             reconciliation=reconciliation,
+            portfolio_reconciliation=portfolio_reconciliation,
             kill_switch_events=self.risk.kill_switch_events(),
         )
 
