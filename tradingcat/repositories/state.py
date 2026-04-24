@@ -32,6 +32,7 @@ from tradingcat.domain.models import (
     SchedulerRunRecord,
     StrategyAllocationRecord,
     StrategySelectionRecord,
+    TradeLedgerReconciliationRun,
 )
 from tradingcat.repositories.json_store import JsonStore
 from tradingcat.repositories.postgres_store import PostgresStore
@@ -203,6 +204,12 @@ class SchedulerRunRecordRepository(_DictRepository[SchedulerRunRecord]):
     _bucket_name = "scheduler_run_records"
     _model_class = SchedulerRunRecord
     _key_field = "id"
+
+
+class TradeLedgerReconciliationRunRepository(_DictRepository[TradeLedgerReconciliationRun]):
+    _bucket_name = "trade_ledger_reconciliation_runs"
+    _model_class = TradeLedgerReconciliationRun
+    _key_field = "as_of"
 
 
 class PortfolioHistoryRepository(_DictRepository[PortfolioSnapshot]):

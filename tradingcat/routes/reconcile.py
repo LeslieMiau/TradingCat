@@ -52,3 +52,21 @@ def reconcile_ledger(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     return app.operations_facade.trade_ledger(start=start, end=end, market=market)
+
+
+@router.post("/ledger/reconciliation")
+def run_trade_ledger_reconciliation(
+    request: Request,
+    as_of: date | None = None,
+    notes: list[str] | None = None,
+):
+    return get_app_state(request).run_trade_ledger_reconciliation(
+        as_of=as_of, notes=notes
+    )
+
+
+@router.get("/ledger/reconciliation/timeline")
+def trade_ledger_reconciliation_timeline(request: Request, window_days: int = 30):
+    return get_app_state(request).trade_ledger_reconciliation_timeline(
+        window_days=window_days
+    )

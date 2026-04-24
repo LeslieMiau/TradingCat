@@ -17,6 +17,7 @@ EXPECTED_JOB_IDS = {
     "research_backtest_refresh",
     "research_selection_review",
     "sentiment_history_persist",
+    "trade_ledger_reconciliation_daily",
     "us_signal_generation",
 }
 

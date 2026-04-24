@@ -114,6 +114,18 @@ class ApplicationSchedulerRuntime:
             f"missing={run['missing_symbol_count']}"
         )
 
+    def run_trade_ledger_reconciliation_job(self) -> str:
+        run = self._app.run_trade_ledger_reconciliation(
+            notes=["scheduled_eod_ledger_audit"]
+        )
+        return (
+            f"Trade ledger reconciliation ({run['status']}): "
+            f"broker_fills={run['broker_fill_count']} ledger_rows={run['ledger_entry_count']} "
+            f"missing_ledger={run['missing_ledger_count']} "
+            f"missing_broker={run['missing_broker_count']} "
+            f"amount_drift={run['amount_drift_count']}"
+        )
+
     def run_daily_trading_plan_job(self) -> str:
         return self._app.generate_daily_trading_plan(date.today()).headline
 
@@ -249,6 +261,15 @@ _JOB_REGISTRATIONS = [
         local_time=time(6, 30),
         market=Market.CN,
         handler_name="run_history_audit_job",
+    ),
+    SchedulerRegistration(
+        job_id="trade_ledger_reconciliation_daily",
+        name="Trade Ledger Reconciliation",
+        description="Daily ledger completeness audit catching silent dropped entries",
+        timezone="Asia/Shanghai",
+        local_time=time(18, 30),
+        market=Market.CN,
+        handler_name="run_trade_ledger_reconciliation_job",
     ),
     SchedulerRegistration(
         job_id="sentiment_history_persist",
