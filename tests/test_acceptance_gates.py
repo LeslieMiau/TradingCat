@@ -7,10 +7,22 @@ from tradingcat.repositories.state import AcceptanceGateSnapshotRepository
 from tradingcat.services.acceptance_gates import (
     EXCEPTION_RATE_THRESHOLD,
     KILL_SWITCH_LATENCY_SECONDS,
+    PORTFOLIO_CASH_TOLERANCE,
     SLIPPAGE_BPS_THRESHOLD,
     AcceptanceGateEvidenceService,
     compute_acceptance_gates,
 )
+
+
+_CLEAN_PORTFOLIO_RECON = {
+    "broker_cash": 100_000.0,
+    "snapshot_cash": 100_000.0,
+    "cash_difference": 0.0,
+    "broker_position_count": 3,
+    "snapshot_position_count": 3,
+    "missing_symbols": [],
+    "unexpected_symbols": [],
+}
 
 
 def test_compute_gates_all_green_when_inputs_clean():
@@ -18,6 +30,7 @@ def test_compute_gates_all_green_when_inputs_clean():
         execution_quality={"equity_samples": 5, "equity_breaches": 0},
         audit_metrics={"cycle_count": 100, "exception_count": 0},
         reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
         kill_switch_events=[
             KillSwitchEvent(
                 enabled=True,
@@ -30,10 +43,12 @@ def test_compute_gates_all_green_when_inputs_clean():
     assert result["gates"]["slippage"]["status"] == "pass"
     assert result["gates"]["exception_rate"]["status"] == "pass"
     assert result["gates"]["reconciliation"]["status"] == "pass"
+    assert result["gates"]["portfolio_reconciliation"]["status"] == "pass"
     assert result["gates"]["kill_switch_latency"]["status"] == "pass"
     assert result["thresholds"]["slippage_bps"] == SLIPPAGE_BPS_THRESHOLD
     assert result["thresholds"]["exception_rate"] == EXCEPTION_RATE_THRESHOLD
     assert result["thresholds"]["kill_switch_latency_seconds"] == KILL_SWITCH_LATENCY_SECONDS
+    assert result["thresholds"]["portfolio_cash_tolerance"] == PORTFOLIO_CASH_TOLERANCE
 
 
 def test_compute_gates_flag_slippage_breach():
@@ -41,6 +56,7 @@ def test_compute_gates_flag_slippage_breach():
         execution_quality={"equity_samples": 5, "equity_breaches": 2},
         audit_metrics={"cycle_count": 10, "exception_count": 0},
         reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
         kill_switch_events=[],
     )
     assert result["status"] == "fail"
@@ -52,6 +68,7 @@ def test_compute_gates_flag_exception_rate_breach():
         execution_quality={"equity_samples": 5, "equity_breaches": 0},
         audit_metrics={"cycle_count": 100, "exception_count": 5},
         reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
         kill_switch_events=[],
     )
     assert result["status"] == "fail"
@@ -64,11 +81,53 @@ def test_compute_gates_flag_reconciliation_diff():
         execution_quality={"equity_samples": 5, "equity_breaches": 0},
         audit_metrics={"cycle_count": 10, "exception_count": 0},
         reconciliation={"duplicate_fills": 1, "unmatched_broker_orders": ["BR-1"]},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
         kill_switch_events=[],
     )
     assert result["status"] == "fail"
     assert result["gates"]["reconciliation"]["status"] == "fail"
     assert result["gates"]["reconciliation"]["metric"]["unmatched_broker_orders"] == 1
+
+
+def test_compute_gates_flag_portfolio_cash_drift():
+    drift = dict(_CLEAN_PORTFOLIO_RECON, cash_difference=50.0)
+    result = compute_acceptance_gates(
+        execution_quality={"equity_samples": 5, "equity_breaches": 0},
+        audit_metrics={"cycle_count": 10, "exception_count": 0},
+        reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=drift,
+        kill_switch_events=[],
+    )
+    assert result["status"] == "fail"
+    assert result["gates"]["portfolio_reconciliation"]["status"] == "fail"
+    assert result["gates"]["portfolio_reconciliation"]["metric"]["cash_difference"] == 50.0
+
+
+def test_compute_gates_flag_portfolio_position_mismatch():
+    drift = dict(_CLEAN_PORTFOLIO_RECON, missing_symbols=["AAPL"], unexpected_symbols=["NVDA", "TSLA"])
+    result = compute_acceptance_gates(
+        execution_quality={"equity_samples": 5, "equity_breaches": 0},
+        audit_metrics={"cycle_count": 10, "exception_count": 0},
+        reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=drift,
+        kill_switch_events=[],
+    )
+    assert result["gates"]["portfolio_reconciliation"]["status"] == "fail"
+    metric = result["gates"]["portfolio_reconciliation"]["metric"]
+    assert metric["missing_symbols"] == 1
+    assert metric["unexpected_symbols"] == 2
+
+
+def test_compute_gates_portfolio_cash_within_tolerance_still_passes():
+    tight = dict(_CLEAN_PORTFOLIO_RECON, cash_difference=PORTFOLIO_CASH_TOLERANCE)
+    result = compute_acceptance_gates(
+        execution_quality={"equity_samples": 5, "equity_breaches": 0},
+        audit_metrics={"cycle_count": 10, "exception_count": 0},
+        reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=tight,
+        kill_switch_events=[],
+    )
+    assert result["gates"]["portfolio_reconciliation"]["status"] == "pass"
 
 
 def test_compute_gates_flag_kill_latency_breach():
@@ -81,6 +140,7 @@ def test_compute_gates_flag_kill_latency_breach():
         execution_quality={"equity_samples": 5, "equity_breaches": 0},
         audit_metrics={"cycle_count": 10, "exception_count": 0},
         reconciliation={"duplicate_fills": 0, "unmatched_broker_orders": []},
+        portfolio_reconciliation=_CLEAN_PORTFOLIO_RECON,
         kill_switch_events=[slow],
     )
     assert result["status"] == "fail"
@@ -90,11 +150,13 @@ def test_compute_gates_flag_kill_latency_breach():
 
 def test_compute_gates_pending_when_no_samples():
     result = compute_acceptance_gates()
-    # Reconciliation with no data = no diffs; the other three are pending.
+    # Reconciliation (execution) with no data = no diffs; portfolio reconciliation
+    # is pending because broker is disconnected; slippage/exception/latency all pending.
     assert result["gates"]["slippage"]["status"] == "pending"
     assert result["gates"]["exception_rate"]["status"] == "pending"
     assert result["gates"]["kill_switch_latency"]["status"] == "pending"
     assert result["gates"]["reconciliation"]["status"] == "pass"
+    assert result["gates"]["portfolio_reconciliation"]["status"] == "pending"
     assert result["status"] == "pending"
 
 

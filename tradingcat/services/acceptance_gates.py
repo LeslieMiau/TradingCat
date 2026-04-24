@@ -25,6 +25,7 @@ from typing import Iterable
 SLIPPAGE_BPS_THRESHOLD = 20.0
 EXCEPTION_RATE_THRESHOLD = 0.01
 KILL_SWITCH_LATENCY_SECONDS = 60.0
+PORTFOLIO_CASH_TOLERANCE = 1.0  # Absolute units in base currency — broker rounding
 
 
 def _gate(status: str, detail: str, metric: dict[str, object] | None = None) -> dict[str, object]:
@@ -102,6 +103,50 @@ def evaluate_reconciliation(
     )
 
 
+def evaluate_portfolio_reconciliation(
+    portfolio_reconciliation: dict[str, object] | None,
+) -> dict[str, object]:
+    """Gate on broker-vs-local portfolio drift.
+
+    Stage C requires daily reconciliation diff == 0. Cash is allowed a tiny
+    absolute tolerance (``PORTFOLIO_CASH_TOLERANCE``) to absorb broker rounding;
+    any missing or unexpected symbol is a hard fail because positions shouldn't
+    silently drift between reconciliation runs.
+    """
+    summary = portfolio_reconciliation or {}
+    cash_difference = float(summary.get("cash_difference", 0.0) or 0.0)
+    missing = summary.get("missing_symbols", [])
+    unexpected = summary.get("unexpected_symbols", [])
+    missing_count = len(missing) if hasattr(missing, "__len__") else int(missing or 0)
+    unexpected_count = len(unexpected) if hasattr(unexpected, "__len__") else int(unexpected or 0)
+    metric = {
+        "cash_difference": round(cash_difference, 4),
+        "missing_symbols": missing_count,
+        "unexpected_symbols": unexpected_count,
+        "cash_tolerance": PORTFOLIO_CASH_TOLERANCE,
+    }
+    if not portfolio_reconciliation:
+        return _gate(
+            "pending",
+            "No portfolio reconciliation snapshot available (broker disconnected?).",
+            metric,
+        )
+    failures: list[str] = []
+    if abs(cash_difference) > PORTFOLIO_CASH_TOLERANCE:
+        failures.append(f"cash diff {cash_difference:.2f} (tolerance {PORTFOLIO_CASH_TOLERANCE:.2f})")
+    if missing_count:
+        failures.append(f"{missing_count} missing symbol(s)")
+    if unexpected_count:
+        failures.append(f"{unexpected_count} unexpected symbol(s)")
+    if not failures:
+        return _gate(
+            "pass",
+            f"Portfolio matches broker within tolerance (cash diff {cash_difference:.2f}).",
+            metric,
+        )
+    return _gate("fail", "Portfolio drift: " + ", ".join(failures) + ".", metric)
+
+
 def evaluate_kill_switch_latency(
     events: Iterable[object],
 ) -> dict[str, object]:
@@ -164,12 +209,14 @@ def compute_acceptance_gates(
     execution_quality: dict[str, object] | None = None,
     audit_metrics: dict[str, object] | None = None,
     reconciliation: dict[str, object] | None = None,
+    portfolio_reconciliation: dict[str, object] | None = None,
     kill_switch_events: Iterable[object] = (),
 ) -> dict[str, object]:
     gates = {
         "slippage": evaluate_slippage(execution_quality),
         "exception_rate": evaluate_exception_rate(audit_metrics),
         "reconciliation": evaluate_reconciliation(reconciliation),
+        "portfolio_reconciliation": evaluate_portfolio_reconciliation(portfolio_reconciliation),
         "kill_switch_latency": evaluate_kill_switch_latency(kill_switch_events),
     }
     return {
@@ -180,6 +227,7 @@ def compute_acceptance_gates(
             "exception_rate": EXCEPTION_RATE_THRESHOLD,
             "kill_switch_latency_seconds": KILL_SWITCH_LATENCY_SECONDS,
             "reconciliation_diff": 0,
+            "portfolio_cash_tolerance": PORTFOLIO_CASH_TOLERANCE,
         },
     }
 
@@ -339,9 +387,11 @@ __all__ = [
     "SLIPPAGE_BPS_THRESHOLD",
     "EXCEPTION_RATE_THRESHOLD",
     "KILL_SWITCH_LATENCY_SECONDS",
+    "PORTFOLIO_CASH_TOLERANCE",
     "evaluate_slippage",
     "evaluate_exception_rate",
     "evaluate_reconciliation",
+    "evaluate_portfolio_reconciliation",
     "evaluate_kill_switch_latency",
     "combined_status",
     "compute_acceptance_gates",
