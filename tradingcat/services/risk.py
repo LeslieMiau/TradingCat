@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 from tradingcat.config import RiskConfig
-from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, PortfolioSnapshot, Signal
+from tradingcat.domain.models import AssetClass, Instrument, KillSwitchEvent, Market, OrderIntent, PortfolioSnapshot, Signal
 from tradingcat.repositories.state import KillSwitchRepository
 
 
@@ -96,6 +96,7 @@ class RiskEngine:
         market_cash_remaining = dict(available_cash_by_market or {})
         option_premium_risk = 0.0
         for signal in signal_set:
+            self._check_cn_market_rules(signal, prices)
             max_weight = (
                 self._config.max_single_etf_weight
                 if signal.instrument.asset_class == AssetClass.ETF
@@ -238,3 +239,82 @@ class RiskEngine:
         raw_quantity = notional / price
         lots = math.floor(raw_quantity / lot_size)
         return round(lots * lot_size, 2)
+
+    def _check_cn_market_rules(self, signal: Signal, prices: dict[str, float] | None) -> None:
+        if not self._config.cn_market_rules_enabled or signal.instrument.market != Market.CN:
+            return
+        if self._is_st_or_delisting(signal.instrument):
+            raise RiskViolation(f"CN risk flag blocks trading for {signal.instrument.symbol}")
+
+        metadata = signal.metadata or {}
+        if signal.side.value == "sell" and self._is_t_plus_one_locked(signal):
+            raise RiskViolation(f"CN T+1 sell lock active for {signal.instrument.symbol}")
+
+        limit_status = str(metadata.get("limit_status") or "").lower()
+        if signal.side.value == "buy" and limit_status in {"up", "limit_up"}:
+            raise RiskViolation(f"CN limit-up blocks buy for {signal.instrument.symbol}")
+        if signal.side.value == "sell" and limit_status in {"down", "limit_down"}:
+            raise RiskViolation(f"CN limit-down blocks sell for {signal.instrument.symbol}")
+
+        previous_close = self._metadata_float(metadata.get("previous_close"))
+        current_price = self._metadata_float(metadata.get("current_price"))
+        if current_price is None and prices is not None:
+            current_price = self._metadata_float(prices.get(signal.instrument.symbol))
+        if previous_close is None or current_price is None or previous_close <= 0:
+            return
+
+        limit_pct = self._cn_limit_pct(signal.instrument)
+        limit_up = previous_close * (1 + limit_pct)
+        limit_down = previous_close * (1 - limit_pct)
+        tolerance = max(previous_close * 0.0005, 0.001)
+        if signal.side.value == "buy" and current_price >= limit_up - tolerance:
+            raise RiskViolation(f"CN limit-up blocks buy for {signal.instrument.symbol}")
+        if signal.side.value == "sell" and current_price <= limit_down + tolerance:
+            raise RiskViolation(f"CN limit-down blocks sell for {signal.instrument.symbol}")
+
+    def _cn_limit_pct(self, instrument: Instrument) -> float:
+        if self._is_st_or_delisting(instrument):
+            return self._config.cn_limit_pct_st
+        symbol = instrument.symbol.strip()
+        if symbol.startswith(("300", "301", "688")):
+            return self._config.cn_limit_pct_growth_board
+        return self._config.cn_limit_pct_regular
+
+    @staticmethod
+    def _is_st_or_delisting(instrument: Instrument) -> bool:
+        text = f"{instrument.symbol} {instrument.name} {' '.join(instrument.tags)}".casefold()
+        return any(flag in text for flag in {"*st", " st", "st ", "退市", "delisting"})
+
+    @staticmethod
+    def _is_t_plus_one_locked(signal: Signal) -> bool:
+        bought_at = signal.metadata.get("bought_at") or signal.metadata.get("acquired_at") or signal.metadata.get("last_buy_date")
+        if bought_at is None:
+            return False
+        bought_date = RiskEngine._metadata_date(bought_at)
+        if bought_date is None:
+            return False
+        return bought_date == signal.generated_at.date()
+
+    @staticmethod
+    def _metadata_float(raw: object) -> float | None:
+        try:
+            value = float(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) else None
+
+    @staticmethod
+    def _metadata_date(raw: object):
+        if isinstance(raw, datetime):
+            return raw.date()
+        if isinstance(raw, date):
+            return raw
+        if isinstance(raw, str):
+            try:
+                return datetime.fromisoformat(raw).date()
+            except ValueError:
+                try:
+                    return date.fromisoformat(raw)
+                except ValueError:
+                    return None
+        return None

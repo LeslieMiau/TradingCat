@@ -69,6 +69,89 @@ def test_risk_engine_respects_market_cash_budget():
     assert intents == []
 
 
+def _cn_signal(
+    *,
+    symbol: str = "600000",
+    name: str = "Pudong",
+    side: OrderSide = OrderSide.BUY,
+    metadata: dict[str, object] | None = None,
+) -> Signal:
+    return Signal(
+        strategy_id="strategy_test_cn",
+        generated_at=datetime(2026, 3, 7, tzinfo=UTC),
+        instrument=Instrument(symbol=symbol, market=Market.CN, asset_class=AssetClass.STOCK, currency="CNY", name=name),
+        side=side,
+        target_weight=0.02,
+        reason="cn rule test",
+        metadata=metadata or {},
+    )
+
+
+def test_cn_risk_blocks_st_or_delisting_instruments():
+    engine = RiskEngine(RiskConfig())
+    signal = _cn_signal(name="*ST Example")
+
+    with pytest.raises(RiskViolation, match="risk flag"):
+        engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 10.0})
+
+
+def test_cn_risk_blocks_limit_up_buy_and_limit_down_sell():
+    engine = RiskEngine(RiskConfig())
+
+    with pytest.raises(RiskViolation, match="limit-up"):
+        engine.check(
+            [_cn_signal(metadata={"previous_close": 10.0})],
+            portfolio_nav=1_000_000,
+            drawdown=0,
+            daily_pnl=0,
+            weekly_pnl=0,
+            prices={"600000": 11.0},
+        )
+
+    with pytest.raises(RiskViolation, match="limit-down"):
+        engine.check(
+            [_cn_signal(side=OrderSide.SELL, metadata={"previous_close": 10.0})],
+            portfolio_nav=1_000_000,
+            drawdown=0,
+            daily_pnl=0,
+            weekly_pnl=0,
+            prices={"600000": 9.0},
+        )
+
+
+def test_cn_risk_uses_growth_board_twenty_percent_limit():
+    engine = RiskEngine(RiskConfig())
+    signal = _cn_signal(symbol="300308", metadata={"previous_close": 100.0})
+
+    intents = engine.check(
+        [signal],
+        portfolio_nav=1_000_000,
+        drawdown=0,
+        daily_pnl=0,
+        weekly_pnl=0,
+        prices={"300308": 119.0},
+    )
+    assert intents
+
+    with pytest.raises(RiskViolation, match="limit-up"):
+        engine.check(
+            [signal],
+            portfolio_nav=1_000_000,
+            drawdown=0,
+            daily_pnl=0,
+            weekly_pnl=0,
+            prices={"300308": 120.0},
+        )
+
+
+def test_cn_risk_blocks_t_plus_one_sell_lock():
+    engine = RiskEngine(RiskConfig())
+    signal = _cn_signal(side=OrderSide.SELL, metadata={"last_buy_date": "2026-03-07"})
+
+    with pytest.raises(RiskViolation, match="T\\+1"):
+        engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 10.0})
+
+
 def test_risk_engine_persists_kill_switch_events(tmp_path):
     engine = RiskEngine(RiskConfig(), kill_switch_repository=KillSwitchRepository(tmp_path))
 

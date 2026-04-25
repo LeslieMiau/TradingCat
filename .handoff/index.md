@@ -34,15 +34,16 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | `e9f2284` |
 | 06 | P2.2 财联社 / Finnhub / Alpha Vantage 资讯源 | ✅ done | [round-06-news-sources.md](round-06-news-sources.md) | `906efb8` |
 | 07 | P2.3 NewsItem 模型 + 多层过滤 | ✅ done | [round-07-news-filter.md](round-07-news-filter.md) | `f2d9aba` |
-| 08 | P3 中国市场硬风控规则 | ⬜ pending | — | — |
-| 09+ | P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
+| 08 | P3 中国市场硬风控规则 | ✅ done | [round-08-cn-risk-rules.md](round-08-cn-risk-rules.md) | TBD |
+| 09 | P4 技术指标特征工程 | ⬜ pending | — | — |
+| 10+ | P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
 
-1. 读 [round-07-news-filter.md](round-07-news-filter.md) §"Next step → Round 08"。
-2. 创建 `.handoff/round-08-cn-risk-rules.md`，按相同结构填写。
-3. 跑新增 risk 测试，并回归 `tests/test_risk.py`。
-4. commit + 更新本 index 表的 Round 08 行。
+1. 读 [round-08-cn-risk-rules.md](round-08-cn-risk-rules.md) §"Next step → Round 09"。
+2. 创建 `.handoff/round-09-technical-features.md`。
+3. 跑新增 research candidate 技术指标测试。
+4. commit + 更新本 index 表的 Round 09 行。
 
 ## 给 Codex 接力者的常用指令
 

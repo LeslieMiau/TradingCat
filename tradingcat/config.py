@@ -114,6 +114,10 @@ class RiskConfig(BaseModel):
     fallback_price_hk: float = 600.0
     fallback_price_cn_etf: float = 5.0
     fallback_price_cn_stock: float = 20.0
+    cn_market_rules_enabled: bool = True
+    cn_limit_pct_regular: float = 0.10
+    cn_limit_pct_st: float = 0.05
+    cn_limit_pct_growth_board: float = 0.20
 
     @field_validator(
         "max_single_stock_weight",
@@ -129,6 +133,9 @@ class RiskConfig(BaseModel):
         "fallback_price_hk",
         "fallback_price_cn_etf",
         "fallback_price_cn_stock",
+        "cn_limit_pct_regular",
+        "cn_limit_pct_st",
+        "cn_limit_pct_growth_board",
     )
     @classmethod
     def validate_non_negative(cls, value: float) -> float:
