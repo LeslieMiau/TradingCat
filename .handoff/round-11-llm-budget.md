@@ -44,5 +44,5 @@ Round 12：新增 LLM provider Protocol 和 fake/OpenAI-compatible adapter 壳�
 ## Commit
 
 ```
-TBD
+92f85c7 absorb-tradingagents-cn: round 11 — LLM budget gate
 ```
