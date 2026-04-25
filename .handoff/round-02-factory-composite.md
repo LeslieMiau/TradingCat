@@ -66,7 +66,7 @@ Round 03 进入 P1.2：新增 BaoStock adapter，作为中国市场免费数据 
 ## Commit
 
 ```
-TBD
+1ac8f78 absorb-tradingagents-cn: round 02 — AdapterFactory composite market data
 ```
 
 ---
