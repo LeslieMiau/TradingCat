@@ -30,7 +30,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 01 | P1.1 AKShare A 股 MarketDataAdapter | ✅ done | [round-01-akshare-adapter.md](round-01-akshare-adapter.md) | (见下方 git log) |
 | 02 | P1.1 AdapterFactory composite 接线 | ✅ done | [round-02-factory-composite.md](round-02-factory-composite.md) | `1ac8f78` |
 | 03 | P1.2 BaoStock adapter | ✅ done | [round-03-baostock-adapter.md](round-03-baostock-adapter.md) | `f4e2ff6` |
-| 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | TBD |
+| 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | `8d5cde6` |
 | 05 | P2.1 East Money 资讯源 | ⬜ pending | — | — |
 | 06+ | P2 其他资讯源 / P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
