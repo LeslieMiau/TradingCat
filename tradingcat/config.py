@@ -161,6 +161,43 @@ class YFinanceConfig(BaseModel):
         return cls(enabled=enabled_raw in {"1", "true", "yes", "on"})
 
 
+class AkshareConfig(BaseModel):
+    """AKShare A-share market-data adapter knobs.
+
+    Off by default — enabling it has no effect until ``AdapterFactory`` wires
+    the adapter (planned Round 02). Kept here so the env knob is part of a
+    single config shape.
+    """
+
+    enabled: bool = False
+    adjust: Literal["", "qfq", "hfq"] = "qfq"
+    spot_cache_ttl_seconds: float = 30.0
+
+    @field_validator("spot_cache_ttl_seconds")
+    @classmethod
+    def _non_negative_ttl(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("akshare.spot_cache_ttl_seconds must be non-negative")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AkshareConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_AKSHARE_ENABLED", "false", env_values).strip().lower()
+        adjust_raw = _getenv("TRADINGCAT_AKSHARE_ADJUST", "qfq", env_values).strip().lower()
+        if adjust_raw not in {"", "qfq", "hfq"}:
+            raise ValueError(
+                f"TRADINGCAT_AKSHARE_ADJUST must be '', 'qfq', or 'hfq' (got {adjust_raw!r})"
+            )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            adjust=adjust_raw,
+            spot_cache_ttl_seconds=float(
+                _getenv("TRADINGCAT_AKSHARE_SPOT_CACHE_TTL_SECONDS", "30.0", env_values)
+            ),
+        )
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -625,6 +662,7 @@ class AppConfig(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     futu: FutuConfig = Field(default_factory=FutuConfig)
     yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
+    akshare: AkshareConfig = Field(default_factory=AkshareConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -697,6 +735,7 @@ class AppConfig(BaseModel):
             scheduler=SchedulerConfig.from_env(dotenv_values),
             futu=FutuConfig.from_env(dotenv_values),
             yfinance=YFinanceConfig.from_env(dotenv_values),
+            akshare=AkshareConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
