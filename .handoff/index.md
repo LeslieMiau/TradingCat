@@ -33,7 +33,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | `8d5cde6` |
 | 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | `e9f2284` |
 | 06 | P2.2 财联社 / Finnhub / Alpha Vantage 资讯源 | ✅ done | [round-06-news-sources.md](round-06-news-sources.md) | `906efb8` |
-| 07 | P2.3 NewsItem 模型 + 多层过滤 | ✅ done | [round-07-news-filter.md](round-07-news-filter.md) | TBD |
+| 07 | P2.3 NewsItem 模型 + 多层过滤 | ✅ done | [round-07-news-filter.md](round-07-news-filter.md) | `f2d9aba` |
 | 08 | P3 中国市场硬风控规则 | ⬜ pending | — | — |
 | 09+ | P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 

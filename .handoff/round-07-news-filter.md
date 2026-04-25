@@ -51,5 +51,5 @@ Round 08 进入 P3：中国市场专属确定性硬规则。
 ## Commit
 
 ```
-TBD
+f2d9aba absorb-tradingagents-cn: round 07 — news filter pipeline
 ```
