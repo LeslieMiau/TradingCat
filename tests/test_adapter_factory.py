@@ -1,10 +1,15 @@
+from datetime import UTC, date, datetime
+
 import pytest
 
+from tradingcat.adapters.cn.akshare import AkshareUnavailable
+from tradingcat.adapters.composite import CompositeMarketDataAdapter
 from tradingcat.adapters.futu import FutuAdapterUnavailable, _asset_class_from_symbol, _map_order_status, _parse_date
 from tradingcat.adapters.factory import AdapterFactory
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.broker import SimulatedBrokerAdapter
-from tradingcat.config import AppConfig, FutuConfig
+from tradingcat.config import AkshareConfig, AppConfig, FutuConfig
+from tradingcat.domain.models import AssetClass, Bar, Instrument, Market
 
 
 class _ReachableSocket:
@@ -28,6 +33,25 @@ def test_factory_falls_back_when_futu_disabled():
     assert isinstance(factory.create_market_data_adapter(), StaticMarketDataAdapter)
     assert isinstance(factory.create_live_broker_adapter(), SimulatedBrokerAdapter)
     assert factory.broker_backend_name() == "simulated"
+
+
+def test_factory_ignores_akshare_when_disabled(monkeypatch):
+    monkeypatch.setattr("tradingcat.adapters.factory.AKSHARE_AVAILABLE", True)
+    monkeypatch.setattr(
+        "tradingcat.adapters.factory.AkshareMarketDataAdapter",
+        lambda *_args, **_kwargs: pytest.fail("AKShare should not initialize when disabled"),
+    )
+    factory = AdapterFactory(
+        AppConfig(
+            futu=FutuConfig(enabled=False),
+            akshare=AkshareConfig(enabled=False),
+        )
+    )
+
+    adapter = factory.create_market_data_adapter()
+
+    assert isinstance(adapter, StaticMarketDataAdapter)
+    assert not isinstance(adapter, CompositeMarketDataAdapter)
 
 
 def test_factory_falls_back_when_sdk_missing(monkeypatch):
@@ -60,6 +84,87 @@ def test_factory_falls_back_when_futu_init_times_out(monkeypatch):
 
     adapter = factory.create_market_data_adapter()
     assert isinstance(adapter, StaticMarketDataAdapter)
+
+
+def test_factory_wraps_market_data_with_akshare_composite(monkeypatch):
+    monkeypatch.setattr("tradingcat.adapters.factory.AKSHARE_AVAILABLE", True)
+
+    class _FakeAkshareAdapter:
+        def __init__(self, *, adjust, spot_cache_ttl_seconds):
+            self.adjust = adjust
+            self.spot_cache_ttl_seconds = spot_cache_ttl_seconds
+
+        def fetch_bars(self, instrument, start, end):
+            return [
+                Bar(
+                    instrument=instrument,
+                    timestamp=datetime(2024, 1, 2, tzinfo=UTC),
+                    open=10.0,
+                    high=11.0,
+                    low=9.0,
+                    close=10.5,
+                    volume=1000,
+                )
+            ]
+
+        def fetch_quotes(self, instruments):
+            return {instrument.symbol: 12.3 for instrument in instruments}
+
+    monkeypatch.setattr("tradingcat.adapters.factory.AkshareMarketDataAdapter", _FakeAkshareAdapter)
+    factory = AdapterFactory(
+        AppConfig(
+            futu=FutuConfig(enabled=False),
+            akshare=AkshareConfig(enabled=True, adjust="hfq", spot_cache_ttl_seconds=5.0),
+        )
+    )
+
+    adapter = factory.create_market_data_adapter()
+    cn = Instrument(symbol="600000", market=Market.CN, asset_class=AssetClass.STOCK, currency="CNY")
+    us = Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD")
+
+    assert isinstance(adapter, CompositeMarketDataAdapter)
+    assert adapter.fetch_bars(cn, date(2024, 1, 1), date(2024, 1, 3))[0].close == 10.5
+    assert adapter.fetch_quotes([cn, us]) == {"600000": 12.3, "SPY": 100.0}
+
+
+def test_akshare_composite_falls_back_to_inner_on_empty_or_unavailable(monkeypatch):
+    monkeypatch.setattr("tradingcat.adapters.factory.AKSHARE_AVAILABLE", True)
+
+    class _EmptyAkshareAdapter:
+        def __init__(self, **_kwargs):
+            return None
+
+        def fetch_bars(self, instrument, start, end):
+            return []
+
+        def fetch_quotes(self, instruments):
+            return {}
+
+    monkeypatch.setattr("tradingcat.adapters.factory.AkshareMarketDataAdapter", _EmptyAkshareAdapter)
+    factory = AdapterFactory(
+        AppConfig(
+            futu=FutuConfig(enabled=False),
+            akshare=AkshareConfig(enabled=True),
+        )
+    )
+    adapter = factory.create_market_data_adapter()
+    cn = Instrument(symbol="600000", market=Market.CN, asset_class=AssetClass.STOCK, currency="CNY")
+
+    assert adapter.fetch_bars(cn, date(2024, 1, 1), date(2024, 1, 2))
+    assert adapter.fetch_quotes([cn]) == {"600000": 100.0}
+
+    class _UnavailableAkshareAdapter(_EmptyAkshareAdapter):
+        def fetch_bars(self, instrument, start, end):
+            raise AkshareUnavailable("not available")
+
+        def fetch_quotes(self, instruments):
+            raise AkshareUnavailable("not available")
+
+    monkeypatch.setattr("tradingcat.adapters.factory.AkshareMarketDataAdapter", _UnavailableAkshareAdapter)
+    adapter = factory.create_market_data_adapter()
+
+    assert adapter.fetch_bars(cn, date(2024, 1, 1), date(2024, 1, 2))
+    assert adapter.fetch_quotes([cn]) == {"600000": 100.0}
 
 
 def test_factory_validation_reports_skipped_or_failures(monkeypatch):

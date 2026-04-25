@@ -10,6 +10,8 @@ from typing import Callable, TypeVar
 logger = logging.getLogger(__name__)
 
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
+from tradingcat.adapters.cn.akshare import AKSHARE_AVAILABLE, AkshareMarketDataAdapter, AkshareUnavailable
+from tradingcat.adapters.composite import CompositeMarketDataAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.futu import FutuAdapterUnavailable, FutuBrokerAdapter, FutuMarketDataAdapter
 from tradingcat.adapters.yfinance_adapter import YFinanceMarketDataAdapter
@@ -88,19 +90,39 @@ class AdapterFactory:
             executor.shutdown(wait=True, cancel_futures=True)
 
     def create_market_data_adapter(self):
+        adapter = None
+        backend_name = "static"
         if self._config.futu.enabled:
             try:
                 self._ensure_futu_endpoint()
                 adapter = self._create_with_timeout(lambda: FutuMarketDataAdapter(self._config.futu))
                 logger.info("Using Futu market data adapter")
-                return adapter
+                backend_name = "futu"
             except FutuAdapterUnavailable as exc:
                 logger.warning("Futu market data unavailable, falling back: %s", exc)
-        if self._config.yfinance.enabled:
+        if adapter is None and self._config.yfinance.enabled:
             logger.info("Using YFinance market data adapter")
-            return YFinanceMarketDataAdapter()
-        logger.info("Using Static (fallback) market data adapter")
-        return StaticMarketDataAdapter()
+            adapter = YFinanceMarketDataAdapter()
+            backend_name = "yfinance"
+        if adapter is None:
+            logger.info("Using Static (fallback) market data adapter")
+            adapter = StaticMarketDataAdapter()
+
+        if not self._config.akshare.enabled:
+            return adapter
+        if not AKSHARE_AVAILABLE:
+            logger.warning("AKShare market data enabled but SDK is unavailable; using %s only", backend_name)
+            return adapter
+        try:
+            akshare_adapter = AkshareMarketDataAdapter(
+                adjust=self._config.akshare.adjust,
+                spot_cache_ttl_seconds=self._config.akshare.spot_cache_ttl_seconds,
+            )
+        except AkshareUnavailable as exc:
+            logger.warning("AKShare market data unavailable during initialization; using %s only: %s", backend_name, exc)
+            return adapter
+        logger.info("Using composite market data adapter: CN->AKShare, US/HK->%s", backend_name)
+        return CompositeMarketDataAdapter(akshare_inner=akshare_adapter, us_hk_inner=adapter)
 
     def create_live_broker_adapter(self):
         if not self._config.futu.enabled:
