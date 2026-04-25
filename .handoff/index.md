@@ -38,7 +38,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 09 | P4 技术指标特征工程 | ✅ done | [round-09-technical-features.md](round-09-technical-features.md) | `2e7d71f` |
 | 10 | P5 Universe screener | ✅ done | [round-10-universe-screener.md](round-10-universe-screener.md) | `705e328` |
 | 11 | P6.1 LLM budget gate | ✅ done | [round-11-llm-budget.md](round-11-llm-budget.md) | `92f85c7` |
-| 12 | P6.2 LLM provider abstraction | ✅ done | [round-12-llm-provider.md](round-12-llm-provider.md) | TBD |
+| 12 | P6.2 LLM provider abstraction | ✅ done | [round-12-llm-provider.md](round-12-llm-provider.md) | `f5b4e48` |
 | 13 | P6.3 Advisory research analysts | ⬜ pending | — | — |
 | 14+ | P6 reports / cache | ⬜ pending | — | — |
 

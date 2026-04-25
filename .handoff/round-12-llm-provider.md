@@ -45,5 +45,5 @@ Round 13：新增 advisory-only research analysts。
 ## Commit
 
 ```
-TBD
+f5b4e48 absorb-tradingagents-cn: round 12 — LLM provider abstraction
 ```
