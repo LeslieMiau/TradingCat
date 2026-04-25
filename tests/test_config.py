@@ -12,6 +12,9 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_FUTU_PORT", "22222")
     monkeypatch.setenv("TRADINGCAT_BAOSTOCK_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_BAOSTOCK_ADJUSTFLAG", "3")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_TOKEN", "secret-token")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_ADJ", "hfq")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_DSN", "postgresql:///tradingcat_test")
     monkeypatch.setenv("TRADINGCAT_DUCKDB_ENABLED", "true")
@@ -43,6 +46,9 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.futu.port == 22222
     assert config.baostock.enabled is True
     assert config.baostock.adjustflag == "3"
+    assert config.tushare.enabled is True
+    assert config.tushare.token == "secret-token"
+    assert config.tushare.adj == "hfq"
     assert config.postgres.enabled is True
     assert config.postgres.dsn == "postgresql:///tradingcat_test"
     assert config.duckdb.enabled is True
