@@ -15,6 +15,9 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_TUSHARE_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_TUSHARE_TOKEN", "secret-token")
     monkeypatch.setenv("TRADINGCAT_TUSHARE_ADJ", "hfq")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_COLUMN", "350")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_PAGE_SIZE", "9")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_DSN", "postgresql:///tradingcat_test")
     monkeypatch.setenv("TRADINGCAT_DUCKDB_ENABLED", "true")
@@ -49,6 +52,9 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.tushare.enabled is True
     assert config.tushare.token == "secret-token"
     assert config.tushare.adj == "hfq"
+    assert config.eastmoney_news.enabled is True
+    assert config.eastmoney_news.column == "350"
+    assert config.eastmoney_news.page_size == 9
     assert config.postgres.enabled is True
     assert config.postgres.dsn == "postgresql:///tradingcat_test"
     assert config.duckdb.enabled is True

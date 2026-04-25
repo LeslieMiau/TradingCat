@@ -247,6 +247,48 @@ class TushareConfig(BaseModel):
         )
 
 
+class EastMoneyNewsConfig(BaseModel):
+    """East Money news-source adapter knobs."""
+
+    enabled: bool = False
+    column: str = "351"
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+    timeout_seconds: float = 5.0
+    user_agent: str = "Mozilla/5.0 TradingCat research bot"
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("eastmoney news integer config values must be positive")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _positive_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("eastmoney news timeout must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "EastMoneyNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_EASTMONEY_NEWS_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            column=_getenv("TRADINGCAT_EASTMONEY_NEWS_COLUMN", "351", env_values).strip(),
+            page_size=int(_getenv("TRADINGCAT_EASTMONEY_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_EASTMONEY_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+            timeout_seconds=float(_getenv("TRADINGCAT_EASTMONEY_NEWS_TIMEOUT_SECONDS", "5.0", env_values)),
+            user_agent=_getenv(
+                "TRADINGCAT_EASTMONEY_NEWS_USER_AGENT",
+                "Mozilla/5.0 TradingCat research bot",
+                env_values,
+            ).strip(),
+        )
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -714,6 +756,7 @@ class AppConfig(BaseModel):
     akshare: AkshareConfig = Field(default_factory=AkshareConfig)
     baostock: BaostockConfig = Field(default_factory=BaostockConfig)
     tushare: TushareConfig = Field(default_factory=TushareConfig)
+    eastmoney_news: EastMoneyNewsConfig = Field(default_factory=EastMoneyNewsConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -789,6 +832,7 @@ class AppConfig(BaseModel):
             akshare=AkshareConfig.from_env(dotenv_values),
             baostock=BaostockConfig.from_env(dotenv_values),
             tushare=TushareConfig.from_env(dotenv_values),
+            eastmoney_news=EastMoneyNewsConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
