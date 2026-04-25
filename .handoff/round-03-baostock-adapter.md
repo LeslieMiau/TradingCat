@@ -81,7 +81,7 @@ Round 04 进入 P1.3：新增 Tushare adapter。Tushare 需要 token，必须默
 ## Commit
 
 ```
-TBD
+f4e2ff6 absorb-tradingagents-cn: round 03 — BaoStock A-share market data adapter
 ```
 
 ---
