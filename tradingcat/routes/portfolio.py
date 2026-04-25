@@ -28,6 +28,11 @@ def portfolio_reconcile(request: Request):
     return get_app_state(request).reconcile_portfolio_with_live_broker()
 
 
+@router.get("/broker-state")
+def portfolio_broker_state(request: Request):
+    return get_app_state(request).portfolio_broker_state()
+
+
 @router.post("/rebalance-plan")
 def portfolio_rebalance_plan(request: Request, payload: RebalancePlanPayload):
     return get_app_state(request).rebalance_plan(payload.as_of or date.today())
