@@ -1,10 +1,165 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 
 from tradingcat.adapters.market import sample_instruments
-from tradingcat.domain.models import OrderSide, Signal
+from tradingcat.domain.models import Bar, OrderSide, Signal
 from tradingcat.strategies.base import Strategy
+
+
+@dataclass(frozen=True, slots=True)
+class TechnicalFeatureSnapshot:
+    close: float
+    ma5: float | None
+    ma10: float | None
+    ma20: float | None
+    ma60: float | None
+    macd: float | None
+    macd_signal: float | None
+    macd_histogram: float | None
+    rsi14: float | None
+    boll_upper: float | None
+    boll_middle: float | None
+    boll_lower: float | None
+    volume_ratio_20d: float | None
+    support: float | None
+    resistance: float | None
+    trend_alignment: str
+    momentum_state: str
+
+    def as_metadata(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def compute_technical_features(bars: list[Bar]) -> TechnicalFeatureSnapshot | None:
+    """Compute research-only technical features from daily bars."""
+
+    if not bars:
+        return None
+    ordered = sorted(bars, key=lambda bar: bar.timestamp)
+    closes = [float(bar.close) for bar in ordered]
+    volumes = [float(bar.volume or 0) for bar in ordered]
+    close = closes[-1]
+    ma5 = _sma(closes, 5)
+    ma10 = _sma(closes, 10)
+    ma20 = _sma(closes, 20)
+    ma60 = _sma(closes, 60)
+    macd, macd_signal, macd_hist = _macd(closes)
+    rsi14 = _rsi(closes, 14)
+    boll_upper, boll_middle, boll_lower = _bollinger(closes, 20)
+    volume_ratio = _volume_ratio(volumes, 20)
+    support = min(closes[-20:]) if len(closes) >= 20 else min(closes)
+    resistance = max(closes[-20:]) if len(closes) >= 20 else max(closes)
+    return TechnicalFeatureSnapshot(
+        close=round(close, 4),
+        ma5=ma5,
+        ma10=ma10,
+        ma20=ma20,
+        ma60=ma60,
+        macd=macd,
+        macd_signal=macd_signal,
+        macd_histogram=macd_hist,
+        rsi14=rsi14,
+        boll_upper=boll_upper,
+        boll_middle=boll_middle,
+        boll_lower=boll_lower,
+        volume_ratio_20d=volume_ratio,
+        support=round(support, 4),
+        resistance=round(resistance, 4),
+        trend_alignment=_trend_alignment(close, ma5, ma10, ma20, ma60),
+        momentum_state=_momentum_state(close, rsi14, macd_hist, boll_upper, boll_lower, volume_ratio),
+    )
+
+
+def _sma(values: list[float], window: int) -> float | None:
+    if len(values) < window:
+        return None
+    return round(sum(values[-window:]) / window, 4)
+
+
+def _ema(values: list[float], span: int) -> list[float]:
+    if not values:
+        return []
+    alpha = 2 / (span + 1)
+    ema = [values[0]]
+    for value in values[1:]:
+        ema.append((value * alpha) + (ema[-1] * (1 - alpha)))
+    return ema
+
+
+def _macd(closes: list[float]) -> tuple[float | None, float | None, float | None]:
+    if len(closes) < 26:
+        return None, None, None
+    ema12 = _ema(closes, 12)
+    ema26 = _ema(closes, 26)
+    dif = [a - b for a, b in zip(ema12, ema26, strict=False)]
+    dea = _ema(dif, 9)
+    macd = dif[-1]
+    signal = dea[-1]
+    hist = macd - signal
+    return round(macd, 4), round(signal, 4), round(hist, 4)
+
+
+def _rsi(closes: list[float], window: int) -> float | None:
+    if len(closes) <= window:
+        return None
+    gains = []
+    losses = []
+    for prev, curr in zip(closes[-window - 1 : -1], closes[-window:], strict=True):
+        delta = curr - prev
+        gains.append(max(delta, 0.0))
+        losses.append(max(-delta, 0.0))
+    avg_gain = sum(gains) / window
+    avg_loss = sum(losses) / window
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 4)
+
+
+def _bollinger(closes: list[float], window: int) -> tuple[float | None, float | None, float | None]:
+    if len(closes) < window:
+        return None, None, None
+    sample = closes[-window:]
+    middle = sum(sample) / window
+    variance = sum((value - middle) ** 2 for value in sample) / window
+    std = variance ** 0.5
+    return round(middle + 2 * std, 4), round(middle, 4), round(middle - 2 * std, 4)
+
+
+def _volume_ratio(volumes: list[float], window: int) -> float | None:
+    if len(volumes) < window + 1:
+        return None
+    baseline = sum(volumes[-window - 1 : -1]) / window
+    if baseline <= 0:
+        return None
+    return round(volumes[-1] / baseline, 4)
+
+
+def _trend_alignment(close: float, ma5, ma10, ma20, ma60) -> str:
+    if None not in {ma5, ma10, ma20, ma60}:
+        if close > ma5 > ma10 > ma20 > ma60:
+            return "bullish_alignment"
+        if close < ma5 < ma10 < ma20 < ma60:
+            return "bearish_alignment"
+    return "mixed"
+
+
+def _momentum_state(close: float, rsi14, macd_hist, boll_upper, boll_lower, volume_ratio) -> str:
+    if rsi14 is not None and rsi14 >= 70:
+        return "overbought"
+    if rsi14 is not None and rsi14 <= 30:
+        return "oversold"
+    if boll_upper is not None and close > boll_upper and (volume_ratio or 0) >= 1.2:
+        return "bollinger_volume_breakout"
+    if boll_lower is not None and close < boll_lower:
+        return "bollinger_breakdown"
+    if macd_hist is not None and macd_hist > 0:
+        return "positive_momentum"
+    if macd_hist is not None and macd_hist < 0:
+        return "negative_momentum"
+    return "neutral"
 
 
 class MeanReversionStrategy(Strategy):
