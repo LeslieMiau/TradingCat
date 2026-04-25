@@ -32,14 +32,16 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 03 | P1.2 BaoStock adapter | ✅ done | [round-03-baostock-adapter.md](round-03-baostock-adapter.md) | `f4e2ff6` |
 | 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | `8d5cde6` |
 | 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | `e9f2284` |
-| 06+ | P2 其他资讯源 / P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
+| 06 | P2.2 财联社 / Finnhub / Alpha Vantage 资讯源 | ✅ done | [round-06-news-sources.md](round-06-news-sources.md) | TBD |
+| 07 | P2.3 NewsItem 模型 + 多层过滤 | ⬜ pending | — | — |
+| 08+ | P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
 
-1. 读 [round-05-eastmoney-news.md](round-05-eastmoney-news.md) §"Next step → Round 06"。
-2. 创建 `.handoff/round-06-news-sources.md`，按相同结构（Goal / Done / Verification / Known gotchas / Next step）填写。
-3. 跑新增 news source 测试，并回归 `tests/test_eastmoney_news_adapter.py tests/test_config.py`。
-4. commit + 更新本 index 表的 Round 06 行。
+1. 读 [round-06-news-sources.md](round-06-news-sources.md) §"Next step → Round 07"。
+2. 创建 `.handoff/round-07-news-filter.md`，按相同结构填写。
+3. 跑新增 news filter 测试，并回归 news source 测试。
+4. commit + 更新本 index 表的 Round 07 行。
 
 ## 给 Codex 接力者的常用指令
 

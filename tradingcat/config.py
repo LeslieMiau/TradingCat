@@ -289,6 +289,100 @@ class EastMoneyNewsConfig(BaseModel):
         )
 
 
+class CLSNewsConfig(BaseModel):
+    enabled: bool = False
+    page_size: int = 20
+    cache_ttl_seconds: int = 300
+    timeout_seconds: float = 5.0
+    user_agent: str = "Mozilla/5.0 TradingCat research bot"
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("cls news integer config values must be positive")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _positive_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("cls news timeout must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "CLSNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_CLS_NEWS_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            page_size=int(_getenv("TRADINGCAT_CLS_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_CLS_NEWS_CACHE_TTL_SECONDS", "300", env_values)),
+            timeout_seconds=float(_getenv("TRADINGCAT_CLS_NEWS_TIMEOUT_SECONDS", "5.0", env_values)),
+            user_agent=_getenv("TRADINGCAT_CLS_NEWS_USER_AGENT", "Mozilla/5.0 TradingCat research bot", env_values).strip(),
+        )
+
+
+class FinnhubNewsConfig(BaseModel):
+    enabled: bool = False
+    token: str | None = None
+    symbols: list[str] = Field(default_factory=list)
+    lookback_days: int = 7
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+
+    @field_validator("lookback_days", "page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("finnhub news integer config values must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "FinnhubNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_FINNHUB_NEWS_ENABLED", "false", env_values).strip().lower()
+        symbols_raw = _getenv("TRADINGCAT_FINNHUB_NEWS_SYMBOLS", "", env_values)
+        token_raw = _getenv("TRADINGCAT_FINNHUB_TOKEN", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            token=token_raw or None,
+            symbols=_csv_values(symbols_raw, upper=True),
+            lookback_days=int(_getenv("TRADINGCAT_FINNHUB_NEWS_LOOKBACK_DAYS", "7", env_values)),
+            page_size=int(_getenv("TRADINGCAT_FINNHUB_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_FINNHUB_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+        )
+
+
+class AlphaVantageNewsConfig(BaseModel):
+    enabled: bool = False
+    api_key: str | None = None
+    tickers: list[str] = Field(default_factory=list)
+    page_size: int = 20
+    cache_ttl_seconds: int = 900
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("alpha vantage news integer config values must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AlphaVantageNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_ENABLED", "false", env_values).strip().lower()
+        tickers_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_TICKERS", "", env_values)
+        api_key_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_API_KEY", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            api_key=api_key_raw or None,
+            tickers=_csv_values(tickers_raw, upper=True),
+            page_size=int(_getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_CACHE_TTL_SECONDS", "900", env_values)),
+        )
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -757,6 +851,9 @@ class AppConfig(BaseModel):
     baostock: BaostockConfig = Field(default_factory=BaostockConfig)
     tushare: TushareConfig = Field(default_factory=TushareConfig)
     eastmoney_news: EastMoneyNewsConfig = Field(default_factory=EastMoneyNewsConfig)
+    cls_news: CLSNewsConfig = Field(default_factory=CLSNewsConfig)
+    finnhub_news: FinnhubNewsConfig = Field(default_factory=FinnhubNewsConfig)
+    alpha_vantage_news: AlphaVantageNewsConfig = Field(default_factory=AlphaVantageNewsConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -833,6 +930,9 @@ class AppConfig(BaseModel):
             baostock=BaostockConfig.from_env(dotenv_values),
             tushare=TushareConfig.from_env(dotenv_values),
             eastmoney_news=EastMoneyNewsConfig.from_env(dotenv_values),
+            cls_news=CLSNewsConfig.from_env(dotenv_values),
+            finnhub_news=FinnhubNewsConfig.from_env(dotenv_values),
+            alpha_vantage_news=AlphaVantageNewsConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
