@@ -198,6 +198,31 @@ class AkshareConfig(BaseModel):
         )
 
 
+class BaostockConfig(BaseModel):
+    """BaoStock A-share market-data adapter knobs.
+
+    Off by default. Round 03 only introduces the adapter and config; factory
+    routing is intentionally deferred to a later checkpoint.
+    """
+
+    enabled: bool = False
+    adjustflag: Literal["1", "2", "3"] = "2"
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "BaostockConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_BAOSTOCK_ENABLED", "false", env_values).strip().lower()
+        adjustflag_raw = _getenv("TRADINGCAT_BAOSTOCK_ADJUSTFLAG", "2", env_values).strip()
+        if adjustflag_raw not in {"1", "2", "3"}:
+            raise ValueError(
+                f"TRADINGCAT_BAOSTOCK_ADJUSTFLAG must be '1', '2', or '3' (got {adjustflag_raw!r})"
+            )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            adjustflag=adjustflag_raw,
+        )
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -663,6 +688,7 @@ class AppConfig(BaseModel):
     futu: FutuConfig = Field(default_factory=FutuConfig)
     yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
     akshare: AkshareConfig = Field(default_factory=AkshareConfig)
+    baostock: BaostockConfig = Field(default_factory=BaostockConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -736,6 +762,7 @@ class AppConfig(BaseModel):
             futu=FutuConfig.from_env(dotenv_values),
             yfinance=YFinanceConfig.from_env(dotenv_values),
             akshare=AkshareConfig.from_env(dotenv_values),
+            baostock=BaostockConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),

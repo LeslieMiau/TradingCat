@@ -29,16 +29,16 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 |---|---|---|---|---|
 | 01 | P1.1 AKShare A 股 MarketDataAdapter | ✅ done | [round-01-akshare-adapter.md](round-01-akshare-adapter.md) | (见下方 git log) |
 | 02 | P1.1 AdapterFactory composite 接线 | ✅ done | [round-02-factory-composite.md](round-02-factory-composite.md) | `1ac8f78` |
-| 03 | P1.2 BaoStock adapter | ⬜ pending | — | — |
+| 03 | P1.2 BaoStock adapter | ✅ done | [round-03-baostock-adapter.md](round-03-baostock-adapter.md) | TBD |
 | 04 | P1.3 Tushare adapter | ⬜ pending | — | — |
 | 05+ | P2 资讯源 / P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
 
-1. 读 [round-01-akshare-adapter.md](round-01-akshare-adapter.md) §"Next step → Round 02"。
-2. 创建 `.handoff/round-02-factory-composite.md`，按相同结构（Goal / Done / Verification / Known gotchas / Next step）填写。
-3. 跑 `pytest tests/test_adapter_factory.py tests/test_akshare_adapter.py` 验证。
-4. commit + 更新本 index 表的 Round 02 行。
+1. 读 [round-03-baostock-adapter.md](round-03-baostock-adapter.md) §"Next step → Round 04"。
+2. 创建 `.handoff/round-04-tushare-adapter.md`，按相同结构（Goal / Done / Verification / Known gotchas / Next step）填写。
+3. 跑新增 Tushare 测试，并回归 `tests/test_akshare_adapter.py tests/test_baostock_adapter.py tests/test_config.py`。
+4. commit + 更新本 index 表的 Round 04 行。
 
 ## 给 Codex 接力者的常用指令
 

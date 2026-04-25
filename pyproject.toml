@@ -29,6 +29,9 @@ futu = [
 sentiment_akshare = [
   "akshare>=1.13,<2.0",
 ]
+sentiment_baostock = [
+  "baostock>=0.8,<1.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
