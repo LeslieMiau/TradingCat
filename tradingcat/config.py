@@ -390,6 +390,42 @@ class AlphaVantageNewsConfig(BaseModel):
         )
 
 
+class LLMConfig(BaseModel):
+    """LLM layer guardrails. Disabled until provider/analyst rounds wire it."""
+
+    enabled: bool = False
+    provider: str = "disabled"
+    model: str = ""
+    daily_token_budget: int = 50_000
+    monthly_cost_budget: float = 25.0
+
+    @field_validator("daily_token_budget")
+    @classmethod
+    def _positive_tokens(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("llm daily token budget must be positive")
+        return value
+
+    @field_validator("monthly_cost_budget")
+    @classmethod
+    def _positive_cost(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("llm monthly cost budget must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "LLMConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_LLM_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            provider=_getenv("TRADINGCAT_LLM_PROVIDER", "disabled", env_values).strip().lower(),
+            model=_getenv("TRADINGCAT_LLM_MODEL", "", env_values).strip(),
+            daily_token_budget=int(_getenv("TRADINGCAT_LLM_DAILY_TOKEN_BUDGET", "50000", env_values)),
+            monthly_cost_budget=float(_getenv("TRADINGCAT_LLM_MONTHLY_COST_BUDGET", "25.0", env_values)),
+        )
+
+
 class DuckDbConfig(BaseModel):
     enabled: bool = False
     path: Path = Path("data") / "research.duckdb"
@@ -861,6 +897,7 @@ class AppConfig(BaseModel):
     cls_news: CLSNewsConfig = Field(default_factory=CLSNewsConfig)
     finnhub_news: FinnhubNewsConfig = Field(default_factory=FinnhubNewsConfig)
     alpha_vantage_news: AlphaVantageNewsConfig = Field(default_factory=AlphaVantageNewsConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -940,6 +977,7 @@ class AppConfig(BaseModel):
             cls_news=CLSNewsConfig.from_env(dotenv_values),
             finnhub_news=FinnhubNewsConfig.from_env(dotenv_values),
             alpha_vantage_news=AlphaVantageNewsConfig.from_env(dotenv_values),
+            llm=LLMConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),

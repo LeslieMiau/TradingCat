@@ -37,15 +37,16 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 08 | P3 中国市场硬风控规则 | ✅ done | [round-08-cn-risk-rules.md](round-08-cn-risk-rules.md) | `956b472` |
 | 09 | P4 技术指标特征工程 | ✅ done | [round-09-technical-features.md](round-09-technical-features.md) | `2e7d71f` |
 | 10 | P5 Universe screener | ✅ done | [round-10-universe-screener.md](round-10-universe-screener.md) | `705e328` |
-| 11 | P6.1 LLM budget gate | ⬜ pending | — | — |
-| 12+ | P6 LLM provider / analysts / cache | ⬜ pending | — | — |
+| 11 | P6.1 LLM budget gate | ✅ done | [round-11-llm-budget.md](round-11-llm-budget.md) | TBD |
+| 12 | P6.2 LLM provider abstraction | ⬜ pending | — | — |
+| 13+ | P6 analysts / reports / cache | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
 
-1. 读 [round-10-universe-screener.md](round-10-universe-screener.md) §"Next step → Round 11"。
-2. 创建 `.handoff/round-11-llm-budget.md`。
-3. 跑新增 LLM budget 测试。
-4. commit + 更新本 index 表的 Round 11 行。
+1. 读 [round-11-llm-budget.md](round-11-llm-budget.md) §"Next step → Round 12"。
+2. 创建 `.handoff/round-12-llm-provider.md`。
+3. 跑新增 LLM provider 测试。
+4. commit + 更新本 index 表的 Round 12 行。
 
 ## 给 Codex 接力者的常用指令
 
