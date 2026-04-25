@@ -47,5 +47,5 @@ Round 09 进入 P4：技术指标特征工程进 research candidates。
 ## Commit
 
 ```
-TBD
+956b472 absorb-tradingagents-cn: round 08 — China market risk rules
 ```
