@@ -32,7 +32,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 03 | P1.2 BaoStock adapter | ✅ done | [round-03-baostock-adapter.md](round-03-baostock-adapter.md) | `f4e2ff6` |
 | 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | `8d5cde6` |
 | 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | `e9f2284` |
-| 06 | P2.2 财联社 / Finnhub / Alpha Vantage 资讯源 | ✅ done | [round-06-news-sources.md](round-06-news-sources.md) | TBD |
+| 06 | P2.2 财联社 / Finnhub / Alpha Vantage 资讯源 | ✅ done | [round-06-news-sources.md](round-06-news-sources.md) | `906efb8` |
 | 07 | P2.3 NewsItem 模型 + 多层过滤 | ⬜ pending | — | — |
 | 08+ | P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
