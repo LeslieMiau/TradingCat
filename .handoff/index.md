@@ -31,7 +31,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 02 | P1.1 AdapterFactory composite 接线 | ✅ done | [round-02-factory-composite.md](round-02-factory-composite.md) | `1ac8f78` |
 | 03 | P1.2 BaoStock adapter | ✅ done | [round-03-baostock-adapter.md](round-03-baostock-adapter.md) | `f4e2ff6` |
 | 04 | P1.3 Tushare adapter | ✅ done | [round-04-tushare-adapter.md](round-04-tushare-adapter.md) | `8d5cde6` |
-| 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | TBD |
+| 05 | P2.1 East Money 资讯源 | ✅ done | [round-05-eastmoney-news.md](round-05-eastmoney-news.md) | `e9f2284` |
 | 06+ | P2 其他资讯源 / P3 风控规则 / P4 指标 / P5 筛选 / P6 LLM | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
