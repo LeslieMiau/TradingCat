@@ -1071,6 +1071,7 @@ class TradingCatApplication:
             model=cfg.model,
             api_key=cfg.api_key,
             base_url=cfg.base_url,
+            max_tokens=cfg.max_tokens,
             cost_per_1k_tokens=cfg.cost_per_1k_tokens,
         )
         return ResearchAnalystService(provider)

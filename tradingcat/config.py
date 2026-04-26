@@ -398,15 +398,16 @@ class LLMConfig(BaseModel):
     model: str = ""
     base_url: str = ""
     api_key: str | None = None
+    max_tokens: int = 2048
     cost_per_1k_tokens: float = 0.0
     daily_token_budget: int = 50_000
     monthly_cost_budget: float = 25.0
 
-    @field_validator("daily_token_budget")
+    @field_validator("max_tokens", "daily_token_budget")
     @classmethod
     def _positive_tokens(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("llm daily token budget must be positive")
+            raise ValueError("llm token values must be positive")
         return value
 
     @field_validator("monthly_cost_budget")
@@ -434,6 +435,7 @@ class LLMConfig(BaseModel):
             model=_getenv("TRADINGCAT_LLM_MODEL", "", env_values).strip(),
             base_url=_getenv("TRADINGCAT_LLM_BASE_URL", "", env_values).strip(),
             api_key=api_key or None,
+            max_tokens=int(_getenv("TRADINGCAT_LLM_MAX_TOKENS", "2048", env_values)),
             cost_per_1k_tokens=float(
                 _getenv("TRADINGCAT_LLM_COST_PER_1K_TOKENS", "0.0", env_values)
             ),

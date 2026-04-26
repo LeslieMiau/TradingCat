@@ -52,7 +52,7 @@ def test_fake_llm_provider_raises_when_budget_denied():
 
 
 def test_openai_compatible_provider_posts_chat_and_records_actual_usage():
-    gate = LLMBudgetGate(LLMConfig(enabled=True, daily_token_budget=1000, monthly_cost_budget=1))
+    gate = LLMBudgetGate(LLMConfig(enabled=True, daily_token_budget=10_000, monthly_cost_budget=1))
     http = _FakeHttp()
     provider = OpenAICompatibleLLMProvider(
         gate,
@@ -73,6 +73,7 @@ def test_openai_compatible_provider_posts_chat_and_records_actual_usage():
     assert http.calls[0]["url"] == "https://api.example.com/v1/chat/completions"
     assert http.calls[0]["headers"] == {"Authorization": "Bearer secret"}
     assert http.calls[0]["json"]["model"] == "deepseek-chat"
+    assert http.calls[0]["json"]["max_tokens"] == 2048
     assert len(gate.ledger.list_usage()) == 1
 
 

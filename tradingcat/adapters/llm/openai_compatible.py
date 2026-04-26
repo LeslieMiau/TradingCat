@@ -20,6 +20,7 @@ class OpenAICompatibleLLMProvider:
         model: str,
         api_key: str,
         base_url: str,
+        max_tokens: int = 2048,
         cost_per_1k_tokens: float = 0.0,
         client: Any | None = None,
     ) -> None:
@@ -28,11 +29,12 @@ class OpenAICompatibleLLMProvider:
         self._budget = budget
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
+        self._max_tokens = max(1, int(max_tokens))
         self._cost_per_1k = max(0.0, float(cost_per_1k_tokens))
         self._client = client or httpx.Client(timeout=30.0)
 
     def chat(self, messages: list[LLMMessage], *, purpose: str = "research") -> LLMResponse:
-        estimated_tokens = _estimate_tokens(" ".join(message.content for message in messages)) + 512
+        estimated_tokens = _estimate_tokens(" ".join(message.content for message in messages)) + self._max_tokens
         estimated_cost = (estimated_tokens / 1000.0) * self._cost_per_1k
         decision = self._budget.check(
             provider=self.provider,
@@ -50,6 +52,7 @@ class OpenAICompatibleLLMProvider:
                 "model": self.model,
                 "messages": [{"role": message.role, "content": message.content} for message in messages],
                 "temperature": 0.2,
+                "max_tokens": self._max_tokens,
             },
         )
         response.raise_for_status()

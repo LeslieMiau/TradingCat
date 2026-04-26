@@ -93,6 +93,7 @@ def test_llm_config_from_env():
             "TRADINGCAT_LLM_ENABLED": "true",
             "TRADINGCAT_LLM_PROVIDER": "DeepSeek",
             "TRADINGCAT_LLM_MODEL": "deepseek-chat",
+            "TRADINGCAT_LLM_MAX_TOKENS": "4096",
             "TRADINGCAT_LLM_DAILY_TOKEN_BUDGET": "1234",
             "TRADINGCAT_LLM_MONTHLY_COST_BUDGET": "12.5",
         }
@@ -101,5 +102,6 @@ def test_llm_config_from_env():
     assert cfg.enabled is True
     assert cfg.provider == "deepseek"
     assert cfg.model == "deepseek-chat"
+    assert cfg.max_tokens == 4096
     assert cfg.daily_token_budget == 1234
     assert cfg.monthly_cost_budget == 12.5
