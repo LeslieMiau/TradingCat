@@ -175,7 +175,8 @@ class FutuMarketDataAdapter:
         if market is None:
             market = Market.US if underlying.isalpha() else Market.HK
             logger.debug("Inferred market=%s for option chain underlying=%s", market.value, underlying)
-        code = f"{market.value}.{underlying}"
+        sym = underlying.zfill(5) if market == Market.HK else underlying
+        code = f"{market.value}.{sym}"
         ret, data = self._quote_ctx.get_option_chain(code=code, start=as_of.isoformat(), end=as_of.isoformat())
         if ret != self._ft.RET_OK:
             raise RuntimeError(f"Futu option chain request failed: {data}")
