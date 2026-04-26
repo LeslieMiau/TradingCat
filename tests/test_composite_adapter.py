@@ -1,6 +1,6 @@
 """Unit tests for CompositeMarketDataAdapter.
 
-Verifies CN/US routing, AKShare fallback on failure, and per-method delegation.
+Verifies CN/US routing, CN adapter fallback on failure, and per-method delegation.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class TestCompositeMarketDataAdapter:
     def test_routes_cn_to_akshare(self):
         cn = _FakeInner(bars=["bar1"])
         us = _FakeInner()
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn, us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn, us_hk_inner=us)
 
         result = adapter.fetch_bars(_cn_inst(), self.T, self.T)
 
@@ -89,7 +89,7 @@ class TestCompositeMarketDataAdapter:
     def test_routes_us_to_us_hk(self):
         cn = _FakeInner()
         us = _FakeInner(bars=["bar_us"])
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn, us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn, us_hk_inner=us)
 
         result = adapter.fetch_bars(_us_inst(), self.T, self.T)
 
@@ -100,7 +100,7 @@ class TestCompositeMarketDataAdapter:
     def test_routes_hk_to_us_hk(self):
         cn = _FakeInner()
         us = _FakeInner(bars=["bar_hk"])
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn, us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn, us_hk_inner=us)
 
         result = adapter.fetch_bars(_hk_inst(), self.T, self.T)
 
@@ -110,7 +110,7 @@ class TestCompositeMarketDataAdapter:
     def test_akshare_empty_falls_back(self):
         cn = _FakeInner(bars=[])
         us = _FakeInner(bars=["fallback"])
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn, us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn, us_hk_inner=us)
 
         result = adapter.fetch_bars(_cn_inst(), self.T, self.T)
 
@@ -121,7 +121,7 @@ class TestCompositeMarketDataAdapter:
     def test_akshare_raises_falls_back(self):
         cn = _FakeInnerRaises()
         us = _FakeInner(bars=["fallback"])
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn, us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn, us_hk_inner=us)
 
         result = adapter.fetch_bars(_cn_inst(), self.T, self.T)
 
@@ -132,7 +132,7 @@ class TestCompositeMarketDataAdapter:
     def test_quotes_partition_by_market(self):
         cn_inner = _FakeInner(quotes={"600000": 10.0})
         us_inner = _FakeInner(quotes={"SPY": 500.0})
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn_inner, us_hk_inner=us_inner)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn_inner, us_hk_inner=us_inner)
 
         result = adapter.fetch_quotes([_cn_inst(), _us_inst()])
 
@@ -141,7 +141,7 @@ class TestCompositeMarketDataAdapter:
     def test_quotes_cn_failure_falls_back(self):
         cn_inner = _FakeInnerRaises()
         us_inner = _FakeInner(quotes={"600000": 9.0})
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn_inner, us_hk_inner=us_inner)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn_inner, us_hk_inner=us_inner)
 
         result = adapter.fetch_quotes([_cn_inst()])
 
@@ -151,7 +151,7 @@ class TestCompositeMarketDataAdapter:
     def test_quotes_us_only_no_cn_call(self):
         cn_inner = _FakeInner()
         us_inner = _FakeInner(quotes={"SPY": 500.0})
-        adapter = CompositeMarketDataAdapter(akshare_inner=cn_inner, us_hk_inner=us_inner)
+        adapter = CompositeMarketDataAdapter(cn_inner=cn_inner, us_hk_inner=us_inner)
 
         result = adapter.fetch_quotes([_us_inst()])
 
@@ -162,19 +162,19 @@ class TestCompositeMarketDataAdapter:
 
     def test_option_chain_delegates_to_us_hk(self):
         us = _FakeInner()
-        adapter = CompositeMarketDataAdapter(akshare_inner=_FakeInner(), us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=_FakeInner(), us_hk_inner=us)
         adapter.fetch_option_chain("SPY", self.T, market=Market.US)
         # No crash is the main assertion; the stub returns [].
         assert True
 
     def test_corporate_actions_delegates_to_us_hk(self):
         us = _FakeInner()
-        adapter = CompositeMarketDataAdapter(akshare_inner=_FakeInner(), us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=_FakeInner(), us_hk_inner=us)
         result = adapter.fetch_corporate_actions(_us_inst(), self.T, self.T)
         assert result == []
 
     def test_fx_rates_delegates_to_us_hk(self):
         us = _FakeInner()
-        adapter = CompositeMarketDataAdapter(akshare_inner=_FakeInner(), us_hk_inner=us)
+        adapter = CompositeMarketDataAdapter(cn_inner=_FakeInner(), us_hk_inner=us)
         result = adapter.fetch_fx_rates("USD", "CNY", self.T, self.T)
         assert result == []
