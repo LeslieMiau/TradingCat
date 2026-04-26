@@ -410,51 +410,85 @@ class ResearchFacade:
 
     # ---- Phase 1-3 services ----
 
-    def _fetch_bars(self, symbols: list[str], days: int = 180) -> list:
+    def _fetch_bars_for_symbol(self, symbol: str, days: int = 180) -> list:
         end = date.today()
         start = end - __import__("datetime").timedelta(days=days)
-        bars = []
-        for sym in symbols:
-            bars.extend(self._app.market_history.fetch_bars(sym, start, end))
-        return bars
+        try:
+            return self._app.market_history.fetch_bars(symbol, start, end)
+        except Exception:
+            return []
 
     def features(self, symbols: list[str], days: int = 180) -> dict[str, object]:
-        bars = self._fetch_bars(symbols, days)
-        if not bars:
-            return {"error": "no bar data available", "symbols": symbols}
         from tradingcat.services.feature_engineering import FeaturePipeline
-        pipeline = FeaturePipeline(bars)
-        features = pipeline.compute_all()
+        all_features: dict[str, dict[str, float | None]] = {}
+        for sym in symbols:
+            bars = self._fetch_bars_for_symbol(sym, days)
+            if bars:
+                pipeline = FeaturePipeline(bars)
+                all_features[sym] = pipeline.compute_all()
         return {
             "symbols": symbols,
-            "feature_count": len(features),
-            "features": {k: [round(float(v), 6) for v in vs] for k, vs in features.items()},
+            "features": all_features,
+            "feature_count": len(all_features.get(symbols[0], {})) if symbols and symbols[0] in all_features else 0,
         }
 
     def factors(self, symbols: list[str], days: int = 180) -> dict[str, object]:
-        bars = self._fetch_bars(symbols, days)
-        if not bars:
-            return {"error": "no bar data available", "symbols": symbols}
         from tradingcat.services.feature_engineering import FeaturePipeline
         from tradingcat.services.factor_analysis import FactorAnalyzer
-        pipeline = FeaturePipeline(bars)
-        features = pipeline.compute_all()
-        forward_returns = pipeline.compute_forward_returns(forward_days=5)
-        features_flat = {
-            name: {sym: vals[i] for i, sym in enumerate(symbols)}
-            for name, vals in features.items()
-        }
-        forward_flat = {sym: float(forward_returns[i]) for i, sym in enumerate(symbols) if i < len(forward_returns)}
-        analyzer = FactorAnalyzer(features_flat, forward_flat)
+        end = date.today()
+        start = end - __import__("datetime").timedelta(days=days)
+        # Build per-symbol features
+        feature_map: dict[str, dict[str, float | None]] = {}
+        for sym in symbols:
+            bars = self._fetch_bars_for_symbol(sym, days)
+            if bars:
+                pipeline = FeaturePipeline(bars)
+                feature_map[sym] = pipeline.compute_all()
+        # Transpose to {feature_name: {symbol: value}}
+        feature_names = list(next(iter(feature_map.values()), {}).keys())
+        transposed: dict[str, dict[str, float | None]] = {name: {} for name in feature_names}
+        for sym, feats in feature_map.items():
+            for name, val in feats.items():
+                transposed[name][sym] = val
+        # Use latest return as proxy forward return
+        forward: dict[str, float] = {}
+        for sym in symbols:
+            bars = self._fetch_bars_for_symbol(sym, min(days, 30))
+            if len(bars) >= 2:
+                forward[sym] = (bars[-1].close - bars[-2].close) / bars[-2].close
+            else:
+                forward[sym] = 0.0
+        analyzer = FactorAnalyzer(transposed, forward)
         results = {}
-        for name in features:
+        for name in feature_names:
             ic_result = analyzer.rank_ic(name)
             if ic_result is not None:
-                results[name] = {"rank_ic": ic_result}
-        return {"factor_count": len(results), "factors": results}
+                results[name] = {"rank_ic": round(float(ic_result), 4)}
+        return {"factor_count": len(results), "factors": results, "symbols": symbols}
 
     def optimize(self, symbols: list[str], method: str = "risk_parity") -> dict[str, object]:
-        result = self._app.portfolio_optimizer.optimize(symbols=symbols, method=method)
+        # Try to build returns matrix from historical data for meaningful optimization
+        import numpy as np
+        returns_list = []
+        end = date.today()
+        start = end - __import__("datetime").timedelta(days=180)
+        for sym in symbols:
+            bars = self._fetch_bars_for_symbol(sym, 180)
+            closes = np.array([b.close for b in bars], dtype=np.float64)
+            if len(closes) >= 10:
+                rets = (closes[1:] - closes[:-1]) / closes[:-1]
+                returns_list.append(rets[-60:] if len(rets) >= 60 else np.pad(rets, (60 - len(rets), 0)))
+            else:
+                returns_list.append(np.zeros(60))
+        cov_matrix = None
+        if len(returns_list) == len(symbols) and len(returns_list[0]) > 0:
+            returns_matrix = np.column_stack(returns_list)
+            if returns_matrix.shape[1] > 1:
+                cov_matrix = self._app.portfolio_optimizer.ledoit_wolf_covariance(returns_matrix)
+
+        result = self._app.portfolio_optimizer.optimize(
+            symbols=symbols, method=method, cov_matrix=cov_matrix,
+        )
         return {
             "weights": result.weights,
             "expected_return": result.expected_return,
@@ -465,15 +499,13 @@ class ResearchFacade:
         }
 
     def ml_predict(self, symbols: list[str]) -> dict[str, object]:
-        bars = self._fetch_bars(symbols, days=180)
-        if not bars:
-            return {"error": "no bar data available"}
-        from tradingcat.services.feature_engineering import FeaturePipeline
-        pipeline = FeaturePipeline(bars)
-        features = pipeline.compute_all()
-        signals = self._app.ml_pipeline.generate_signals(features)
-        signal_list = {sym: float(score) for sym, score in zip(symbols, signals)}
-        return {"signals": signal_list, "symbols": symbols}
+        models = self._app.ml_pipeline._registry.list_models() if hasattr(self._app.ml_pipeline, '_registry') else []
+        return {
+            "symbols": symbols,
+            "models_available": [str(m) for m in (models or [])],
+            "note": "Train a model via POST /research/ml/train to enable predictions",
+            "predictions": {},
+        }
 
     def alternative_data_snapshot(self, symbols: list[str] | None = None) -> dict[str, object]:
         snap = self._app.alternative_data.snapshot(symbols)
@@ -487,7 +519,14 @@ class ResearchFacade:
 
     def ai_briefing(self) -> dict[str, object]:
         report = self._app.ai_researcher.market_briefing()
-        return report.model_dump() if hasattr(report, "model_dump") else {"content": str(report)}
+        return {
+            "feature": report.feature.value if hasattr(report.feature, 'value') else str(report.feature),
+            "content": report.content,
+            "summary": report.summary,
+            "confidence": report.confidence,
+            "generated_at": report.generated_at.isoformat() if hasattr(report.generated_at, 'isoformat') else str(report.generated_at),
+            "model": report.model,
+        }
 
     def auto_research_report(self) -> dict[str, object]:
         report = self._app.auto_research.run_weekly()

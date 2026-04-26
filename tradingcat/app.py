@@ -1382,14 +1382,7 @@ class TradingCatApplication:
         """Build a returns matrix for covariance estimation from historical bars."""
         returns_list = []
         for sym in symbols:
-            inst = next(
-                (i for i in self.market_history.list_instruments() if i.symbol == sym),
-                None,
-            )
-            if inst is None:
-                returns_list.append(np.zeros(60))
-                continue
-            bars = self.market_history.fetch_bars(inst, as_of - __import__("datetime").timedelta(days=180), as_of)
+            bars = self.market_history.fetch_bars(sym, as_of - __import__("datetime").timedelta(days=180), as_of)
             closes = np.array([b.close for b in bars], dtype=np.float64)
             if len(closes) < 2:
                 returns_list.append(np.zeros(60))
