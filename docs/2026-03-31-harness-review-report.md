@@ -1,212 +1,195 @@
-# TradingCat Harness Delivery Report
+# TradingCat Harness 交付报告
 
-Date: 2026-03-31
-Audience: Opus 4.6 reviewer
-Scope: engineering-blocker harness cycle completed in full (`PLAN.json` 12/12)
-Latest delivery commit: `7655ee5 harness: finish control-plane blocker alignment`
+日期：2026-03-31
+读者：Opus 4.6 reviewer
+范围：工程阻塞项 harness cycle 已全部完成（`PLAN.json` 12/12）
+最新交付 commit：`7655ee5 harness: finish control-plane blocker alignment`
 
-## 1. Executive Summary
+## 1. 执行摘要
 
-This harness cycle was narrower than the 2026-03-29 delivery. It did not try to make TradingCat immediately live-trading ready. Instead, it focused on clearing the remaining engineering blockers that were making the control plane dishonest or unstable:
+这轮 harness cycle 比 2026-03-29 的交付范围更窄。它不试图让 TradingCat 立即达到实盘就绪，而是集中清理让控制平面“不诚实”或不稳定的工程阻塞项：
 
-- stale resident `:8000` behavior diverging from fresh processes
-- readiness over-counting candidate strategies as production blockers
-- blocker scope bleeding across unrelated symbols
-- `data_quality` vs `research_ready` semantics drifting apart
-- `go-live` / `live-acceptance` / `dashboard` mixing diagnostics noise, rollout blockers, and true engineering blockers
-- rollout policy mismatch (`100%` policy vs `hold` recommendation) being visible but not promoted to a first-class blocker
+- 常驻 `:8000` 进程行为与新进程不一致。
+- readiness 把候选策略过度计入生产阻塞项。
+- 阻塞原因跨不相关 symbol 外溢。
+- `data_quality` 与 `research_ready` 语义漂移。
+- `go-live` / `live-acceptance` / `dashboard` 混合了诊断噪声、rollout 阻塞和真正工程阻塞。
+- rollout policy 不匹配（`100%` policy vs `hold` recommendation）虽然可见，但没有升格为一等阻塞项。
 
-At the end of this run:
+本轮结束时：
 
-- resident `:8000` and fresh `uvicorn` agree on the key gate endpoints
-- production readiness only considers the default execution strategies
-- blocker reasons are scoped to real signal dependencies
-- dashboard no longer goes blank when the candidate snapshot is missing
-- rollout policy mismatch is now an explicit blocker in go-live and live-acceptance
-- `PLAN.json` is complete and the worktree is clean
+- 常驻 `:8000` 和新启动的 `uvicorn` 在关键 gate endpoint 上一致。
+- 生产 readiness 只考虑默认执行策略。
+- 阻塞原因已收敛到真实 signal 依赖。
+- 缺少 candidate snapshot 时 dashboard 不再空白。
+- rollout policy mismatch 已在 go-live 和 live-acceptance 中成为明确阻塞项。
+- `PLAN.json` 完成，worktree 干净。
 
-This is an engineering completion, not a real-money readiness completion.
+这是工程完成状态，不代表真实资金实盘就绪。
 
-## 2. Delivery Shape
+## 2. 交付形态
 
-The cycle landed in three main commits:
+本轮落地为 3 个主要 commit：
 
 - `df3b8f5` `harness: align resident blocker inputs with fresh runtime`
 - `c79200c` `harness: narrow readiness blockers to execution strategies`
 - `7655ee5` `harness: finish control-plane blocker alignment`
 
-The first commit stabilized resident-vs-fresh runtime truth. The second shrank research-readiness gating to the real execution set. The final commit cleaned up the remaining control-plane semantics and dashboard fallback behavior.
+第一个 commit 稳定常驻进程与新进程的事实口径；第二个 commit 把 research-readiness gate 缩到真实执行集；最后一个 commit 清理剩余控制平面语义和 dashboard fallback 行为。
 
-## 3. What Changed
+## 3. 变更内容
 
-### A. Resident and fresh runtime truth were aligned
+### A. 常驻运行时和新运行时事实口径一致
 
-- instrument catalog refresh behavior now updates long-lived resident state instead of letting `:8000` keep stale blocker inputs
-- resident/fresh parity is now treated as a real acceptance criterion, not an afterthought
-- service health verification covers `/preflight/startup`, `/ops/readiness`, `/ops/go-live`, and `/ops/live-acceptance`
+- Instrument catalog refresh 会更新长生命周期 resident state，避免 `:8000` 持有过期 blocker 输入。
+- resident/fresh parity 被作为真正验收标准，而不是事后检查。
+- service health verification 覆盖 `/preflight/startup`、`/ops/readiness`、`/ops/go-live` 和 `/ops/live-acceptance`。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/market_data.py](/Users/miau/Documents/TradingCat/tradingcat/services/market_data.py)
 - [tradingcat/repositories/market_data.py](/Users/miau/Documents/TradingCat/tradingcat/repositories/market_data.py)
 - [tests/test_market_data_service.py](/Users/miau/Documents/TradingCat/tests/test_market_data_service.py)
 - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
 
-### B. Research readiness now gates only the production execution set
+### B. Research readiness 只 gate 生产执行集
 
-- `ReadinessQueryService.research_readiness_summary()` no longer pulls in research candidates `d/e/f/g` when computing the top-level production gate
-- readiness still reports real blockers, but only for `strategy_a_etf_rotation`, `strategy_b_equity_momentum`, and `strategy_c_option_overlay`
-- candidate strategy blockers remain available in research surfaces instead of inflating operations readiness
+- `ReadinessQueryService.research_readiness_summary()` 不再把研究候选策略 `d/e/f/g` 拉进顶层生产 gate。
+- readiness 仍报告真实阻塞项，但只针对 `strategy_a_etf_rotation`、`strategy_b_equity_momentum` 和 `strategy_c_option_overlay`。
+- 候选策略阻塞项保留在 research surface，不再抬高 operations readiness。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/query_services.py](/Users/miau/Documents/TradingCat/tradingcat/services/query_services.py)
 - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
 - [tests/test_runtime_recovery.py](/Users/miau/Documents/TradingCat/tests/test_runtime_recovery.py)
 
-### C. Blocker scope is now tied to actual signal dependencies
+### C. 阻塞项范围绑定到真实 signal 依赖
 
-- corporate-action and FX blockers are asserted against the symbols and quote currencies actually present in the current signal set
-- base strategies no longer inherit unrelated symbol blockers from widened candidate/universe scans
-- this keeps blocker explanations interpretable during live operations review
+- 公司行为和 FX 阻塞项按当前 signal set 中真实出现的 symbol 与 quote currency 断言。
+- 基础策略不再继承 candidate/universe 扩展扫描中的无关 symbol 阻塞项。
+- 这让 live operations review 里的阻塞解释保持可读。
 
-Primary files:
+主要文件：
 
 - [tests/test_research_reporting.py](/Users/miau/Documents/TradingCat/tests/test_research_reporting.py)
 - [tradingcat/services/query_services.py](/Users/miau/Documents/TradingCat/tradingcat/services/query_services.py)
 
-### D. Control-plane blocker semantics were cleaned up
+### D. 控制平面阻塞语义清理
 
-- `rollout_policy_summary()` now returns:
-  - `recommended_stage`
-  - `policy_matches_recommendation`
-  - `blocking_reasons`
-- `go_live_summary()` now splits blocker classes into:
-  - `engineering_blockers`
-  - `rollout_blockers`
-  - `policy_blockers`
-- top-level `go_live.blockers` still provide a merged operator view, but info-grade diagnostics are no longer treated as first-class blockers there
-- `live_acceptance_summary()` now includes `next_requirement`, making the remaining clean-day/week gate explicit
+- `rollout_policy_summary()` 现在返回 `recommended_stage`、`policy_matches_recommendation`、`blocking_reasons`。
+- `go_live_summary()` 将阻塞类别拆成 `engineering_blockers`、`rollout_blockers`、`policy_blockers`。
+- 顶层 `go_live.blockers` 仍提供合并后的操作员视图，但 info 级诊断不再被当成一等阻塞项。
+- `live_acceptance_summary()` 新增 `next_requirement`，明确剩余 clean-day/week gate。
 
-Primary files:
+主要文件：
 
 - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
 - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
 
-### E. Dashboard fallback behavior is now honest and useful
+### E. Dashboard fallback 变得诚实且可用
 
-- when the persisted candidate snapshot is missing, the strategy panel now falls back to current `research_readiness.strategies`
-- this preserves:
-  - `display_status`
-  - `status_reason`
-  - `blocked_by_data_count`
-- dashboard still does not trigger live candidate scorecard recomputation on GET; only the minimal strategy-status fallback is used
-- acceptance progress on dashboard now matches `live_acceptance` more closely and includes the current `next_requirement`
+- 持久化 candidate snapshot 缺失时，策略面板回退到当前 `research_readiness.strategies`。
+- fallback 保留 `display_status`、`status_reason`、`blocked_by_data_count`。
+- Dashboard 仍不会在 GET 请求中触发 live candidate scorecard 重算，只使用最小策略状态 fallback。
+- Dashboard 上的 acceptance progress 更贴近 `live_acceptance`，并包含当前 `next_requirement`。
 
-Primary files:
+主要文件：
 
 - [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
 - [tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)
 - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
 
-## 4. Validation Completed
+## 4. 已完成验证
 
-Targeted regression:
+定向回归：
 
-- `.venv/bin/pytest tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_dashboard_facade.py tests/test_runtime_recovery.py::test_research_readiness_limits_gate_to_default_execution_strategies -q`
-  - result: `8 passed`
+```bash
+.venv/bin/pytest tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_dashboard_facade.py tests/test_runtime_recovery.py::test_research_readiness_limits_gate_to_default_execution_strategies -q
+```
 
-Broader closeout regression:
+结果：`8 passed`
 
-- `.venv/bin/pytest tests/test_runtime_recovery.py tests/test_dashboard_facade.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_rollout_policy.py tests/test_service_health.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute -q`
-  - result: `35 passed`
+更宽的 closeout 回归：
 
-Resident/fresh HTTP health:
+```bash
+.venv/bin/pytest tests/test_runtime_recovery.py tests/test_dashboard_facade.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_rollout_policy.py tests/test_service_health.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute -q
+```
 
-- `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5`
-  - result: all four gate endpoints healthy
-- `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8053 --timeout 5`
-  - result: all four gate endpoints healthy
+结果：`35 passed`
 
-Resident vs fresh structural parity:
+Resident/fresh HTTP health：
 
-- compared `/preflight/startup`
-- compared `/ops/readiness`
-- compared `/ops/go-live`
-- compared `/ops/live-acceptance`
-- compared `/dashboard/summary?as_of=2026-03-31`
-- result: `mismatches: []`
+- `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8000 --timeout 5`：四个 gate endpoint 全部 healthy。
+- `.venv/bin/python -m tradingcat.services.service_health --base-url http://127.0.0.1:8053 --timeout 5`：四个 gate endpoint 全部 healthy。
 
-Key live observations after resident restart:
+Resident vs fresh 结构一致性：
 
-- `/ops/readiness`
-  - `data_quality.ready=true`
-  - `research_readiness.blocked_strategy_ids=["strategy_a_etf_rotation","strategy_b_equity_momentum","strategy_c_option_overlay"]`
-- `/ops/go-live`
-  - `policy_matches_recommendation=false`
-  - `policy_blockers=["Active rollout policy 100% does not match recommended stage hold."]`
-- `/ops/live-acceptance`
-  - `next_requirement.remaining_clean_days=28`
-- `/dashboard/summary?as_of=2026-03-31`
-  - strategy rows are present even with `snapshot_status="missing"`
-  - `blocked_by_data_count=3`
-  - acceptance progress blockers align with live-acceptance blockers
+- 对比 `/preflight/startup`
+- 对比 `/ops/readiness`
+- 对比 `/ops/go-live`
+- 对比 `/ops/live-acceptance`
+- 对比 `/dashboard/summary?as_of=2026-03-31`
+- 结果：`mismatches: []`
 
-## 5. Recommended Review Entry Points
+常驻进程重启后的关键观察：
 
-If Opus 4.6 is doing a focused review, these are the best starting points:
+- `/ops/readiness`：`data_quality.ready=true`，`research_readiness.blocked_strategy_ids=["strategy_a_etf_rotation","strategy_b_equity_momentum","strategy_c_option_overlay"]`。
+- `/ops/go-live`：`policy_matches_recommendation=false`，`policy_blockers=["Active rollout policy 100% does not match recommended stage hold."]`。
+- `/ops/live-acceptance`：`next_requirement.remaining_clean_days=28`。
+- `/dashboard/summary?as_of=2026-03-31`：即使 `snapshot_status="missing"`，策略行仍存在；`blocked_by_data_count=3`；acceptance progress blocker 与 live-acceptance blocker 对齐。
 
-1. Production readiness scope
-   - [tradingcat/services/query_services.py](/Users/miau/Documents/TradingCat/tradingcat/services/query_services.py)
-   - Confirm the top-level readiness gate now intentionally excludes research candidates while preserving honest blocker semantics.
+## 5. 推荐审查入口
 
-2. App-layer gate composition
-   - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
-   - Review the relationship between `execution_gate_summary()`, `go_live_summary()`, `live_acceptance_summary()`, and `rollout_policy_summary()`.
+1. 生产 readiness 范围
+   [tradingcat/services/query_services.py](/Users/miau/Documents/TradingCat/tradingcat/services/query_services.py)
+   确认顶层 readiness gate 现在有意排除研究候选策略，同时保持诚实阻塞语义。
+
+2. App 层 gate 组合
+   [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
+   审查 `execution_gate_summary()`、`go_live_summary()`、`live_acceptance_summary()` 和 `rollout_policy_summary()` 的关系。
 
 3. Dashboard fallback contract
-   - [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
-   - Confirm the snapshot-missing fallback is minimal, read-only, and does not accidentally overstate candidate readiness.
+   [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
+   确认 snapshot-missing fallback 是最小、只读的，并且不会夸大候选策略 readiness。
 
-4. Regression coverage realism
-   - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
-   - [tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)
-   - [tests/test_runtime_recovery.py](/Users/miau/Documents/TradingCat/tests/test_runtime_recovery.py)
-   - Check whether the tests are validating user-visible semantics rather than brittle implementation details.
+4. 回归覆盖真实性
+   [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)、[tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)、[tests/test_runtime_recovery.py](/Users/miau/Documents/TradingCat/tests/test_runtime_recovery.py)
+   检查测试是否验证用户可见语义，而不是脆弱的实现细节。
 
-## 6. Known Residual Risks
+## 6. 已知剩余风险
 
-- `TradingCatApplication` is still a large orchestration shell. This cycle tightened contracts but did not attempt a larger extraction because the goal was parity and honesty, not another architectural wave.
-- There are still Pydantic serialization warnings on some typed responses. They did not block this harness, but they are a reasonable follow-up cleanup target.
-- The dashboard fallback path only reconstructs minimal strategy-status rows, not a full candidate scorecard. This is intentional, but reviewers should confirm that this limited fallback is the right product/ops tradeoff.
-- `go-live` still includes operator-facing next actions coming from diagnostics and rollout. The blocker split is much cleaner now, but reviewers may still want to challenge the exact line between “diagnostic signal” and “promotion blocker”.
+- `TradingCatApplication` 仍是较大的编排外壳。本轮收紧了 contract，但没有做更大抽取，因为目标是 parity 和诚实状态，而不是另一轮架构大改。
+- 部分 typed response 仍有 Pydantic serialization warning。它们没有阻塞本轮 harness，但适合作为后续 cleanup。
+- Dashboard fallback 只重建最小策略状态行，不重建完整 candidate scorecard。这是有意取舍，但 reviewer 应确认该限制符合产品/运维预期。
+- `go-live` 仍包含来自 diagnostics 和 rollout 的操作员 next action。阻塞项拆分已经更清晰，但 reviewer 仍可继续挑战“诊断信号”和“升档阻塞”的边界。
 
-## 7. What This Does Not Claim
+## 7. 本报告不声称的内容
 
-This report does not claim that TradingCat is ready for live capital.
+本报告不声称 TradingCat 已可投入真实资金。
 
-The following remain external or operational gates:
+仍然存在以下外部或运营 gate：
 
-- OpenD / broker validation is still not complete
-- compliance checklists still have pending items
-- acceptance evidence still has `ready_weeks=0` and `cn_manual_weeks=0`
-- real research blockers still exist in corporate-action / FX completeness for the active execution strategies
+- OpenD / broker validation 尚未完成。
+- Compliance checklist 仍有 pending 项。
+- Acceptance evidence 仍是 `ready_weeks=0` 和 `cn_manual_weeks=0`。
+- 活跃执行策略在公司行为 / FX 完整性上仍有真实 research blocker。
 
-So the correct conclusion is:
+正确结论是：
 
-- engineering blocker cleanup is complete
-- control-plane semantics are now much more honest and stable
-- real-money readiness is still blocked by external evidence and remaining market-data completeness
+- 工程阻塞项清理已完成。
+- 控制平面语义更诚实、更稳定。
+- 真实资金就绪仍被外部证据和剩余市场数据完整性阻塞。
 
-## 8. Final Workspace State
+## 8. 最终工作区状态
 
-The harness cycle is fully closed:
+Harness cycle 已完全关闭：
 
-- [PLAN.json](/Users/miau/Documents/TradingCat/PLAN.json) is `12/12` complete
-- [PROGRESS.md](/Users/miau/Documents/TradingCat/PROGRESS.md) contains the full session log and final evidence
-- the worktree is clean
+- [PLAN.json](/Users/miau/Documents/TradingCat/PLAN.json) 为 `12/12` complete。
+- [PROGRESS.md](/Users/miau/Documents/TradingCat/PROGRESS.md) 包含完整 session log 和最终证据。
+- Worktree 干净。
 
-Final commit chain:
+最终 commit chain：
 
 - `df3b8f5` `harness: align resident blocker inputs with fresh runtime`
 - `c79200c` `harness: narrow readiness blockers to execution strategies`

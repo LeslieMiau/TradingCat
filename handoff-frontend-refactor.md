@@ -1,34 +1,35 @@
-# TradingCat Frontend Refactor Handoff
+# TradingCat 前端重构交接文档
 
-## Background
+## 背景
 
-TradingCat's frontend is a vanilla JS control panel served by FastAPI (Jinja2 templates + static JS/CSS). The backend refactoring is complete and clean. The frontend has significant code duplication (~25-30%), god functions (200-370 lines), 47 hardcoded API URLs, and zero component abstraction. This document defines the cleanup scope.
+TradingCat 前端是由 FastAPI 提供的原生 JS 控制台（Jinja2 templates + static JS/CSS）。后端重构已经完成并保持清晰，但前端仍有明显重复：约 25-30% 代码重复、200-370 行级别的巨型函数、47 个硬编码 API URL，并且几乎没有组件抽象。本文定义后续清理范围。
 
-**Constraints**:
-- Stay vanilla JS — no React/Vue/build tools. This is a personal trading control panel.
-- Preserve all existing visual behavior and API interactions.
-- Use `<script>` tag loading (common.js first, then page-specific JS). No ES modules.
-- All changes in `static/` directory only. Do not modify `templates/` or Python code.
+**约束：**
+
+- 保持原生 JS，不引入 React/Vue/构建工具；这是个人交易控制台。
+- 保留现有视觉行为和 API 交互。
+- 使用 `<script>` 标签加载：先 `common.js`，再页面专用 JS；不使用 ES modules。
+- 除明确要求外，优先只改 `static/`。若新增共享 JS 文件，需要同步更新 `templates/` 的 `<script>` 标签。
 
 ---
 
-## Phase 1: Create Shared Component Layer (Priority: Highest)
+## Phase 1：建立共享组件层（优先级：最高）
 
-### Task 1.1: Create `static/components.js`
+### Task 1.1：创建 `static/components.js`
 
-Create a new file `static/components.js` that consolidates all duplicated rendering functions from across the codebase.
+创建 `static/components.js`，集中放置当前散落在各页面中的重复渲染函数。
 
-#### 1.1a: Unified `renderCurve()`
+#### 1.1a：统一 `renderCurve()`
 
-Currently 3 separate implementations:
+当前有 3 份独立实现：
 
-| File | Line | Signature | Algorithm | Interactive |
-|------|------|-----------|-----------|-------------|
-| `dashboard.js` | 51 | `renderCurve(points)` | Catmull-Rom spline | Yes (hover tooltip) |
-| `account.js` | 8 | `renderCurve(svgId, points)` | Linear | No |
-| `strategy.js` | 8 | `renderCurve(svgId, points, stroke, fill)` | Linear, dynamic key | No |
+| 文件 | 位置 | 签名 | 算法 | 是否交互 |
+|---|---|---|---|---|
+| `dashboard.js` | line 51 | `renderCurve(points)` | Catmull-Rom spline | 是，hover tooltip |
+| `account.js` | line 8 | `renderCurve(svgId, points)` | 线性 | 否 |
+| `strategy.js` | line 8 | `renderCurve(svgId, points, stroke, fill)` | 线性，动态 key | 否 |
 
-Merge into one parameterized function:
+合并为一个参数化函数：
 
 ```javascript
 /**
@@ -48,28 +49,33 @@ function renderCurve(svgId, points, options = {}) {
 }
 ```
 
-Also move the `catmullRomPath()` helper (currently in `dashboard.js` around line 38) into `components.js`.
+同时把当前在 `dashboard.js` 约 line 38 的 `catmullRomPath()` 移到 `components.js`。
 
-**After**: Delete `renderCurve` from `dashboard.js`, `account.js`, `strategy.js`. Update callers:
-- `dashboard.js`: `renderCurve("nav-curve", points, { smooth: true, interactive: true, overlays: macroEvents })`
-- `account.js`: `renderCurve(svgId, points)` (uses defaults)
-- `strategy.js`: `renderCurve(svgId, points, { valueKey: dynamicKey, stroke: color, fill: fillColor })`
+完成后：
 
-#### 1.1b: Unified `statusTone()`
+- 从 `dashboard.js`、`account.js`、`strategy.js` 删除本地 `renderCurve`。
+- 更新调用方：
+  - `dashboard.js`：`renderCurve("nav-curve", points, { smooth: true, interactive: true, overlays: macroEvents })`
+  - `account.js`：`renderCurve(svgId, points)`，使用默认参数。
+  - `strategy.js`：`renderCurve(svgId, points, { valueKey: dynamicKey, stroke: color, fill: fillColor })`
 
-Currently 2 variants with different status vocabularies:
+#### 1.1b：统一 `statusTone()`
 
-**account.js line 1:**
+当前有 2 个不同词表版本：
+
+`account.js` line 1：
+
 ```javascript
 // Recognizes: filled, approved, pending, manual, submitted, rejected, expired, not_submitted, missing
 ```
 
-**strategy.js line 1:**
+`strategy.js` line 1：
+
 ```javascript
 // Recognizes: filled, approved, aligned, pending, warning, manual, working, rejected, expired, missing, not_submitted
 ```
 
-Merge into one superset in `components.js`:
+合并成 `components.js` 中的超集：
 
 ```javascript
 function statusTone(value) {
@@ -80,13 +86,14 @@ function statusTone(value) {
 }
 ```
 
-**After**: Delete `statusTone` from `account.js` (line 1) and `strategy.js` (line 1).
+完成后从 `account.js` 和 `strategy.js` 删除本地 `statusTone`。
 
-#### 1.1c: Unified `metricTile()`
+#### 1.1c：统一 `metricTile()`
 
-Currently 2 implementations with different CSS classes and escaping behavior:
+当前有 2 个版本，CSS class 和 escaping 行为不一致：
 
-**common.js line 49** (safe version with escaping):
+`common.js` line 49 是安全版本：
+
 ```javascript
 function metricTile(label, value, subvalue, tone = "empty") {
     const safeValue = typeof value === "string" && value.includes("<span") ? value : escapeHtml(value);
@@ -98,7 +105,8 @@ function metricTile(label, value, subvalue, tone = "empty") {
 }
 ```
 
-**operations.js line 88** (unsafe version nested inside `renderOperations()`):
+`operations.js` line 88 有一个内嵌的不安全版本：
+
 ```javascript
 function metricTile(label, value, sub, status) {
     return `<article class="metric-tile ${status}">
@@ -109,11 +117,11 @@ function metricTile(label, value, sub, status) {
 }
 ```
 
-**Action**: Keep the `common.js` version (it has escaping). Delete the nested version from `operations.js`. Update `operations.js` callers to use the global `metricTile()` — adjust parameter mapping where the 4th arg was a raw class like `"ok"` vs a tone.
+处理方式：保留 `common.js` 的安全版本，删除 `operations.js` 中的内嵌版本。更新 `operations.js` 调用方，让第 4 个参数传入 tone（如 `"ok"`、`"warning"`、`"blocked"`、`"empty"`）。
 
-#### 1.1d: Shared table builder
+#### 1.1d：共享 table builder
 
-Currently every page reimplements table rendering via `rows.map(row => '<tr>...</tr>').join("")` (~20 occurrences). Create a lightweight helper:
+当前各页面反复使用 `rows.map(row => '<tr>...</tr>').join("")` 渲染表格，约 20 处。新增轻量 helper：
 
 ```javascript
 /**
@@ -132,11 +140,11 @@ function tableRows(rows, columns) {
 }
 ```
 
-This is optional but recommended. Prioritize 1.1a-1.1c first.
+该项可选但推荐。优先完成 1.1a-1.1c。
 
-### Task 1.2: Create `static/api.js` — API URL Registry
+### Task 1.2：创建 `static/api.js` API URL 注册表
 
-Currently 47 hardcoded API endpoint strings scattered across 7 files. Create a centralized registry:
+当前 47 个 API endpoint 字符串分散在 7 个文件中。创建集中注册表：
 
 ```javascript
 const API = {
@@ -179,20 +187,21 @@ const API = {
 };
 ```
 
-**After**: Replace all hardcoded URL strings across all JS files with `API.xxx` references.
+完成后，把所有 JS 文件中的硬编码 URL 字符串替换为 `API.xxx` 引用。
 
-### Task 1.3: Update HTML templates to load new files
+### Task 1.3：更新 HTML 模板加载顺序
 
-All 6 templates in `templates/` load scripts the same way. Add the new files **between** `common.js` and page-specific JS:
+6 个模板都按同样方式加载脚本。在 `common.js` 和页面专用 JS 之间加入新文件：
 
 ```html
 <script src="/static/common.js"></script>
 <script src="/static/api.js"></script>
 <script src="/static/components.js"></script>
-<script src="/static/dashboard.js"></script>  <!-- page-specific -->
+<script src="/static/dashboard.js"></script>
 ```
 
-Update all 6 templates:
+需要更新：
+
 - `templates/dashboard.html`
 - `templates/account.html`
 - `templates/strategy.html`
@@ -202,11 +211,11 @@ Update all 6 templates:
 
 ---
 
-## Phase 2: Break God Functions (Priority: High)
+## Phase 2：拆分巨型函数（优先级：高）
 
-### Task 2.1: Split `renderOperations()` in `operations.js` (203 lines → ~8 functions)
+### Task 2.1：拆分 `operations.js` 中的 `renderOperations()`
 
-Current structure (line 31): one function renders 8 distinct sections. Split into:
+当前 `renderOperations()` 约 203 行，渲染 8 个独立区块。拆成：
 
 ```javascript
 function renderOverviewMetrics(summary, tca, riskConfig) { ... }
@@ -227,11 +236,11 @@ async function renderOperations() {
 }
 ```
 
-Each sub-function should be < 40 lines. The orchestrator just loads data and dispatches.
+每个子函数控制在 40 行以内；顶层 orchestrator 只负责加载数据并分发渲染。
 
-### Task 2.2: Split `renderImpact()` in `research.js` (371 lines → ~10 functions)
+### Task 2.2：拆分 `research.js` 中的 `renderImpact()`
 
-This is the largest function in the entire frontend. It renders 18+ UI areas inside a strategy detail panel. Split by section:
+这是当前前端最大函数，约 371 行，在策略详情面板内渲染 18 个以上 UI 区域。按 section 拆分：
 
 ```javascript
 function renderImpactHeader(detail) { ... }
@@ -240,7 +249,6 @@ function renderImpactAccounts(detail, accountSummary) { ... }
 function renderSignalTable(detail) { ... }
 function renderCorrelationMatrix(detail) { ... }
 function renderMonthlyReturns(detail) { ... }
-// etc.
 
 function renderImpact(strategyId) {
     const detail = state.strategyDetailCache[strategyId];
@@ -250,9 +258,9 @@ function renderImpact(strategyId) {
 }
 ```
 
-### Task 2.3: Split `loadStrategy()` in `strategy.js` (217 lines → ~6 functions)
+### Task 2.3：拆分 `strategy.js` 中的 `loadStrategy()`
 
-Currently mixes data fetching with rendering. Separate:
+当前 `loadStrategy()` 约 217 行，把数据加载和渲染混在一起。拆成：
 
 ```javascript
 async function loadStrategy() {
@@ -265,7 +273,9 @@ async function loadStrategy() {
 }
 ```
 
-### Task 2.4: Split `renderAssets()` in `dashboard.js` (135 lines → ~4 functions)
+### Task 2.4：拆分 `dashboard.js` 中的 `renderAssets()`
+
+当前 `renderAssets()` 约 135 行。建议拆成：
 
 ```javascript
 function renderPositionsTable(positions) { ... }
@@ -284,76 +294,78 @@ function renderAssets() {
 
 ---
 
-## Phase 3: Fix Inconsistencies (Priority: Medium)
+## Phase 3：修正不一致（优先级：中）
 
-### Task 3.1: Replace bare `fetch()` in `account.js` with `apiFetch()`
+### Task 3.1：把 `account.js` 中的裸 `fetch()` 换成 `apiFetch()`
 
-`account.js` line 37 uses `fetch()` directly instead of the shared `apiFetch()` wrapper. This means no retry logic and inconsistent error handling.
+`account.js` line 37 直接使用 `fetch()`，没有走共享 `apiFetch()` 包装，导致 retry 和错误处理不一致。
 
-**Before** (account.js):
+修改前：
+
 ```javascript
 const response = await fetch("/dashboard/summary", { headers: { Accept: "application/json" } });
 const payload = await response.json();
 ```
 
-**After**:
+修改后：
+
 ```javascript
 const result = await apiFetch(API.dashboardSummary);
 if (!result.ok) { showToast(result.error, "error"); return; }
 const payload = result.data;
 ```
 
-### Task 3.2: Remove `window.__researchDashboardSummary` global
+### Task 3.2：移除 `window.__researchDashboardSummary` 全局变量
 
-`research.js` stores data on `window.__researchDashboardSummary` — a global state anti-pattern. Replace with module-level state variable (already has `const state = {...}`).
+`research.js` 把数据放到 `window.__researchDashboardSummary`，这是全局状态反模式。改为模块级 state 变量；文件中已有 `const state = {...}` 可承接。
 
-### Task 3.3: Move trading hotkeys out of `common.js`
+### Task 3.3：把交易快捷键从 `common.js` 移出
 
-`common.js` lines ~400-491 contain `initGlobalTradingHotkeys()` and `showQuickTradeModal()` (134 lines). These are business logic, not utilities. Move to a new `static/hotkeys.js` or into `dashboard.js` since they're only relevant on the dashboard page.
+`common.js` 约 line 400-491 包含 `initGlobalTradingHotkeys()` 和 `showQuickTradeModal()`，这是业务逻辑，不是通用工具。若快捷键只在 dashboard 页面有意义，移到 `static/hotkeys.js` 或 `dashboard.js`。
 
-Only move if the hotkeys are dashboard-specific. If they need to work on all pages, keep in `common.js` but extract `showQuickTradeModal()` into `components.js`.
-
----
-
-## Verification
-
-After each phase:
-
-1. Open each page in browser and visually verify:
-   - `GET /dashboard` — NAV curve renders, metrics load, tabs switch
-   - `GET /dashboard/strategies/{id}` — strategy curves render with correct colors
-   - `GET /dashboard/accounts/{id}` — account curve renders
-   - `GET /dashboard/operations` — all 8 sections render
-   - `GET /dashboard/research` — strategy impact panels render, correlation matrix works
-   - `GET /dashboard/journal` — plan/summary data loads
-2. Verify no JS console errors on any page
-3. Verify keyboard shortcuts still work (Ctrl+K overlay, Ctrl+X cancel, Shift+X kill switch)
-4. Verify toast notifications still appear on API errors
-5. Run: `grep -n "function renderCurve\|function statusTone" static/*.js` — should only appear in `components.js`
-6. Run: `grep -c "apiFetch\|fetch(" static/*.js` — `account.js` should use `apiFetch`, not bare `fetch`
+如果快捷键需要在所有页面工作，则保留在 `common.js`，但把 `showQuickTradeModal()` 抽到 `components.js`。
 
 ---
 
-## Files Reference
+## 验证
 
-| File | Current Lines | Action |
-|------|--------------|--------|
-| `static/components.js` | **NEW** | Shared UI components (renderCurve, statusTone, tableRows) |
-| `static/api.js` | **NEW** | API URL registry |
-| `static/common.js` | 491 | Remove metricTile if moved to components.js; remove hotkeys if extracted |
-| `static/dashboard.js` | 1,156 | Remove renderCurve + catmullRomPath; split renderAssets; use API constants |
-| `static/operations.js` | 352 | Remove nested metricTile; split renderOperations; use API constants |
-| `static/research.js` | 638 | Split renderImpact; remove window global; use API constants |
-| `static/strategy.js` | 301 | Remove renderCurve + statusTone; split loadStrategy; use API constants |
-| `static/account.js` | 201 | Remove renderCurve + statusTone; replace fetch with apiFetch; use API constants |
-| `static/journal.js` | 238 | Use API constants |
-| `templates/*.html` | 6 files | Add `<script>` tags for api.js and components.js |
+每个 phase 后做以下检查：
 
-## Out of Scope
+1. 打开各页面并目视验证：
+   - `GET /dashboard`：NAV 曲线渲染，指标加载，tab 可切换。
+   - `GET /dashboard/strategies/{id}`：策略曲线颜色正确。
+   - `GET /dashboard/accounts/{id}`：账户曲线渲染。
+   - `GET /dashboard/operations`：8 个 section 都可渲染。
+   - `GET /dashboard/research`：策略 impact 面板渲染，相关性矩阵工作。
+   - `GET /dashboard/journal`：plan/summary 数据加载。
+2. 确认所有页面没有 JS console error。
+3. 确认键盘快捷键仍工作：Ctrl+K overlay、Ctrl+X cancel、Shift+X kill switch。
+4. 确认 API 错误时仍显示 toast。
+5. 运行：`grep -n "function renderCurve\|function statusTone" static/*.js`，应只在 `components.js` 出现。
+6. 运行：`grep -c "apiFetch\|fetch(" static/*.js`，`account.js` 应使用 `apiFetch`，不再使用裸 `fetch`。
 
-- CSS refactoring (dashboard.css is acceptable)
-- Switching to a JS framework (React/Vue/Alpine)
-- Adding a build system (webpack/vite)
-- Adding frontend tests
-- Changing HTML template structure
-- Modifying Python backend code
+---
+
+## 文件参考
+
+| 文件 | 当前行数 | 动作 |
+|---|---:|---|
+| `static/components.js` | 新增 | 共享 UI 组件：`renderCurve`、`statusTone`、`tableRows` |
+| `static/api.js` | 新增 | API URL 注册表 |
+| `static/common.js` | 491 | 如果迁移，移除 `metricTile`；如果抽离快捷键，也从这里移除 hotkeys |
+| `static/dashboard.js` | 1,156 | 删除 `renderCurve` / `catmullRomPath`，拆分 `renderAssets`，使用 API constants |
+| `static/operations.js` | 352 | 删除内嵌 `metricTile`，拆分 `renderOperations`，使用 API constants |
+| `static/research.js` | 638 | 拆分 `renderImpact`，移除 window global，使用 API constants |
+| `static/strategy.js` | 301 | 删除 `renderCurve` / `statusTone`，拆分 `loadStrategy`，使用 API constants |
+| `static/account.js` | 201 | 删除 `renderCurve` / `statusTone`，把 `fetch` 换成 `apiFetch`，使用 API constants |
+| `static/journal.js` | 238 | 使用 API constants |
+| `templates/*.html` | 6 个文件 | 增加 `api.js` 和 `components.js` 的 `<script>` 标签 |
+
+## 不在本轮范围
+
+- CSS 重构；当前 `dashboard.css` 可接受。
+- 切换到 JS 框架（React/Vue/Alpine）。
+- 增加构建系统（webpack/vite）。
+- 增加前端测试。
+- 改变 HTML template 结构。
+- 修改 Python 后端代码。

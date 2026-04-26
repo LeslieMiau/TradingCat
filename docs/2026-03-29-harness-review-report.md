@@ -1,30 +1,32 @@
-# TradingCat Harness Delivery Report
+# TradingCat Harness 交付报告
 
-Date: 2026-03-29
-Audience: Opus 4.6 reviewer
-Scope: 30-day personal-trader harness plan completed in full (`PLAN.json` 48/48)
-Latest delivery commit: `299f1bd dashboard: align readiness diagnostics and gating`
+日期：2026-03-29
+读者：Opus 4.6 reviewer
+范围：30 天个人交易者 harness plan 已全部完成（`PLAN.json` 48/48）
+最新交付 commit：`299f1bd dashboard: align readiness diagnostics and gating`
 
-## 1. Executive Summary
+## 1. 执行摘要
 
-This harness run completed the full `PLAN.json` backlog and tightened TradingCat around one main goal:
+本轮 harness 完成了 `PLAN.json` 的全部 backlog，并围绕一个核心目标收紧 TradingCat：不要把 synthetic 或不完整研究误判为 production-ready。
 
-- prevent synthetic or incomplete research from being treated as production-ready
-- make data / execution / acceptance blockers visible across research, readiness, diagnostics, dashboard, and reports
-- turn the project from a "control plane prototype" into something closer to a personal-trader operational review surface
+主要目标包括：
 
-The highest-value outcomes are:
+- 让数据、执行和验收阻塞项在 research、readiness、diagnostics、dashboard 和 reports 中都可见。
+- 把项目从“控制平面原型”推进到更接近个人交易者运营复盘面的状态。
+- 保持策略 promotion、执行授权、对账、审计和 rollout evidence 的链路可追踪。
 
-- research gating is now explicit end-to-end
-- persistent research universe and minimal real-history baseline are in place
-- strategy signals are now market/history-driven instead of mostly sample-driven
-- trigger / execution / reconcile / audit now form a traceable chain
-- acceptance / rollout / go-live evidence is now persisted and exposed consistently
-- dashboard no longer overstates readiness, and now surfaces blocked-by-data vs paper-only states
+最高价值结果：
 
-## 2. Delivery Shape
+- Research gating 已端到端显式化。
+- 持久化研究股票池和最小真实历史基线已落地。
+- 策略信号从样本驱动转向市场/历史驱动。
+- Trigger / execution / reconcile / audit 形成可追踪链路。
+- Acceptance / rollout / go-live evidence 已持久化并一致暴露。
+- Dashboard 不再夸大 readiness，并能区分 `blocked_by_data` 与 `paper_only` 状态。
 
-The work landed as a sequence of focused commits, ending with:
+## 2. 交付形态
+
+工作以一系列聚焦 commit 落地，最后到：
 
 - `f75d229` research: block silent synthetic promotion
 - `8d3b524` research: expose blocker fields across scorecard and detail
@@ -59,71 +61,71 @@ The work landed as a sequence of focused commits, ending with:
 - `4203cfe` research: persist market-driven universe signals
 - `299f1bd` dashboard: align readiness diagnostics and gating
 
-## 3. What Was Added
+## 3. 新增内容
 
-### A. Research trust and data gating
+### A. 研究可信度和数据门禁
 
-- `StrategyAnalysisService` now returns explicit `data_source`, `data_ready`, `promotion_blocked`, `blocking_reasons`, `validation_status`, `minimum_history_coverage_ratio`, and top-level hard-block semantics.
-- Selection and allocation now defensively downgrade blocked strategies to `paper_only` / `shadow`, even if an upstream recommendation regresses.
-- Corporate-action and FX coverage are now first-class research inputs instead of silent assumptions.
+- `StrategyAnalysisService` 返回显式 `data_source`、`data_ready`、`promotion_blocked`、`blocking_reasons`、`validation_status`、`minimum_history_coverage_ratio` 和顶层 hard-block 语义。
+- Selection 和 allocation 防御性地把 blocked strategy 降级为 `paper_only` / `shadow`，即使上游 recommendation 回归也不会误升档。
+- 公司行为和 FX 覆盖成为一等研究输入，不再是静默假设。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/strategy_analysis.py](/Users/miau/Documents/TradingCat/tradingcat/services/strategy_analysis.py)
 - [tradingcat/services/research.py](/Users/miau/Documents/TradingCat/tradingcat/services/research.py)
 - [tradingcat/services/selection.py](/Users/miau/Documents/TradingCat/tradingcat/services/selection.py)
 - [tradingcat/services/allocation.py](/Users/miau/Documents/TradingCat/tradingcat/services/allocation.py)
 
-### B. Persistent universe and research baseline
+### B. 持久化股票池和研究基线
 
-- Instrument catalog is now persistent and filterable by enabled/tradable/liquidity status.
-- Strategy research moved off `sample_instruments()` as the primary path and onto market-driven universe selection.
-- Baseline history sync now seeds a minimal reproducible research universe instead of relying on ad hoc cached data.
+- Instrument catalog 现在持久化，并可按 enabled / tradable / liquidity 状态过滤。
+- 策略研究主路径从 `sample_instruments()` 转向市场驱动的 universe selection。
+- Baseline history sync 会种下最小可复现研究股票池，不再依赖临时 cached data。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/market_data.py](/Users/miau/Documents/TradingCat/tradingcat/services/market_data.py)
 - [tradingcat/routes/market_data.py](/Users/miau/Documents/TradingCat/tradingcat/routes/market_data.py)
 - [tradingcat/strategies/simple.py](/Users/miau/Documents/TradingCat/tradingcat/strategies/simple.py)
 - [tradingcat/domain/models.py](/Users/miau/Documents/TradingCat/tradingcat/domain/models.py)
 
-### C. Trigger, execution, reconcile, and audit traceability
+### C. Trigger、执行、对账和审计可追踪
 
-- RSI and SMA trigger conditions now use real indicator inputs.
-- Trigger evaluations now persist indicator snapshots and explicit non-trigger reasons.
-- Execution tracks expected vs realized price context, TCA sample breakdown, and authorization source.
-- Reconcile / manual fill / audit now connect order intent, authorization, reconciliation source, portfolio effect, and status transitions.
+- RSI 和 SMA trigger 条件使用真实指标输入。
+- Trigger evaluation 持久化指标快照，并显式记录未触发原因。
+- Execution 记录 expected vs realized price context、TCA sample breakdown 和 authorization source。
+- Reconcile / manual fill / audit 连接 order intent、authorization、reconciliation source、portfolio effect 和状态迁移。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/rule_engine.py](/Users/miau/Documents/TradingCat/tradingcat/services/rule_engine.py)
 - [tradingcat/services/execution.py](/Users/miau/Documents/TradingCat/tradingcat/services/execution.py)
 - [tradingcat/services/reconciliation.py](/Users/miau/Documents/TradingCat/tradingcat/services/reconciliation.py)
 - [tradingcat/services/audit.py](/Users/miau/Documents/TradingCat/tradingcat/services/audit.py)
 
-### D. Acceptance, rollout, and go-live evidence chain
+### D. Acceptance、rollout 和 go-live 证据链
 
-- Operations journal now persists explicit evidence tags such as `clean_day`, `manual_day`, `incident_day`, and `blocked_day`.
-- Weekly/acceptance/live-acceptance/go-live/report archive flows now consume the same evidence chain.
-- Readiness and gate responses now surface reconciliation mismatch and execution blocker details rather than only boolean red/green status.
+- Operations journal 持久化 `clean_day`、`manual_day`、`incident_day`、`blocked_day` 等 evidence tag。
+- Weekly / acceptance / live-acceptance / go-live / report archive 流程消费同一条 evidence chain。
+- Readiness 和 gate response 暴露 reconciliation mismatch 与 execution blocker 细节，而不只是布尔红绿状态。
 
-Primary files:
+主要文件：
 
 - [tradingcat/services/operations.py](/Users/miau/Documents/TradingCat/tradingcat/services/operations.py)
 - [tradingcat/services/operations_analytics.py](/Users/miau/Documents/TradingCat/tradingcat/services/operations_analytics.py)
 - [tradingcat/services/reporting.py](/Users/miau/Documents/TradingCat/tradingcat/services/reporting.py)
 - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
 
-### E. Final dashboard / diagnostics alignment
+### E. 最终 dashboard / diagnostics 对齐
 
-The final closeout commit focused on the last 6 plan items:
+最终 closeout commit 处理最后 6 个 plan item：
 
-- `/preflight/startup`, `/diagnostics/summary`, and `/ops/readiness` now align on the same research blockers
-- dashboard strategy rows now expose `display_status` and `status_reason`
-- dashboard operations now exposes `acceptance_progress`
-- regression coverage was added for these paths
+- `/preflight/startup`、`/diagnostics/summary` 和 `/ops/readiness` 对齐同一组 research blocker。
+- Dashboard strategy rows 暴露 `display_status` 和 `status_reason`。
+- Dashboard operations 暴露 `acceptance_progress`。
+- 为这些路径补充回归覆盖。
 
-Primary files:
+主要文件：
 
 - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
 - [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
@@ -133,78 +135,72 @@ Primary files:
 - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
 - [tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)
 
-## 4. Architecture Corrections During The Run
+## 4. 本轮架构修正
 
-Part of this run introduced mild architectural drift. The final closeout deliberately corrected the most obvious harness-induced decay instead of only shipping features.
+本轮一度引入轻微架构漂移。最终 closeout 有意修复最明显的 harness-induced decay，而不是只继续堆功能。
 
-The key corrections were:
+关键修正：
 
-- dashboard/readiness aggregations now use short-lived summary caching in [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py) so one request does not recompute the same heavy summaries multiple times
-- [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py) no longer recomputes selection/allocation summary inside the strategy-row loop
-- `dashboard/summary` no longer triggers implicit plan/summary generation as a side effect of a GET request; it now returns explicit fallback notes when no archive exists
-- dashboard now reuses one `strategy_signal_map + build_profit_scorecard` path instead of recomputing a second full strategy report just to get portfolio metrics
+- Dashboard/readiness 聚合在 [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py) 中使用短生命周期 summary cache，避免一次请求重复计算同一批重型摘要。
+- [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py) 不再在 strategy-row loop 内重复计算 selection/allocation summary。
+- `dashboard/summary` 不再通过 GET 请求隐式生成 plan/summary；没有 archive 时返回显式 fallback notes。
+- Dashboard 复用同一条 `strategy_signal_map + build_profit_scorecard` 路径，而不是为了 portfolio metrics 再计算一整份 strategy report。
 
-This matters because the main risk near the end of the harness was not correctness regression, but soft boundary erosion in `app.py` and `facades.py`.
+这很重要，因为 harness 后期的主要风险不是正确性回归，而是 `app.py` 和 `facades.py` 的软边界侵蚀。
 
-## 5. Validation Completed
+## 5. 已完成验证
 
-The final closeout verification included:
+最终 closeout 验证包括：
 
-- `.venv/bin/pytest tests/test_research_reporting.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_facade.py tests/test_reports_helper.py tests/test_operations_journal.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_dashboard_page_and_assets tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q`
-  - result: `53 passed`
+```bash
+.venv/bin/pytest tests/test_research_reporting.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_facade.py tests/test_reports_helper.py tests/test_operations_journal.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_dashboard_page_and_assets tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q
+```
 
-Real HTTP verification was also run on an isolated instance:
+结果：`53 passed`
 
-- `GET /preflight/startup`
-  - confirmed `healthy=true`, `research_ready=false`, `system_ready=false`
-- `GET /diagnostics/summary`
-  - confirmed synthetic fallback / missing history blockers appear in top-level `blockers`
-- `GET /ops/readiness`
-  - confirmed readiness blocker list aligns with `research_readiness.blocking_reasons`
-- `GET /dashboard/summary`
-  - confirmed `details.acceptance_progress` exists
-  - confirmed `strategy_c_option_overlay.display_status="blocked_by_data"`
+也在隔离实例上做了真实 HTTP 验证：
 
-## 6. Recommended Review Entry Points
+- `GET /preflight/startup`：确认 `healthy=true`、`research_ready=false`、`system_ready=false`。
+- `GET /diagnostics/summary`：确认 synthetic fallback / missing history blocker 出现在顶层 `blockers`。
+- `GET /ops/readiness`：确认 readiness blocker list 与 `research_readiness.blocking_reasons` 对齐。
+- `GET /dashboard/summary`：确认存在 `details.acceptance_progress`，且 `strategy_c_option_overlay.display_status="blocked_by_data"`。
 
-If Opus 4.6 is doing a focused review, these are the best starting points:
+## 6. 推荐审查入口
 
-1. Research gating semantics
-   - [tradingcat/services/strategy_analysis.py](/Users/miau/Documents/TradingCat/tradingcat/services/strategy_analysis.py)
-   - Check whether `data_ready`, `promotion_blocked`, `validation_status`, and top-level `report_status` remain internally consistent.
+1. Research gating 语义
+   [tradingcat/services/strategy_analysis.py](/Users/miau/Documents/TradingCat/tradingcat/services/strategy_analysis.py)
+   检查 `data_ready`、`promotion_blocked`、`validation_status` 和顶层 `report_status` 是否内部一致。
 
-2. App-layer aggregation boundaries
-   - [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
-   - Review the new summary cache and ensure it does not hide stale state or break side-effect expectations.
+2. App 层聚合边界
+   [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py)
+   审查新 summary cache 是否隐藏 stale state 或破坏副作用预期。
 
-3. Dashboard aggregation logic
-   - [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
-   - Check status derivation for `blocked_by_data`, `paper_only`, and fallback note behavior.
+3. Dashboard 聚合逻辑
+   [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
+   检查 `blocked_by_data`、`paper_only` 和 fallback note 行为的状态推导。
 
-4. Frontend rendering contract
-   - [static/dashboard_strategy.js](/Users/miau/Documents/TradingCat/static/dashboard_strategy.js)
-   - [static/dashboard_operations.js](/Users/miau/Documents/TradingCat/static/dashboard_operations.js)
-   - Confirm new fields are consumed safely and do not create misleading states.
+4. 前端渲染 contract
+   [static/dashboard_strategy.js](/Users/miau/Documents/TradingCat/static/dashboard_strategy.js)、[static/dashboard_operations.js](/Users/miau/Documents/TradingCat/static/dashboard_operations.js)
+   确认新字段被安全消费，不会制造误导状态。
 
-5. Regression coverage adequacy
-   - [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)
-   - [tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)
-   - Check whether the tests are asserting behavior at the right level rather than overfitting to implementation details.
+5. 回归覆盖充分性
+   [tests/test_api.py](/Users/miau/Documents/TradingCat/tests/test_api.py)、[tests/test_dashboard_facade.py](/Users/miau/Documents/TradingCat/tests/test_dashboard_facade.py)
+   检查测试是否断言正确层级的行为，而不是过拟合实现细节。
 
-## 7. Known Residual Risks
+## 7. 已知剩余风险
 
-- `tests/test_api.py::test_preflight_and_broker_recovery_endpoints` remains very slow when run alone. The functionality was covered by narrower API tests plus real HTTP validation, but the test itself is still a candidate for later slimming or decomposition.
-- `TradingCatApplication` is still a large orchestrator even after the cache/aggregation cleanup. This harness stopped short of a bigger service extraction to avoid destabilizing the final delivery.
-- `strategy_c_option_overlay` still has a realistic "blocked because option-history path is synthetic" posture. That is intentional, but reviewers should confirm this remains honest and not accidentally over-promoted elsewhere.
+- `tests/test_api.py::test_preflight_and_broker_recovery_endpoints` 单独运行时仍很慢。功能已由更窄 API 测试和真实 HTTP 验证覆盖，但该测试仍适合后续拆瘦。
+- 即使完成 cache/aggregation 清理，`TradingCatApplication` 仍是大型 orchestrator。本轮没有继续大规模 service extraction，以避免 destabilize 最终交付。
+- `strategy_c_option_overlay` 仍保持“因 option-history 路径 synthetic 而 blocked”的真实姿态。这是有意设计，但 reviewer 应确认其他地方不会意外把它过度 promotion。
 
-## 8. Workspace Notes
+## 8. 工作区说明
 
-This harness delivery intentionally did not modify the user's pre-existing dirty files:
+本轮 harness 交付没有修改用户已有的 dirty files：
 
 - [docs/codex-harness-engineering.md](/Users/miau/Documents/TradingCat/docs/codex-harness-engineering.md)
 - [init.sh](/Users/miau/Documents/TradingCat/init.sh)
 - [scripts/codex_harness/permission_guard.sh](/Users/miau/Documents/TradingCat/scripts/codex_harness/permission_guard.sh)
 
-All harness features are complete, and the delivery commit series ends at:
+所有 harness feature 已完成，交付 commit series 结束于：
 
 - `299f1bd dashboard: align readiness diagnostics and gating`

@@ -1,16 +1,16 @@
 # TradingCat
 
-TradingCat is a local-first trading system baseline for Hong Kong, U.S., and A-share markets. This repository now implements the V1 architecture described in [PLAN.md](/Users/miau/Documents/TradingCat/PLAN.md): a Python control plane with explicit domain models, strategy generation, risk checks, approval workflow, execution adapters, and a minimal backtesting engine.
+TradingCat 是一个面向港股、美股和 A 股的本地优先交易系统基线。本仓库实现了 [PLAN.md](/Users/miau/Documents/TradingCat-chinese-ui-content/PLAN.md) 中描述的 V1 架构：Python 控制平面、明确的领域模型、策略生成、风控检查、审批流程、执行适配器，以及最小事件驱动回测引擎。
 
-## What Is Implemented
+## 已实现内容
 
-- A typed domain layer for `Instrument`, `Signal`, `OrderIntent`, `ExecutionReport`, `ApprovalRequest`, and `PortfolioSnapshot`
-- Core interfaces from the plan: `MarketDataAdapter`, `BrokerAdapter`, `Strategy`, `RiskEngine`, and `ApprovalService`
-- Three V1 strategy placeholders:
-  - ETF trend / rotation
-  - HK/US equity momentum
-  - Option overlay baseline (research-active, execution-disabled by default)
-- A FastAPI control panel exposing:
+- 类型化领域层：`Instrument`、`Signal`、`OrderIntent`、`ExecutionReport`、`ApprovalRequest`、`PortfolioSnapshot`。
+- 计划中的核心接口：`MarketDataAdapter`、`BrokerAdapter`、`Strategy`、`RiskEngine`、`ApprovalService`。
+- 三个 V1 策略基线：
+  - ETF 趋势/轮动。
+  - 港美高流动性股票动量。
+  - 期权覆盖层基线，默认仅用于研究，执行禁用。
+- FastAPI 本地控制台，覆盖 dashboard、journal、signals、portfolio、orders、broker、market data、execution、alerts、compliance、ops、reports、approvals、kill switch、reconcile、scheduler、research 等接口。主要 HTTP 面包括：
   - `GET /dashboard`
   - `GET /dashboard/summary`
   - `GET /dashboard/research`
@@ -120,73 +120,26 @@ TradingCat is a local-first trading system baseline for Hong Kong, U.S., and A-s
   - `GET /research/allocations`
   - `GET /research/allocations/summary`
   - `POST /portfolio/rebalance-plan`
-- Simulated broker and manual execution adapters, matching the V1 split between automated HK/US execution and manual A-share confirmation
-- Approval workflow now includes explicit expiry and scheduled stale-request sweeping for manual A-share orders
-- Audit log service now records core control-plane mutations and supports local JSON or local PostgreSQL storage
-- A minimal event-driven backtesting baseline with turnover and market-specific trading cost / slippage modelling
-- Local JSON-backed persistence for approvals, orders, portfolio state, and backtest experiments under `data/`
-- Market-session service plus APScheduler-backed local background jobs with startup and shutdown lifecycle management
-- Optional Futu adapter factory with graceful fallback to simulated adapters when the `futu` SDK or OpenD is unavailable
-- Explicit Futu validation endpoint that reports quote/trade connectivity separately before you wire real execution
-- Read-only broker probe endpoint plus cancel-order API so a simulated/OpenD order management loop can be exercised
-- Read-only market-data smoke test endpoint that exercises quote and short-bar retrieval through the active adapter
-- Local master-data and historical-data endpoints that seed instruments, persist bars, and export DuckDB/Parquet datasets
-- History coverage endpoint and scheduled recent-history sync now expose how complete local bars are for tracked instruments
-- History sync runs are now persisted locally with health/staleness summary and repair plans for missing windows
-- History gap repair can now be triggered explicitly and is also scheduled as a daily repair sweep
-- Data-quality summary now feeds operations readiness so missing local history becomes a visible operational blocker
-- Read-only execution preview endpoint that converts current signals into risk-approved order intents without placing orders
-- Execution gate endpoint now summarizes whether readiness, allocation, and rollout policy would block a guarded execution cycle
-- Startup preflight endpoint and launcher summary that flag missing `.env`, invalid Futu config, and missing SDK before OpenD validation
-- Diagnostics summary endpoint that classifies common validation failures and suggests the next operator action
-- Research report endpoint that runs walk-forward validation, computes strategy correlations, and returns a portfolio admission summary
-- Research stability endpoint now summarizes walk-forward pass rate, stability bucket, and capacity score per strategy
-- Research recommendation endpoint now turns validation output into keep / paper-only / drop actions with operator next steps
-- Research ideas endpoint now proposes the next experiment set from validation, turnover, drawdown, and correlation outcomes
-- Research news summary endpoint now turns locally supplied headlines/articles into structured themes, impacted symbols, and next research actions
-- Strategy selection review endpoints now persist which strategies are active, paper-only, or rejected for the next phase
-- Strategy selection review is now also scheduled and reflected in readiness/report summaries
-- Strategy allocation review now turns accepted strategies into target weights and market budgets for the next rebalance review
-- Portfolio rebalance-plan endpoint now compares current weights versus target weights derived from active strategy allocations
-- Scheduled research selection review now refreshes both admission decisions and strategy allocations for the next cycle
-- Research experiments now prefer locally persisted history from DuckDB/Parquet or JSON caches before falling back to synthetic baseline data
-- Strategy C now emits minimal protective-put / covered-call research signals while live execution remains limited to stock and ETF legs
-- Historical backtests now incorporate local corporate-action adjustments, lightweight FX translation, and monthly portfolio ledger accounting
-- Historical backtests now prefer locally persisted FX rates when available, with sync/query endpoints for the local FX dataset
-- Historical backtests now include basic option-expiry settlement handling for expiry-month exercise / worthless-expiry scenarios
-- Historical backtests now price trading costs by market and asset class instead of a single flat commission/slippage assumption
-- Execution state now supports duplicate-fill deduplication, broker order reconciliation, and broker-vs-snapshot portfolio checks
-- Order-state transitions are now enforced through an explicit state-machine component before reconciliation merges
-- Execution quality summary now tracks stock/ETF slippage and option premium deviation against paper-trading thresholds
-- Execution authorization summary now audits whether every order was risk-approved, approval-backed, or externally reconciled
-- Manual fills and reconciled fills now update the local portfolio snapshot instead of leaving positions stale
-- Manual fill reconciliation now also supports CSV-style broker export import for batch A-share backfill
-- Risk engine now enforces daily option premium and total option risk budgets in addition to weight and cash constraints
-- Alert evaluation now persists actionable incidents with recovery steps for broker health, validation failures, and reconciliation mismatches
-- Runtime recovery can now rebuild market-data and broker adapters in place after degraded broker health or reconnect attempts
-- Kill switch state is now persisted with an audit trail and can be verified against a full execution cycle
-- Compliance checklists now persist A-share programmatic-trading gates and broker capability readiness inside the control panel
-- Research experiments now record replay fingerprints and expose input/metric diffs for reproducibility checks
-- Validation archives now include alerts, compliance status, and an operations readiness snapshot for long-run simulation evidence
-- Daily operations journal entries now accumulate readiness evidence for multi-week paper-trading acceptance checks
-- Operations acceptance summary now evaluates 4-week/6-week paper-trading evidence and suggests the next rollout stage
-- Operations acceptance timeline and rollout milestones now expose day-by-day evidence and stage progress for 10% / 30% / 100% gating
-- Go-live summary now combines execution gate, rollout evidence, milestones, and policy state into one promotion verdict
-- Live-acceptance summary now combines go-live gate, execution quality, authorization, incidents, and promotion history into one deploy verdict
-- Rollout promotion history is now persisted so blocked and approved stage-raise attempts remain auditable
-- Validation archives and dashboard summaries now include live-acceptance status for Phase 4 review
-- Rollout checklist now turns each target stage into an explicit pass/block checklist for operator review
-- Rollout policy is now persisted separately from rollout recommendation and actively scales execution cash to 10% / 30% / 100%
-- Operations execution metrics now summarize recent exception rate, risk-hit rate, slippage status, and authorization status for rollout review
-- Daily report, weekly report, and postmortem endpoints now summarize alerts, recoveries, execution exceptions, and operator next actions
-- Incident replay endpoint now emits a chronological alert/audit/recovery timeline for operator review and scenario walkthroughs
-- Pytest coverage for risk rules, approval flow, and backtest cost behavior
+- 模拟券商和手工执行适配器，符合 V1 中“港美自动执行、A 股人工确认”的分层。
+- 审批流程支持显式过期和定时清理过期请求，适用于人工确认的 A 股建议单。
+- 审计日志记录核心控制平面变更，支持本地 JSON 或本地 PostgreSQL。
+- 最小事件驱动回测基线，包含换手率、市场别成本、滑点、汇率和公司行为处理。
+- `data/` 下的本地 JSON 持久化，覆盖审批、订单、组合状态和回测实验。
+- 市场时段服务和 APScheduler 本地后台任务，带启动/关闭生命周期。
+- Futu 适配器工厂可选启用；当 `futu` SDK 或 OpenD 不可用时，自动降级到模拟适配器。
+- Broker、market data、diagnostics、preflight、execution gate、readiness、acceptance、rollout 和 live acceptance 等运维面已接入 dashboard。
+- 研究面已包含 walk-forward 验证、策略相关性、稳定性分桶、推荐动作、候选策略评分、研究想法、资讯摘要、策略筛选和 allocation review。
+- 策略 C 已能产出最小保护性看跌/备兑看涨研究信号；实盘执行仍限定股票和 ETF 腿。
+- 执行状态支持重复成交去重、券商订单对账、券商持仓与本地快照核对、订单状态机和执行质量汇总。
+- 风控引擎除权重和现金约束外，也执行单日期权权利金预算和组合期权总风险预算。
+- Kill switch、合规清单、告警、恢复动作、验收证据、阶段升档历史和 rollout policy 都已持久化并进入控制台。
+- 测试覆盖风险规则、审批流、回测成本、调度历史、dashboard facade、operations journal 和研究 runner 等关键路径。
 
-## Universe Maintenance
+## 股票池维护
 
-The persistent research universe now lives in `data/instruments.json` (or DuckDB when enabled) and is managed through the API instead of hard-coded strategy samples.
+持久化研究股票池位于 `data/instruments.json`，启用 DuckDB 时也可落地到 DuckDB。股票池通过 API 管理，不再依赖硬编码策略样本。
 
-Typical workflow:
+典型流程：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/data/instruments \
@@ -209,41 +162,37 @@ curl -X POST http://127.0.0.1:8000/data/instruments \
 curl "http://127.0.0.1:8000/data/instruments?enabled_only=true&tradable_only=true&liquid_only=true"
 ```
 
-Operator notes:
-- Keep `enabled=true` and `tradable=true` only for symbols you really want in the research/execution candidate pool.
-- Use `liquidity_bucket=low` or `enabled=false` to keep a symbol persisted but out of the default personal-trading universe.
-- After a universe change, run `POST /data/history/sync` for the affected symbols and then verify `GET /data/history/coverage`.
+操作说明：
 
-## Absorbed Research Capabilities
+- 只有真正希望进入研究/执行候选池的标的，才保持 `enabled=true` 和 `tradable=true`。
+- 如果要保留标的但排除出默认个人交易池，可设置 `liquidity_bucket=low` 或 `enabled=false`。
+- 修改股票池后，针对受影响标的运行 `POST /data/history/sync`，再用 `GET /data/history/coverage` 检查覆盖率。
 
-A research-only capability layer absorbed from `hsliuping/TradingAgents-CN`
-across rounds 01–15 ships in this repo: A-share data adapters (AKShare /
-BaoStock / Tushare), Chinese news sources (East Money / 财联社 / Finnhub /
-Alpha Vantage), CN hard risk rules (涨跌停 / T+1 / ST), technical features,
-universe screener, and a budget-gated LLM advisory layer. **Every piece is
-off by default and never produces signals/orders/approvals.** See
-[`docs/ABSORB_CAPABILITIES.md`](docs/ABSORB_CAPABILITIES.md) for the
-operator cookbook (env knobs, optional deps, how to verify).
+## 已吸收的研究能力
 
-Smoke run:
+仓库包含从 `hsliuping/TradingAgents-CN` 第 01-15 轮吸收而来的研究层能力：A 股数据适配器（AKShare / BaoStock / Tushare）、中文资讯源（东方财富 / 财联社 / Finnhub / Alpha Vantage）、中国市场硬风控规则（涨跌停 / T+1 / ST）、技术特征、股票池筛选器，以及带预算门禁的 LLM 研究建议层。
+
+除中国市场硬风控规则外，这些能力默认全部关闭，并且仅作为研究建议使用；它们不会生成 `Signal`、`OrderIntent`、审批或执行指令。操作手册见 [docs/ABSORB_CAPABILITIES.md](/Users/miau/Documents/TradingCat-chinese-ui-content/docs/ABSORB_CAPABILITIES.md)。
+
+离线冒烟运行：
 
 ```bash
 .venv/bin/python scripts/absorb_dogfood.py
-# audits env knobs, then runs an offline end-to-end pipeline with a fake
-# LLM and writes a Markdown report to data/reports/dogfood/
+# 审计环境开关，然后用 fake LLM 运行离线端到端流程，
+# 并把 Markdown 报告写到 data/reports/dogfood/
 ```
 
-## Current Architecture Boundaries
+## 当前架构边界
 
-- `tradingcat/routes/` stays thin. Route handlers should delegate to `app.py` properties, facades, or dedicated services instead of composing research/reporting logic inline.
-- `tradingcat/facades.py` is for transport-facing read models. Dashboard and research facades should assemble response payloads from query/projection/reporting services, not reach directly into heavy orchestration code.
-- `tradingcat/services/query_services.py` owns read-side aggregation such as readiness, data quality, and research query composition.
-- `tradingcat/services/portfolio_projections.py` owns account-position/cash/nav-curve/allocation projection helpers shared by dashboard surfaces.
-- `tradingcat/services/strategy_reporting.py` owns research report, stability, recommendation, scorecard, and strategy-detail assembly. `StrategyAnalysisService` remains the lower-level analysis core for experiment, correlation, benchmark, and history helpers.
-- `tradingcat/strategies/simple.py` now holds production strategy implementations plus shared metadata/helpers. Research-only candidate strategies live in `tradingcat/strategies/research_candidates.py`.
-- `sample_instruments()` is still available for fallback/diagnostic paths, but the persistent instrument catalog is the default source of truth for research and strategy detail flows.
+- `tradingcat/routes/` 保持薄路由。路由处理器应委托给 `app.py` 属性、facade 或专用 service，不在路由内拼装研究/报表逻辑。
+- `tradingcat/facades.py` 负责面向传输层的读模型。Dashboard 和 research facade 应从 query/projection/reporting service 组装响应，不直接进入重型编排代码。
+- `tradingcat/services/query_services.py` 负责 readiness、data quality、research query 等读侧聚合。
+- `tradingcat/services/portfolio_projections.py` 负责账户持仓、现金、净值曲线和 allocation projection 等 dashboard 共用计算。
+- `tradingcat/services/strategy_reporting.py` 负责研究报告、稳定性、推荐、scorecard 和策略详情组装。`StrategyAnalysisService` 保持为实验、相关性、benchmark 和历史数据辅助的底层分析核心。
+- `tradingcat/strategies/simple.py` 放生产策略实现和共享元数据/辅助方法；研究候选策略放在 `tradingcat/strategies/research_candidates.py`。
+- `sample_instruments()` 仅用于 fallback/diagnostic 路径；持久化 instrument catalog 是研究和策略详情流程的默认事实来源。
 
-## Quick Start
+## 快速开始
 
 ```bash
 python -m venv .venv
@@ -254,59 +203,60 @@ pytest
 ./scripts/run_local.sh
 ```
 
-Then open:
+然后打开：
 
 ```bash
 http://127.0.0.1:8000/dashboard
 ```
 
-The GUI prototype now focuses on:
-- total assets, cash, position allocation, and portfolio pnl
-- strategy metrics such as annualized return, Sharpe, and max drawdown
-- today's trading plan from execution preview
-- daily / weekly highlights and current blockers
+当前 GUI 原型重点展示：
 
-## Current Architecture Map
+- 总资产、现金、持仓 allocation 和组合盈亏。
+- 年化收益、Sharpe、最大回撤等策略指标。
+- 来自 execution preview 的今日交易计划。
+- 日报/周报摘要和当前阻塞项。
 
-- `tradingcat/main.py` stays as the thin FastAPI entry point; router registration and error wiring still happen there.
-- Runtime construction and broker/data recovery now live in `tradingcat/runtime.py`, while APScheduler job registration lives in `tradingcat/scheduler_runtime.py`.
-- `tradingcat/app.py` remains the main application shell, but dashboard / research / operations / journal / alerts orchestration is now routed through facade objects in `tradingcat/facades.py`.
-- Server-rendered pages use shared Jinja layout pieces from `templates/base.html` and `templates/partials/`, rather than returning raw HTML strings from route handlers.
-- The dashboard frontend stays framework-free, but the page logic is now split by concern:
-  - `static/dashboard_accounts.js` for account tabs, overview, and account asset helpers
-  - `static/dashboard_strategy.js` for strategy / candidate / trading-plan rendering
-  - `static/dashboard_operations.js` for summaries, blockers, priority actions, and live ops tables
-  - `static/dashboard.js` as the orchestration shell that owns shared state and API loading
+## 当前架构地图
 
-## Continue From Here
+- `tradingcat/main.py` 保持为薄 FastAPI 入口，负责注册 router 和错误处理。
+- 运行时构建、broker/data recovery 位于 `tradingcat/runtime.py`；APScheduler 任务注册位于 `tradingcat/scheduler_runtime.py`。
+- `tradingcat/app.py` 仍是主应用外壳，但 dashboard / research / operations / journal / alerts 编排已通过 `tradingcat/facades.py` 中的 facade 对象承接。
+- 服务端渲染页面复用 `templates/base.html` 和 `templates/partials/` 下的 Jinja 布局片段，不再从 route handler 返回原始 HTML 字符串。
+- Dashboard 前端保持无框架，但页面逻辑已按关注点拆分：
+  - `static/dashboard_accounts.js`：账户 tab、概览和账户资产辅助逻辑。
+  - `static/dashboard_strategy.js`：策略、候选和交易计划渲染。
+  - `static/dashboard_operations.js`：摘要、阻塞项、优先动作和实时运维表格。
+  - `static/dashboard.js`：编排外壳，持有共享状态和 API 加载。
 
-- If you are resuming refactor work, read `PLAN.json` and `PROGRESS.md` first; they are the authoritative harness state for remaining tasks and prior decisions.
-- Preserve the current public HTTP surface while refactoring internals; route compatibility and dashboard response compatibility are guarded by `tests/test_api.py`.
-- Prefer `.venv/bin/pytest` for local validation in this repo; using the system interpreter can produce false negatives around optional data dependencies.
+## 后续接手
 
-To prepare Futu integration later:
+- 如果继续重构工作，先读 `PLAN.json` 和 `PROGRESS.md`；它们是 harness 状态、剩余任务和既有决策的权威来源。
+- 重构内部实现时保持当前 HTTP 公共面不变；路由兼容性和 dashboard 响应兼容性由 `tests/test_api.py` 保护。
+- 本仓库本地验证优先使用 `.venv/bin/pytest`；系统解释器可能因可选数据依赖缺失而产生假阴性。
+
+准备后续 Futu 集成：
 
 ```bash
 source .venv/bin/activate
 pip install -e .[dev,futu]
 ```
 
-To move local state into PostgreSQL on the same machine:
+把本地状态迁移到同机 PostgreSQL：
 
 ```bash
 source .venv/bin/activate
 pip install -e .
 ./scripts/bootstrap_env.sh simulate
-# edit .env:
+# 编辑 .env：
 # TRADINGCAT_POSTGRES_ENABLED=true
 # TRADINGCAT_POSTGRES_DSN=postgresql:///tradingcat
 ./scripts/init_postgres.sh
 ```
 
-To persist research experiments into local DuckDB + Parquet:
+把研究实验持久化到本地 DuckDB + Parquet：
 
 ```bash
-# edit .env:
+# 编辑 .env：
 # TRADINGCAT_DUCKDB_ENABLED=true
 # TRADINGCAT_DUCKDB_PATH=data/research.duckdb
 # TRADINGCAT_PARQUET_DIR=data/parquet
@@ -314,16 +264,16 @@ To persist research experiments into local DuckDB + Parquet:
 # TRADINGCAT_SCHEDULER_AUTOSTART=true
 ```
 
-## Local Validation Flow
+## 本地验证流程
 
 ```bash
 ./scripts/bootstrap_env.sh simulate
-# edit .env and set TRADINGCAT_FUTU_ENABLED=true after OpenD is running
-# set TRADINGCAT_RELOAD=true only if your environment allows file watching
+# OpenD 启动后，编辑 .env 并设置 TRADINGCAT_FUTU_ENABLED=true
+# 只有环境支持文件监听时才设置 TRADINGCAT_RELOAD=true
 ./scripts/run_local.sh
 ```
 
-In another terminal:
+另一个终端：
 
 ```bash
 ./scripts/checklist.sh
@@ -335,7 +285,9 @@ In another terminal:
 ./scripts/simulated_order_cycle.sh
 ```
 
-To archive validation runs under `data/reports/<timestamp>/`:
+注意：`post_validate.sh`、`simulated_order_cycle.sh`、带 `with-cycle` 的验证和任何会触发执行、撤单、审批、手工对账的流程都有真实副作用边界；只在明确需要该流程时运行。
+
+归档验证运行到 `data/reports/<timestamp>/`：
 
 ```bash
 TRADINGCAT_ARCHIVE_REPORTS=true ./scripts/doctor.sh
@@ -343,7 +295,7 @@ TRADINGCAT_ARCHIVE_REPORTS=true ./scripts/validate_broker.sh
 TRADINGCAT_ARCHIVE_REPORTS=true ./scripts/validate_all.sh
 ```
 
-To run the full flow in one command:
+一条命令串联完整流程：
 
 ```bash
 ./scripts/opend_check.sh
@@ -352,17 +304,17 @@ To run the full flow in one command:
 ./scripts/post_validate.sh
 ```
 
-`./scripts/post_validate.sh` now runs the full local operator loop:
+`./scripts/post_validate.sh` 会运行完整本地操作员闭环：
 
-- validation summary
-- broker order smoke check
-- cancel currently open simulated/live orders
-- execute one live cycle
-- auto-approve the newest pending A-share request
-- reconcile one manual fill
-- archive the full result set under `data/reports/<timestamp>/`
+- validation summary。
+- broker order smoke check。
+- 取消当前打开的模拟/实盘订单。
+- 执行一次 live cycle。
+- 自动批准最新待处理 A 股请求。
+- 对账一条 manual fill。
+- 把完整结果归档到 `data/reports/<timestamp>/`。
 
-To inspect archived runs:
+查看归档运行：
 
 ```bash
 ./scripts/latest_report.sh
@@ -373,28 +325,28 @@ curl http://127.0.0.1:8000/reports/latest
 curl http://127.0.0.1:8000/reports/latest/dashboard
 ```
 
-`./scripts/validate_broker.sh` starts with `GET /diagnostics/summary`, which aggregates the likely failure category:
+`./scripts/validate_broker.sh` 会先调用 `GET /diagnostics/summary`，汇总最可能的失败类别：
 
-- `futu_disabled`: `.env` still uses simulated mode.
-- `sdk_missing`: the `futu` package is not installed in `.venv`.
-- `opend_unreachable`: both quote and trade validation failed, usually because OpenD is down or not logged in.
-- `quote_channel_failed`: quote connectivity or market data permissions failed.
-- `trade_channel_failed`: trade connectivity, unlock, or account environment failed.
-- `market_data_mapping_failed`: connection exists, but quote/bar parsing still failed.
-- `risk_or_preview_failed`: strategy or risk preview failed before execution.
-- `ready_for_validation`: read-only checks passed and the next step is simulated order placement/cancellation.
+- `futu_disabled`：`.env` 仍处于 simulated mode。
+- `sdk_missing`：`.venv` 中未安装 `futu` 包。
+- `opend_unreachable`：quote 和 trade 验证都失败，通常是 OpenD 未运行或未登录。
+- `quote_channel_failed`：行情连接或行情权限失败。
+- `trade_channel_failed`：交易连接、解锁或账户环境失败。
+- `market_data_mapping_failed`：连接存在，但 quote/bar 解析失败。
+- `risk_or_preview_failed`：执行前的策略或风控 preview 失败。
+- `ready_for_validation`：只读检查已通过，下一步是模拟下单/撤单验证。
 
-`./scripts/doctor.sh` prints a compact summary and exits with:
+`./scripts/doctor.sh` 会打印紧凑摘要，并使用以下退出码：
 
-- `0` for `info`
-- `1` for `warning`
-- `2` for `error`
+- `0`：`info`
+- `1`：`warning`
+- `2`：`error`
 
-## Notes
+## 说明
 
-- This is a baseline implementation, not a production trading engine.
-- Futu OpenD is still an external dependency; local PostgreSQL, DuckDB/Parquet, and APScheduler are now wired behind configuration.
-- A-share execution remains manual by design in V1.
-- Runtime state and audit logs can now move into local PostgreSQL, while research experiments can move into local DuckDB + Parquet.
-- Futu integration is currently an adapter layer with fallback behavior; real trading still depends on local OpenD availability, account permissions, and final field validation against the live SDK responses.
-- `AppConfig` now supports environment-driven startup, including `TRADINGCAT_FUTU_*`, local PostgreSQL, DuckDB/Parquet, and scheduler backend settings.
+- 这是基线实现，不是生产级交易引擎。
+- Futu OpenD 仍是外部依赖；本地 PostgreSQL、DuckDB/Parquet 和 APScheduler 已通过配置接入。
+- V1 中 A 股执行按设计保持人工确认。
+- 运行时状态和审计日志可迁移到本地 PostgreSQL；研究实验可迁移到本地 DuckDB + Parquet。
+- Futu 集成当前是带 fallback 的适配器层；真实交易仍依赖本地 OpenD 可用性、账户权限，以及对 live SDK 响应字段的最终验证。
+- `AppConfig` 支持环境驱动启动，包括 `TRADINGCAT_FUTU_*`、本地 PostgreSQL、DuckDB/Parquet 和 scheduler backend 设置。

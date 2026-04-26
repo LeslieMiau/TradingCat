@@ -1,4 +1,4 @@
-# OpenD 宿主恢复 Runbook
+# OpenD 宿主恢复手册
 
 **目标**：当 OpenD 连接异常时，在 15 分钟内恢复到可下单的稳定状态，且不丢失执行/审计状态。
 
@@ -11,7 +11,7 @@
 - `/health/opend` 或 `scripts/opend_check.sh` 返回非零退出码
 - `/alerts` 出现 `category="broker"` 或 `category="opend"` 的 `error` 级事件
 - Dashboard `/diagnostics` 显示 `opend_online=false` 超过 2 个检查周期
-- Intraday risk tick 触发 `fail-closed`，原因含 `NAV unavailable`
+- 盘中风控 tick 触发 `fail-closed`，原因含 `NAV unavailable`
 - Kill switch 自动启用，最新事件 `reason` 以 `"Intraday tick"` 开头
 
 ---
@@ -86,7 +86,7 @@
 
 1. **运营日志**：`POST /ops/journal/record`，附 `notes={"incident": "opend_recovery", "downtime_minutes": N}`
 2. **Post-mortem**：`GET /ops/postmortem?window_days=1` 导出最近 24 小时事件链
-3. 若 downtime > 15 分钟：暂停本日新开仓，等待第二交易日再恢复，或留 ops owner 手工复核
+3. 若停机时间 > 15 分钟：暂停本日新开仓，等待第二交易日再恢复，或留 ops owner 手工复核
 4. 在 `docs/` 追加一行事故时间线，供季度复盘
 
 ---
@@ -95,7 +95,7 @@
 
 出现任一情况，**立即** `POST /kill-switch/enable` 并通知 ops owner：
 
-- 累计 downtime > 30 分钟
+- 累计停机时间 > 30 分钟
 - `POST /execution/reconcile` 返回 `duplicate_fills>0` 或 `unmatched_broker_orders` 非空且无法解释
 - 券商账户被标记为风控限制或冻结
 - 当日是 FOMC / CPI / 港美股季报日，且信心度低于 60%
@@ -128,4 +128,4 @@ curl -sf localhost:8000/ops/acceptance/gates | python -m json.tool
 - Fail-closed 实现：[tradingcat/services/risk.py](tradingcat/services/risk.py:148)
 - 成交对账：[tradingcat/services/reconciliation.py](tradingcat/services/reconciliation.py)、[tradingcat/services/execution.py](tradingcat/services/execution.py:136)
 - 告警分派：[tradingcat/services/alerts.py](tradingcat/services/alerts.py)、[tradingcat/services/notifier.py](tradingcat/services/notifier.py)
-- Acceptance 门槛：[tradingcat/services/acceptance_gates.py](tradingcat/services/acceptance_gates.py)
+- 验收门槛：[tradingcat/services/acceptance_gates.py](tradingcat/services/acceptance_gates.py)
