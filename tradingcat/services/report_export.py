@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable
@@ -119,4 +120,4 @@ def _news_section(news_items: list[NewsItem]) -> list[str]:
 
 
 def _clean(value: object) -> str:
-    return str(value).replace("\n", " ").replace("|", "\\|").strip()
+    return html.escape(str(value).replace("\n", " ").replace("|", "\\|").strip())

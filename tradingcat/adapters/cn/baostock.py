@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any, Iterable
 
+from tradingcat.adapters.cn._date_utils import parse_date
 from tradingcat.domain.models import Bar, FxRate, Instrument, Market, OptionContract
 
 
@@ -184,7 +185,7 @@ def _iter_bars_from_result(result: Any, instrument: Instrument) -> Iterable[Bar]
         row = dict(zip(fields, row_values, strict=False))
         if str(row.get(_TRADE_STATUS_FIELD, "1")) not in {"", "1"}:
             continue
-        ts = _parse_date(row.get(_DATE_FIELD))
+        ts = parse_date(row.get(_DATE_FIELD))
         if ts is None:
             continue
         try:
@@ -201,21 +202,3 @@ def _iter_bars_from_result(result: Any, instrument: Instrument) -> Iterable[Bar]
             logger.debug("Skipping malformed BaoStock row %r: %s", row, exc)
             continue
 
-
-def _parse_date(raw: Any) -> datetime | None:
-    if raw is None:
-        return None
-    if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
-    if isinstance(raw, date):
-        return datetime.combine(raw, datetime.min.time(), tzinfo=UTC)
-    raw_str = str(raw).strip()
-    if not raw_str:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
-        try:
-            return datetime.strptime(raw_str, fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
-    logger.debug("Could not parse BaoStock date: %r", raw)
-    return None

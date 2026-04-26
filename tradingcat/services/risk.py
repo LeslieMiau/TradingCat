@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -261,7 +262,7 @@ class RiskEngine:
         if current_price is None and prices is not None:
             current_price = self._metadata_float(prices.get(signal.instrument.symbol))
         if previous_close is None or current_price is None or previous_close <= 0:
-            return
+            raise RiskViolation(f"CN price data unavailable for {signal.instrument.symbol}")
 
         limit_pct = self._cn_limit_pct(signal.instrument)
         limit_up = previous_close * (1 + limit_pct)
@@ -283,7 +284,9 @@ class RiskEngine:
     @staticmethod
     def _is_st_or_delisting(instrument: Instrument) -> bool:
         text = f"{instrument.symbol} {instrument.name} {' '.join(instrument.tags)}".casefold()
-        return any(flag in text for flag in {"*st", " st", "st ", "退市", "delisting"})
+        if re.search(r"\bst\b", text):
+            return True
+        return any(flag in text for flag in {"退市", "delisting"})
 
     @staticmethod
     def _is_t_plus_one_locked(signal: Signal) -> bool:

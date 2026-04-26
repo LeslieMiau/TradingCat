@@ -32,9 +32,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from typing import Any, Iterable
 
+from tradingcat.adapters.cn._date_utils import format_date, parse_date
 from tradingcat.domain.models import (
     AssetClass,
     Bar,
@@ -102,10 +103,6 @@ def _normalise_cn_symbol(instrument: Instrument) -> str:
     return symbol
 
 
-def _format_date(dt: date) -> str:
-    return dt.strftime("%Y%m%d")
-
-
 class AkshareMarketDataAdapter:
     """Market data adapter for A-share equities and ETFs via AKShare.
 
@@ -142,8 +139,8 @@ class AkshareMarketDataAdapter:
 
     def fetch_bars(self, instrument: Instrument, start: date, end: date) -> list[Bar]:
         symbol = _normalise_cn_symbol(instrument)
-        start_str = _format_date(start)
-        end_str = _format_date(end)
+        start_str = format_date(start)
+        end_str = format_date(end)
 
         try:
             if instrument.asset_class == AssetClass.ETF:
@@ -294,7 +291,7 @@ def _iter_dict_rows(df: Any) -> Iterable[dict]:
 
 def _iter_bars_from_df(df: Any, instrument: Instrument) -> Iterable[Bar]:
     for row in _iter_dict_rows(df):
-        ts = _parse_hist_timestamp(row.get(_HIST_DATE_COL))
+        ts = parse_date(row.get(_HIST_DATE_COL))
         if ts is None:
             continue
         try:
@@ -311,31 +308,3 @@ def _iter_bars_from_df(df: Any, instrument: Instrument) -> Iterable[Bar]:
             logger.debug("Skipping malformed AKShare row %r: %s", row, exc)
             continue
 
-
-def _parse_hist_timestamp(raw: Any) -> datetime | None:
-    if raw is None:
-        return None
-    if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
-    if isinstance(raw, date):
-        return datetime.combine(raw, datetime.min.time(), tzinfo=UTC)
-    raw_str = str(raw).strip()
-    if not raw_str:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
-        try:
-            parsed = datetime.strptime(raw_str, fmt)
-        except ValueError:
-            continue
-        return parsed.replace(tzinfo=UTC)
-    # Pandas Timestamp objects have to_pydatetime; some AKShare endpoints emit them.
-    to_py = getattr(raw, "to_pydatetime", None)
-    if to_py is not None:
-        try:
-            converted = to_py()
-            if isinstance(converted, datetime):
-                return converted if converted.tzinfo else converted.replace(tzinfo=UTC)
-        except Exception:
-            pass
-    logger.debug("Could not parse AKShare hist date: %r", raw)
-    return None

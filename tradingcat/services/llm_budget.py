@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
 
 from tradingcat.config import LLMConfig
 
@@ -29,15 +32,60 @@ class LLMBudgetDecision:
     remaining_monthly_cost: float = 0.0
 
 
+def _usage_to_dict(u: LLMUsage) -> dict[str, Any]:
+    return {
+        "provider": u.provider,
+        "model": u.model,
+        "tokens_in": u.tokens_in,
+        "tokens_out": u.tokens_out,
+        "cost": u.cost,
+        "created_at": u.created_at.isoformat(),
+        "purpose": u.purpose,
+    }
+
+
+def _dict_to_usage(d: dict[str, Any]) -> LLMUsage:
+    return LLMUsage(
+        provider=d["provider"],
+        model=d["model"],
+        tokens_in=d["tokens_in"],
+        tokens_out=d["tokens_out"],
+        cost=d["cost"],
+        created_at=datetime.fromisoformat(d["created_at"]),
+        purpose=d.get("purpose", "research"),
+    )
+
+
 class InMemoryLLMUsageLedger:
-    def __init__(self) -> None:
+    def __init__(self, persist_path: Path | None = None) -> None:
         self._usage: list[LLMUsage] = []
+        self._persist_path = persist_path
+        if persist_path is not None and persist_path.exists():
+            self._load()
 
     def append(self, usage: LLMUsage) -> None:
         self._usage.append(usage)
+        self._save()
 
     def list_usage(self) -> list[LLMUsage]:
         return list(self._usage)
+
+    def _save(self) -> None:
+        if self._persist_path is None:
+            return
+        self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+        data = [_usage_to_dict(u) for u in self._usage]
+        self._persist_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def _load(self) -> None:
+        try:
+            data = json.loads(self._persist_path.read_text(encoding="utf-8"))
+            self._usage = [_dict_to_usage(d) for d in data if isinstance(d, dict)]
+        except (json.JSONDecodeError, OSError) as exc:
+            import logging
+
+            logging.getLogger(__name__).warning("Failed to load LLM usage from %s: %s", self._persist_path, exc)
+            self._usage = []
 
 
 class LLMBudgetGate:

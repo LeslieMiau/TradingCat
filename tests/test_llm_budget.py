@@ -105,3 +105,40 @@ def test_llm_config_from_env():
     assert cfg.max_tokens == 4096
     assert cfg.daily_token_budget == 1234
     assert cfg.monthly_cost_budget == 12.5
+
+
+def test_in_memory_ledger_persists_and_restores(tmp_path):
+    from pathlib import Path
+
+    from tradingcat.services.llm_budget import InMemoryLLMUsageLedger
+
+    persist_path = tmp_path / "llm_usage.json"
+    ledger = InMemoryLLMUsageLedger(persist_path=persist_path)
+    usage = LLMUsage(
+        provider="deepseek",
+        model="chat",
+        tokens_in=50,
+        tokens_out=30,
+        cost=0.01,
+        created_at=datetime(2026, 4, 25, tzinfo=UTC),
+    )
+    ledger.append(usage)
+
+    ledger2 = InMemoryLLMUsageLedger(persist_path=persist_path)
+    restored = ledger2.list_usage()
+
+    assert len(restored) == 1
+    assert restored[0].provider == "deepseek"
+    assert restored[0].tokens_in == 50
+    assert restored[0].tokens_out == 30
+    assert restored[0].cost == 0.01
+
+
+def test_in_memory_ledger_no_persist_path_does_not_write(tmp_path):
+    from tradingcat.services.llm_budget import InMemoryLLMUsageLedger
+
+    ledger = InMemoryLLMUsageLedger()
+    usage = LLMUsage(provider="x", model="y", tokens_in=1, tokens_out=1, cost=0.0)
+    ledger.append(usage)
+
+    assert ledger.list_usage() == [usage]
