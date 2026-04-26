@@ -600,6 +600,70 @@ class NotifierConfig(BaseModel):
         )
 
 
+class AlternativeDataConfig(BaseModel):
+    enabled: bool = False
+    symbols: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "AAPL", "TSLA"])
+    mock_data_path: str | None = None
+    cache_dir: str = "data/alternative"
+    flow_days: int = 20
+    macro_days: int = 14
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AlternativeDataConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_ALTERNATIVE_DATA_ENABLED", "false", env_values).strip().lower()
+        symbols_raw = _getenv("TRADINGCAT_ALTERNATIVE_DATA_SYMBOLS", "SPY,QQQ,AAPL,TSLA", env_values)
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            symbols=_csv_values(symbols_raw, upper=True) or ["SPY", "QQQ", "AAPL", "TSLA"],
+            mock_data_path=_getenv("TRADINGCAT_ALTERNATIVE_DATA_MOCK_PATH", "", env_values) or None,
+            cache_dir=_getenv("TRADINGCAT_ALTERNATIVE_DATA_CACHE_DIR", "data/alternative", env_values),
+            flow_days=int(_getenv("TRADINGCAT_ALTERNATIVE_DATA_FLOW_DAYS", "20", env_values)),
+            macro_days=int(_getenv("TRADINGCAT_ALTERNATIVE_DATA_MACRO_DAYS", "14", env_values)),
+        )
+
+
+class AutoResearchConfig(BaseModel):
+    enabled: bool = False
+    schedule: Literal["weekly", "monthly"] = "weekly"
+    data_dir: str = "data"
+    report_dir: str = "data/research"
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AutoResearchConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_AUTO_RESEARCH_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            schedule=_getenv("TRADINGCAT_AUTO_RESEARCH_SCHEDULE", "weekly", env_values).strip().lower(),  # type: ignore[assignment]
+            data_dir=_getenv("TRADINGCAT_AUTO_RESEARCH_DATA_DIR", "data", env_values),
+            report_dir=_getenv("TRADINGCAT_AUTO_RESEARCH_REPORT_DIR", "data/research", env_values),
+        )
+
+
+class AiResearchConfig(BaseModel):
+    enabled: bool = False
+    api_key: str = ""
+    api_base: str = "https://api.deepseek.com"
+    model: str = "deepseek-chat"
+    report_dir: str = "data/ai_reports"
+    max_tokens: int = 2048
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AiResearchConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_AI_RESEARCH_ENABLED", "false", env_values).strip().lower()
+        api_key = os.getenv("TRADINGCAT_DEEPSEEK_API_KEY", env_values.get("TRADINGCAT_DEEPSEEK_API_KEY", ""))
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            api_key=api_key,
+            api_base=_getenv("TRADINGCAT_DEEPSEEK_API_BASE", "https://api.deepseek.com", env_values),
+            model=_getenv("TRADINGCAT_DEEPSEEK_MODEL", "deepseek-chat", env_values),
+            report_dir=_getenv("TRADINGCAT_AI_REPORT_DIR", "data/ai_reports", env_values),
+            max_tokens=int(_getenv("TRADINGCAT_DEEPSEEK_MAX_TOKENS", "2048", env_values)),
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
@@ -629,6 +693,9 @@ class AppConfig(BaseModel):
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
     notifier: NotifierConfig = Field(default_factory=NotifierConfig)
+    alternative_data: AlternativeDataConfig = Field(default_factory=AlternativeDataConfig)
+    auto_research: AutoResearchConfig = Field(default_factory=AutoResearchConfig)
+    ai_research: AiResearchConfig = Field(default_factory=AiResearchConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -701,4 +768,7 @@ class AppConfig(BaseModel):
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
             notifier=NotifierConfig.from_env(dotenv_values),
+            alternative_data=AlternativeDataConfig.from_env(dotenv_values),
+            auto_research=AutoResearchConfig.from_env(dotenv_values),
+            ai_research=AiResearchConfig.from_env(dotenv_values),
         )
