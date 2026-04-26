@@ -41,14 +41,14 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 12 | P6.2 LLM provider abstraction | ✅ done | [round-12-llm-provider.md](round-12-llm-provider.md) | `f5b4e48` |
 | 13 | P6.3 Advisory research analysts | ✅ done | [round-13-research-analysts.md](round-13-research-analysts.md) | `da87d27` |
 | 14 | P6.4 Report export | ✅ done | [round-14-report-export.md](round-14-report-export.md) | `ebb56f3` |
-| 15 | P6.5 LLM cache / batch research | ⬜ pending | — | — |
+| 15 | P6.5 LLM cache / batch research | ✅ done | [round-15-llm-cache-batch.md](round-15-llm-cache-batch.md) | `TBD` |
+| 16+ | Optional hardening / runtime operator tooling | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
 
-1. 读 [round-14-report-export.md](round-14-report-export.md) §"Next step → Round 15"。
-2. 创建 `.handoff/round-15-llm-cache-batch.md`。
-3. 跑新增 LLM cache / batch research 测试。
-4. commit + 更新本 index 表的 Round 15 行。
+1. 读 [round-15-llm-cache-batch.md](round-15-llm-cache-batch.md) §"Next step → Round 16"。
+2. 后续优先做持久化 cache、operator-only batch research 接口或 DOCX/PDF report export。
+3. 继续保持 AI advisory-only，不接入 `Signal` / `OrderIntent` / 自动交易执行路径。
 
 ## 给 Codex 接力者的常用指令
 
