@@ -6,7 +6,7 @@ import logging
 from datetime import date
 
 from tradingcat.backtest.engine import EventDrivenBacktester
-from tradingcat.domain.models import BacktestExperiment, Signal
+from tradingcat.domain.models import BacktestExperiment, Market, Signal
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.services.market_data import MarketDataService
 
@@ -176,11 +176,12 @@ class StrategyExperimentService:
         sample_start = date(2018, 1, 1)
         all_signals = self._probe_signals(strategy_id, as_of, signals, strategy=strategy) if include_probes else list(signals)
         source_signals = all_signals if all_signals else signals
+        # CN A-share history is not reliably supplied by the current adapters, so track it for
+        # research but don't include it in the set that gates promotion readiness.
         signal_symbols = {
             signal.instrument.symbol
             for signal in source_signals
-            if signal.instrument.asset_class.value != "option"
-            and signal.instrument.market.value != "CN"
+            if signal.instrument.asset_class.value != "option" and signal.instrument.market != Market.CN
         }
         history_by_symbol = self._load_signal_history(source_signals, sample_start, as_of, fetch_missing=fetch_missing)
         complete_history = (not signal_symbols) or signal_symbols.issubset(set(history_by_symbol))
@@ -355,19 +356,15 @@ class StrategyExperimentService:
                 "reports": [],
                 "rates_by_pair": {},
             }
-        currencies: set[str] = {
-            signal.instrument.currency.upper()
-            for signal in signals
-            if signal.instrument.currency.upper() != base_currency.upper()
-        }
-        try:
-            for instrument in self._market_data.list_instruments():
-                code = instrument.currency.upper()
-                if code and code != base_currency.upper():
-                    currencies.add(code)
-        except Exception:
-            pass
-        quote_currencies = sorted(currencies)
+        # FX coverage gates portfolio mark-to-market across every tradable position, not just
+        # today's signals, so pull quote currencies from the full instrument catalog.
+        quote_currencies = sorted(
+            {
+                instrument.currency.upper()
+                for instrument in self._market_data.list_instruments()
+                if instrument.currency.upper() != base_currency.upper()
+            }
+        )
         return self._market_data.summarize_fx_coverage(base_currency, quote_currencies, start, end, fetch_missing=fetch_missing)
 
     def _build_replay_inputs(self, strategy_id: str, as_of: date, signals: list[Signal], sample_start: date, data_source: str) -> dict[str, object]:
