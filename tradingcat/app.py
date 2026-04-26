@@ -495,6 +495,7 @@ class TradingCatApplication:
             weekly_pnl=snapshot.weekly_pnl,
             prices=prices,
             available_cash=snapshot.cash,
+            portfolio_source=snapshot.source,
         )
         manual_count = sum(1 for intent in intents if intent.requires_approval)
         return {
@@ -564,6 +565,9 @@ class TradingCatApplication:
 
     def reconcile_portfolio_with_live_broker(self):
         return self.portfolio.reconcile_with_broker(self._live_broker)
+
+    def portfolio_broker_state(self) -> dict[str, object]:
+        return self.portfolio.broker_state()
 
     def reconcile_manual_fill(self, fill: ManualFill) -> dict[str, object]:
         before_snapshot = self.portfolio.current_snapshot()
@@ -1450,6 +1454,7 @@ class TradingCatApplication:
             prices={instrument.symbol: price},
             available_cash=snapshot.cash,
             available_cash_by_market=self.available_cash_by_market(),
+            portfolio_source=snapshot.source,
         )
         algo = None
         if algo_strategy and algo_strategy != "NONE":

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from tradingcat.config import RiskConfig
-from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, PortfolioSnapshot, Signal
+from tradingcat.domain.models import AssetClass, KillSwitchEvent, Market, OrderIntent, OrderSide, PortfolioSnapshot, Signal
 from tradingcat.repositories.state import KillSwitchRepository
 
 
@@ -83,9 +83,11 @@ class RiskEngine:
         prices: dict[str, float] | None = None,
         available_cash: float | None = None,
         available_cash_by_market: dict[Market, float] | None = None,
+        portfolio_source: str = "live",
     ) -> list[OrderIntent]:
         if self._kill_switch:
             raise RiskViolation("Kill switch is active")
+        portfolio_degraded = portfolio_source == "degraded"
         if abs(daily_pnl) >= portfolio_nav * self._config.daily_stop_loss and daily_pnl < 0:
             raise RiskViolation("Daily loss limit breached")
         if abs(weekly_pnl) >= portfolio_nav * self._config.weekly_drawdown_limit and weekly_pnl < 0:
@@ -96,6 +98,13 @@ class RiskEngine:
         market_cash_remaining = dict(available_cash_by_market or {})
         option_premium_risk = 0.0
         for signal in signal_set:
+            # Fail-closed on broker degradation: refuse new opens (BUY) when the live
+            # portfolio snapshot is stale. Closes (SELL) are still permitted because
+            # an operator may need to flatten exposure during an outage.
+            if portfolio_degraded and signal.side == OrderSide.BUY:
+                raise RiskViolation(
+                    "Portfolio snapshot is degraded (broker unavailable) — fail-closed on new buys"
+                )
             max_weight = (
                 self._config.max_single_etf_weight
                 if signal.instrument.asset_class == AssetClass.ETF

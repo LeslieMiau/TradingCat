@@ -19,6 +19,8 @@ class PortfolioService:
         self._repository = repository
         self._history_repository = history_repository
         self._history = history_repository.load()
+        self._broker_unavailable_since: datetime | None = None
+        self._broker_unavailable_reason: str | None = None
         snapshot = repository.load()
         if snapshot is None:
             self._positions = []
@@ -63,7 +65,12 @@ class PortfolioService:
         return True
 
     def current_snapshot(self) -> PortfolioSnapshot:
-        """Return an in-memory snapshot without persisting (safe for GET)."""
+        """Return an in-memory snapshot without persisting (safe for GET).
+
+        If the live broker has been marked unavailable, the snapshot is tagged with
+        ``source="degraded"`` so downstream gates (e.g. ``RiskEngine.check``) can
+        fail-closed on new opens while still permitting closes.
+        """
         nav = self._cash + sum(position.market_value for position in self._positions)
         for position in self._positions:
             position.cost_basis = round(position.quantity * position.average_cost, 4)
@@ -81,7 +88,35 @@ class PortfolioService:
             daily_pnl=self._daily_pnl,
             weekly_pnl=self._weekly_pnl,
             positions=list(self._positions),
+            source="degraded" if self._broker_unavailable_since is not None else "live",
         )
+
+    def mark_broker_unavailable(self, reason: str, *, detected_at: datetime | None = None) -> None:
+        """Flag the live broker as unreachable. Subsequent snapshots will be tagged degraded."""
+        timestamp = detected_at or datetime.now(UTC)
+        if self._broker_unavailable_since is None:
+            logger.warning("Live broker marked unavailable: %s", reason)
+            self._broker_unavailable_since = timestamp
+        self._broker_unavailable_reason = reason
+
+    def mark_broker_available(self) -> None:
+        """Clear the broker-unavailable flag."""
+        if self._broker_unavailable_since is not None:
+            logger.info("Live broker recovered after %s", self._broker_unavailable_reason)
+        self._broker_unavailable_since = None
+        self._broker_unavailable_reason = None
+
+    def broker_state(self) -> dict[str, object]:
+        return {
+            "broker_available": self._broker_unavailable_since is None,
+            "snapshot_source": "live" if self._broker_unavailable_since is None else "degraded",
+            "unavailable_since": (
+                self._broker_unavailable_since.isoformat()
+                if self._broker_unavailable_since is not None
+                else None
+            ),
+            "unavailable_reason": self._broker_unavailable_reason,
+        }
 
     def snapshot(self) -> PortfolioSnapshot:
         """Build snapshot AND persist it (use for write paths)."""
@@ -150,8 +185,13 @@ class PortfolioService:
 
     def reconcile_with_broker(self, broker: BrokerAdapter) -> PortfolioReconciliationSummary:
         snapshot = self.snapshot()
-        broker_cash = broker.get_cash()
-        broker_positions = broker.get_positions()
+        try:
+            broker_cash = broker.get_cash()
+            broker_positions = broker.get_positions()
+        except Exception as exc:
+            self.mark_broker_unavailable(f"reconcile_with_broker failed: {exc}")
+            raise
+        self.mark_broker_available()
         snapshot_symbols = {position.instrument.symbol for position in snapshot.positions}
         broker_symbols = {position.instrument.symbol for position in broker_positions}
         return PortfolioReconciliationSummary(
