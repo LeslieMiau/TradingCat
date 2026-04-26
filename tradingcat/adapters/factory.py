@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
 from tradingcat.adapters.cn.akshare import AKSHARE_AVAILABLE, AkshareMarketDataAdapter, AkshareUnavailable
 from tradingcat.adapters.cn.baostock import BAOSTOCK_AVAILABLE, BaostockMarketDataAdapter, BaostockUnavailable
+from tradingcat.adapters.cn.tushare import TUSHARE_AVAILABLE, TushareMarketDataAdapter, TushareUnavailable
 from tradingcat.adapters.composite import CompositeMarketDataAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.futu import FutuAdapterUnavailable, FutuBrokerAdapter, FutuMarketDataAdapter
@@ -112,7 +113,21 @@ class AdapterFactory:
         cn_adapter = None
         cn_name: str | None = None
 
-        if self._config.akshare.enabled:
+        # Priority: TuShare → AKShare → BaoStock
+        if self._config.tushare.enabled and self._config.tushare.token:
+            if not TUSHARE_AVAILABLE:
+                logger.warning("TuShare enabled but SDK unavailable (pip install tushare)")
+            else:
+                try:
+                    cn_adapter = TushareMarketDataAdapter(
+                        token=self._config.tushare.token,
+                        adj=self._config.tushare.adj,
+                    )
+                    cn_name = "TuShare"
+                except TushareUnavailable as exc:
+                    logger.warning("TuShare unavailable during initialization: %s", exc)
+
+        if cn_adapter is None and self._config.akshare.enabled:
             if not AKSHARE_AVAILABLE:
                 logger.warning("AKShare enabled but SDK is unavailable")
             else:

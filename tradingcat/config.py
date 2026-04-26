@@ -452,6 +452,39 @@ class PolygonConfig(BaseModel):
         )
 
 
+class TushareNewsConfig(BaseModel):
+    """Tushare Pro news adapter configuration.
+
+    Tushare news() costs 60 积分 per call, so caching is critical.
+    """
+
+    enabled: bool = False
+    token: str | None = None
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+    src: str = ""
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("tushare news integer config values must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "TushareNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_TUSHARE_NEWS_ENABLED", "false", env_values).strip().lower()
+        token_raw = _getenv("TRADINGCAT_TUSHARE_NEWS_TOKEN", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            token=token_raw or None,
+            page_size=int(_getenv("TRADINGCAT_TUSHARE_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_TUSHARE_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+            src=_getenv("TRADINGCAT_TUSHARE_NEWS_SRC", "", env_values).strip(),
+        )
+
+
 class LLMConfig(BaseModel):
     """LLM layer guardrails. Disabled until provider/analyst rounds wire it."""
 
@@ -1123,6 +1156,7 @@ class AppConfig(BaseModel):
     alternative_data: AlternativeDataConfig = Field(default_factory=AlternativeDataConfig)
     coingecko: CoinGeckoConfig = Field(default_factory=CoinGeckoConfig)
     polygon: PolygonConfig = Field(default_factory=PolygonConfig)
+    tushare_news: TushareNewsConfig = Field(default_factory=TushareNewsConfig)
     auto_research: AutoResearchConfig = Field(default_factory=AutoResearchConfig)
     ai_research: AiResearchConfig = Field(default_factory=AiResearchConfig)
     advisory_report: AdvisoryReportConfig = Field(default_factory=AdvisoryReportConfig)
@@ -1210,6 +1244,7 @@ class AppConfig(BaseModel):
             alternative_data=AlternativeDataConfig.from_env(dotenv_values),
             coingecko=CoinGeckoConfig.from_env(dotenv_values),
             polygon=PolygonConfig.from_env(dotenv_values),
+            tushare_news=TushareNewsConfig.from_env(dotenv_values),
             auto_research=AutoResearchConfig.from_env(dotenv_values),
             ai_research=AiResearchConfig.from_env(dotenv_values),
             advisory_report=AdvisoryReportConfig.from_env(dotenv_values),

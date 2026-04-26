@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import UTC, date, datetime
-from email.utils import parsedate_to_datetime
+from datetime import UTC, datetime
 import logging
 from math import isfinite
 from time import monotonic
 from typing import Protocol
-from urllib.parse import quote
-from urllib.request import Request, urlopen
-import xml.etree.ElementTree as ET
 
+from tradingcat.adapters.news import (
+    AlphaVantageNewsClient,
+    CLSNewsClient,
+    EastMoneyNewsClient,
+    FinnhubNewsClient,
+    TushareNewsClient,
+)
+from tradingcat.adapters.news.providers import (
+    AlphaVantageNewsProvider,
+    CLSNewsProvider,
+    EastMoneyNewsProvider,
+    FinnhubNewsProvider,
+    TushareNewsProvider,
+)
 from tradingcat.config import AppConfig
 from tradingcat.domain.models import (
     MarketAwarenessNewsItem,
@@ -28,72 +38,12 @@ class NewsFeedProvider(Protocol):
     def fetch_items(self, *, limit: int = 12) -> list[dict[str, object]]: ...
 
 
-class GoogleNewsRssProvider:
-    def __init__(self, source: str, query: str, *, hl: str, gl: str, ceid: str, timeout_seconds: float) -> None:
-        self.source = source
-        self._query = query
-        self._hl = hl
-        self._gl = gl
-        self._ceid = ceid
-        self._timeout_seconds = timeout_seconds
-
-    def fetch_items(self, *, limit: int = 12) -> list[dict[str, object]]:
-        url = (
-            "https://news.google.com/rss/search"
-            f"?q={quote(self._query)}&hl={self._hl}&gl={self._gl}&ceid={quote(self._ceid)}"
-        )
-        request = Request(url, headers={"User-Agent": "TradingCat/1.0"})
-        with urlopen(request, timeout=self._timeout_seconds) as response:
-            payload = response.read()
-        root = ET.fromstring(payload)
-        items: list[dict[str, object]] = []
-        for item in root.findall(".//item")[:limit]:
-            items.append(
-                {
-                    "source": self.source,
-                    "title": (item.findtext("title") or "").strip(),
-                    "url": (item.findtext("link") or "").strip() or None,
-                    "published_at": self._parse_timestamp(item.findtext("pubDate")),
-                }
-            )
-        return items
-
-    @staticmethod
-    def _parse_timestamp(raw: str | None) -> datetime | None:
-        if not raw:
-            return None
-        try:
-            parsed = parsedate_to_datetime(raw)
-        except (TypeError, ValueError):
-            return None
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=UTC)
-        return parsed.astimezone(UTC)
-
-
 class NewsObservationService:
     _EXCLUDED_SYMBOLS = {"A", "AN", "AND", "THE", "FOR", "ETF", "USD", "CNY", "HKD", "CPI", "PMI"}
 
     def __init__(self, config: AppConfig, providers: list[NewsFeedProvider] | None = None) -> None:
         self._config = config.market_awareness
-        self._providers = providers or [
-            GoogleNewsRssProvider(
-                "google_news_cn_market",
-                "A股 市场",
-                hl="zh-CN",
-                gl="CN",
-                ceid="CN:zh-Hans",
-                timeout_seconds=self._config.news_timeout_seconds,
-            ),
-            GoogleNewsRssProvider(
-                "google_news_macro",
-                "global macro market",
-                hl="en-US",
-                gl="US",
-                ceid="US:en",
-                timeout_seconds=self._config.news_timeout_seconds,
-            ),
-        ]
+        self._providers = providers or self._default_providers(config)
         self._cache_expires_at = 0.0
         self._cached_observation = MarketAwarenessNewsObservation(
             degraded=True,
@@ -102,7 +52,82 @@ class NewsObservationService:
             tone=MarketAwarenessSignalStatus.BLOCKED,
         )
 
-    def observe(self, as_of: date | None = None) -> MarketAwarenessNewsObservation:
+    @staticmethod
+    def _default_providers(config: AppConfig) -> list[NewsFeedProvider]:
+        providers: list[NewsFeedProvider] = []
+
+        # CLS (free, highest quality)
+        cls_cfg = config.cls_news
+        if cls_cfg.enabled:
+            providers.append(
+                CLSNewsProvider(
+                    CLSNewsClient(
+                        page_size=cls_cfg.page_size,
+                        ttl_seconds=cls_cfg.cache_ttl_seconds,
+                        user_agent=cls_cfg.user_agent,
+                    ),
+                )
+            )
+
+        # EastMoney (free)
+        em_cfg = config.eastmoney_news
+        if em_cfg.enabled:
+            providers.append(
+                EastMoneyNewsProvider(
+                    EastMoneyNewsClient(
+                        column=em_cfg.column,
+                        page_size=em_cfg.page_size,
+                        ttl_seconds=em_cfg.cache_ttl_seconds,
+                        user_agent=em_cfg.user_agent,
+                    ),
+                )
+            )
+
+        # Finnhub (requires token)
+        fn_cfg = config.finnhub_news
+        if fn_cfg.enabled and fn_cfg.token:
+            providers.append(
+                FinnhubNewsProvider(
+                    FinnhubNewsClient(
+                        token=fn_cfg.token,
+                        symbols=fn_cfg.symbols,
+                        lookback_days=fn_cfg.lookback_days,
+                        page_size=fn_cfg.page_size,
+                        ttl_seconds=fn_cfg.cache_ttl_seconds,
+                    ),
+                )
+            )
+
+        # Alpha Vantage (requires api_key)
+        av_cfg = config.alpha_vantage_news
+        if av_cfg.enabled and av_cfg.api_key:
+            providers.append(
+                AlphaVantageNewsProvider(
+                    AlphaVantageNewsClient(
+                        api_key=av_cfg.api_key,
+                        tickers=av_cfg.tickers,
+                        page_size=av_cfg.page_size,
+                        cache_ttl_seconds=av_cfg.cache_ttl_seconds,
+                    ),
+                )
+            )
+
+        # TuShare news (requires token)
+        ts_cfg = config.tushare_news  # type: ignore[union-attr]
+        if getattr(config, "tushare_news", None) and ts_cfg.enabled and ts_cfg.token:
+            providers.append(
+                TushareNewsProvider(
+                    TushareNewsClient(
+                        token=ts_cfg.token,
+                        page_size=min(ts_cfg.page_size, 40),
+                        ttl_seconds=ts_cfg.cache_ttl_seconds,
+                    ),
+                )
+            )
+
+        return providers
+
+    def observe(self, as_of: datetime | None = None) -> MarketAwarenessNewsObservation:
         _ = as_of
         now = monotonic()
         if now < self._cache_expires_at:
