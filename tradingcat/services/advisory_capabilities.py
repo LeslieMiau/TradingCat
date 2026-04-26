@@ -240,6 +240,31 @@ def build_advisory_capability_snapshot(config: AppConfig) -> dict[str, Any]:
         )
     )
 
+    # -------- Daily advisory report scheduler (post-R15 wiring) --------
+    advisory_cfg = config.advisory_report
+    daily_blockers: list[str] = []
+    if advisory_cfg.enabled:
+        try:
+            advisory_cfg.output_dir.parent.exists()  # cheap probe
+        except Exception:
+            daily_blockers.append("output_dir_unreachable")
+    capabilities.append(
+        CapabilityStatus(
+            id="daily_advisory_report",
+            round="post-R15",
+            kind="research_orchestration",
+            description=(
+                f"Daily advisory report scheduler "
+                f"(cron {advisory_cfg.cron_hour:02d}:{advisory_cfg.cron_minute:02d} "
+                f"{advisory_cfg.cron_timezone}, output: {advisory_cfg.output_dir}, "
+                f"retention: {advisory_cfg.retention_days}d)"
+            ),
+            enabled=advisory_cfg.enabled,
+            ready=not daily_blockers,
+            blockers=tuple(daily_blockers),
+        )
+    )
+
     return {
         "advisory_only": True,
         "snapshot_at": datetime.now(UTC).isoformat(),

@@ -211,6 +211,65 @@ trading path.
 # expected: ~92 passed
 ```
 
+## Daily advisory report (post-R15 wiring)
+
+Once-a-day scheduled run that fires the absorbed research pipeline
+(universe screener + technical features + optional LLM analyst) and
+files a Markdown artefact under `data/reports/advisory/YYYY-MM-DD.md`.
+**Read-only**; never produces signals/orders/approvals. The on-disk
+file rolls daily and prunes anything older than `retention_days`.
+
+Off by default. Enable with:
+
+```
+TRADINGCAT_ADVISORY_REPORT_ENABLED=true
+# Optional overrides (defaults shown):
+TRADINGCAT_ADVISORY_REPORT_CRON_HOUR=7
+TRADINGCAT_ADVISORY_REPORT_CRON_MINUTE=45
+TRADINGCAT_ADVISORY_REPORT_CRON_TIMEZONE=Asia/Shanghai
+TRADINGCAT_ADVISORY_REPORT_OUTPUT_DIR=data/reports/advisory
+TRADINGCAT_ADVISORY_REPORT_RETENTION_DAYS=30
+TRADINGCAT_ADVISORY_REPORT_CANDIDATE_LIMIT=10
+```
+
+Restart the app to pick up the env change. `GET
+/research/advisory/capabilities` will then show
+`daily_advisory_report` as `enabled: true, ready: true`, and `GET
+/scheduler/jobs` will list `advisory_research_daily` with the next run
+time.
+
+What ends up in each section:
+
+| Section | Source | Populated when… |
+|---|---|---|
+| `## 候选标的排行` | `UniverseScreener` over instrument catalogue, R09 technical features computed from cached bars | Always |
+| `## 资讯引用` | News providers (East Money / 财联社 / Finnhub / Alpha Vantage) | One or more news adapters configured + wired (provider hookup is a follow-up) |
+| `## 分析师研究` | `ResearchAnalystService` over `OpenAICompatibleLLMProvider` | `LLMConfig.enabled=true` AND `provider`/`model`/`base_url`/`api_key` all set |
+
+Without an LLM key set, the daily report still generates the deterministic
+sections; the analyst block renders `_暂无分析师输出。_`. To wire a real
+provider (e.g. DeepSeek / Qwen-via-OpenAI-compat / etc.):
+
+```
+TRADINGCAT_LLM_ENABLED=true
+TRADINGCAT_LLM_PROVIDER=deepseek
+TRADINGCAT_LLM_MODEL=deepseek-chat
+TRADINGCAT_LLM_BASE_URL=https://api.deepseek.com/v1
+TRADINGCAT_LLM_API_KEY=sk-...
+TRADINGCAT_LLM_COST_PER_1K_TOKENS=0.00014  # vendor's rate
+```
+
+Manual run any time:
+
+```python
+from tradingcat.app import TradingCatApplication
+app = TradingCatApplication()
+app.run_daily_advisory_research()
+```
+
+(or skip-audit dogfood with `scripts/absorb_dogfood.py --skip-audit` for
+a synthetic version)
+
 ## Boundaries (NOT crossed by the absorption)
 
 The absorbed capabilities **do not**:

@@ -396,6 +396,9 @@ class LLMConfig(BaseModel):
     enabled: bool = False
     provider: str = "disabled"
     model: str = ""
+    base_url: str = ""
+    api_key: str | None = None
+    cost_per_1k_tokens: float = 0.0
     daily_token_budget: int = 50_000
     monthly_cost_budget: float = 25.0
 
@@ -413,14 +416,27 @@ class LLMConfig(BaseModel):
             raise ValueError("llm monthly cost budget must be positive")
         return value
 
+    @field_validator("cost_per_1k_tokens")
+    @classmethod
+    def _non_negative_cost_rate(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("llm cost_per_1k_tokens must be non-negative")
+        return value
+
     @classmethod
     def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "LLMConfig":
         env_values = dotenv_values or {}
         enabled_raw = _getenv("TRADINGCAT_LLM_ENABLED", "false", env_values).strip().lower()
+        api_key = _getenv("TRADINGCAT_LLM_API_KEY", "", env_values).strip()
         return cls(
             enabled=enabled_raw in {"1", "true", "yes", "on"},
             provider=_getenv("TRADINGCAT_LLM_PROVIDER", "disabled", env_values).strip().lower(),
             model=_getenv("TRADINGCAT_LLM_MODEL", "", env_values).strip(),
+            base_url=_getenv("TRADINGCAT_LLM_BASE_URL", "", env_values).strip(),
+            api_key=api_key or None,
+            cost_per_1k_tokens=float(
+                _getenv("TRADINGCAT_LLM_COST_PER_1K_TOKENS", "0.0", env_values)
+            ),
             daily_token_budget=int(_getenv("TRADINGCAT_LLM_DAILY_TOKEN_BUDGET", "50000", env_values)),
             monthly_cost_budget=float(_getenv("TRADINGCAT_LLM_MONTHLY_COST_BUDGET", "25.0", env_values)),
         )
@@ -865,6 +881,77 @@ class NotifierConfig(BaseModel):
         )
 
 
+class AdvisoryReportConfig(BaseModel):
+    """Daily advisory research-report scheduler knobs.
+
+    Off by default — opting in registers an APScheduler cron job that
+    runs the absorbed research pipeline (universe screener + analyst +
+    Markdown export) once per day. The output is filed under
+    ``output_dir`` named ``YYYY-MM-DD.md`` and pruned by
+    ``retention_days``.
+
+    The job never produces signals/orders; the report carries the
+    advisory-only banner and is read-only artefacts on disk.
+    """
+
+    enabled: bool = False
+    output_dir: Path = Path("data") / "reports" / "advisory"
+    cron_hour: int = 7
+    cron_minute: int = 45
+    cron_timezone: str = "Asia/Shanghai"
+    retention_days: int = 30
+    candidate_limit: int = 10
+
+    @field_validator("cron_hour")
+    @classmethod
+    def _hour_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError("advisory_report.cron_hour must be 0..23")
+        return value
+
+    @field_validator("cron_minute")
+    @classmethod
+    def _minute_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 59:
+            raise ValueError("advisory_report.cron_minute must be 0..59")
+        return value
+
+    @field_validator("retention_days", "candidate_limit")
+    @classmethod
+    def _positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("advisory_report counts must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AdvisoryReportConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = (
+            _getenv("TRADINGCAT_ADVISORY_REPORT_ENABLED", "false", env_values).strip().lower()
+        )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            output_dir=Path(
+                _getenv(
+                    "TRADINGCAT_ADVISORY_REPORT_OUTPUT_DIR",
+                    "data/reports/advisory",
+                    env_values,
+                )
+            ),
+            cron_hour=int(_getenv("TRADINGCAT_ADVISORY_REPORT_CRON_HOUR", "7", env_values)),
+            cron_minute=int(_getenv("TRADINGCAT_ADVISORY_REPORT_CRON_MINUTE", "45", env_values)),
+            cron_timezone=_getenv(
+                "TRADINGCAT_ADVISORY_REPORT_CRON_TIMEZONE", "Asia/Shanghai", env_values
+            ).strip(),
+            retention_days=int(
+                _getenv("TRADINGCAT_ADVISORY_REPORT_RETENTION_DAYS", "30", env_values)
+            ),
+            candidate_limit=int(
+                _getenv("TRADINGCAT_ADVISORY_REPORT_CANDIDATE_LIMIT", "10", env_values)
+            ),
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
@@ -902,6 +989,7 @@ class AppConfig(BaseModel):
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
     notifier: NotifierConfig = Field(default_factory=NotifierConfig)
+    advisory_report: AdvisoryReportConfig = Field(default_factory=AdvisoryReportConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -982,4 +1070,5 @@ class AppConfig(BaseModel):
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
             notifier=NotifierConfig.from_env(dotenv_values),
+            advisory_report=AdvisoryReportConfig.from_env(dotenv_values),
         )

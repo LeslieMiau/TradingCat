@@ -995,6 +995,86 @@ class TradingCatApplication:
     def history_audit_timeline(self, *, window_days: int = 90) -> dict[str, object]:
         return self.history_audit.timeline(window_days=window_days)
 
+    def run_daily_advisory_research(self, as_of: date | None = None) -> dict[str, object]:
+        """Generate the daily advisory research report.
+
+        Read-only research artefact. Does not modify portfolio, signals,
+        approvals, or risk state. Honours ``AdvisoryReportConfig.enabled``
+        — when disabled, returns a no-op marker so schedulers and operators
+        see why the run was skipped.
+        """
+
+        from tradingcat.services.advisory_research_runner import (
+            AdvisoryResearchRunner,
+        )
+
+        cfg = self.config.advisory_report
+        target = as_of or date.today()
+        if not cfg.enabled:
+            return {
+                "as_of": target.isoformat(),
+                "skipped": True,
+                "reason": "advisory_report.enabled is false",
+            }
+
+        analyst = self._build_advisory_analyst()
+        runner = AdvisoryResearchRunner(
+            output_dir=cfg.output_dir,
+            instrument_provider=lambda: self.market_history.list_instruments(enabled_only=True),
+            bars_provider=lambda instrument, start, end: self.market_history.get_bars(
+                instrument.symbol, start, end
+            ),
+            news_provider=lambda: [],  # news source wiring is a follow-up; see docs/ABSORB_CAPABILITIES.md
+            analyst=analyst,
+            retention_days=cfg.retention_days,
+            candidate_limit=cfg.candidate_limit,
+        )
+        result = runner.run_for(target)
+        return {
+            "as_of": target.isoformat(),
+            "skipped": False,
+            "output_path": str(result.output_path),
+            "instrument_count": result.instrument_count,
+            "candidate_count": result.candidate_count,
+            "news_count": result.news_count,
+            "analyst_called": result.analyst_called,
+            "pruned_count": len(result.pruned_paths),
+        }
+
+    def _build_advisory_analyst(self):
+        """Construct a ResearchAnalystService when LLM is fully configured.
+
+        Returns ``None`` when the LLM layer is not configured end-to-end.
+        The advisory report exporter renders an explicit
+        ``_暂无分析师输出。_`` placeholder in that case, so the daily
+        artefact is still useful for the deterministic candidates +
+        news sections.
+        """
+
+        cfg = self.config.llm
+        if not cfg.enabled:
+            return None
+        if not cfg.model or not cfg.base_url or not cfg.api_key:
+            logger.info(
+                "LLM enabled but provider/model/base_url/api_key incomplete; "
+                "advisory report will skip the analyst section"
+            )
+            return None
+        from tradingcat.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
+        from tradingcat.services.llm_budget import LLMBudgetGate
+        from tradingcat.services.research_analysts import ResearchAnalystService
+
+        budget = LLMBudgetGate(cfg)
+        provider = OpenAICompatibleLLMProvider(
+            budget,
+            provider=cfg.provider,
+            model=cfg.model,
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            cost_per_1k_tokens=cfg.cost_per_1k_tokens,
+        )
+        return ResearchAnalystService(provider)
+
     def run_trade_ledger_reconciliation(
         self,
         *,

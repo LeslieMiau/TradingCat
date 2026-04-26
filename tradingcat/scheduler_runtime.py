@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, time, timedelta
 from typing import TYPE_CHECKING, Callable
 
 from tradingcat.domain.models import Market
+
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tradingcat.app import TradingCatApplication
@@ -45,6 +49,20 @@ class ApplicationSchedulerRuntime:
                 description="Poll portfolio risk state; auto-activate kill switch on hard breach or NAV unavailability",
                 interval_seconds=interval,
                 handler=self.run_intraday_risk_tick_job,
+            )
+        advisory_cfg = getattr(self._app.config, "advisory_report", None)
+        if advisory_cfg is not None and advisory_cfg.enabled:
+            self._app.scheduler.register(
+                job_id="advisory_research_daily",
+                name="Advisory Research Daily",
+                description=(
+                    "Generate daily advisory research report (universe screener + "
+                    "news + optional LLM analyst); read-only artefact under data/reports/advisory/"
+                ),
+                timezone=advisory_cfg.cron_timezone,
+                local_time=time(advisory_cfg.cron_hour, advisory_cfg.cron_minute),
+                market=Market.CN,
+                handler=self.run_advisory_research_job,
             )
 
     def run_intraday_risk_tick_job(self) -> str:
@@ -106,6 +124,20 @@ class ApplicationSchedulerRuntime:
     def run_acceptance_evidence_job(self) -> str:
         snapshot = self._app.capture_acceptance_evidence(notes=["scheduled_eod_capture"])
         return f"Captured acceptance gates ({snapshot['status']}) for {snapshot['as_of']}"
+
+    def run_advisory_research_job(self) -> str:
+        try:
+            result = self._app.run_daily_advisory_research()
+        except Exception as exc:
+            logger.exception("Advisory research job failed: %s", exc)
+            return f"Advisory research failed: {exc}"
+        if result.get("skipped"):
+            return f"Advisory research skipped ({result.get('reason')})"
+        return (
+            f"Advisory research wrote {result['output_path']} — "
+            f"{result['candidate_count']} candidates, {result['news_count']} news, "
+            f"analyst_called={result['analyst_called']}, pruned={result['pruned_count']}"
+        )
 
     def run_history_audit_job(self) -> str:
         run = self._app.run_history_audit(window_days=90, notes=["scheduled_weekly_audit"])
