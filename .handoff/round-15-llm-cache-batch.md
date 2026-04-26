@@ -46,5 +46,5 @@
 ## Commit
 
 ```
-TBD
+514a08b absorb-tradingagents-cn: round 15 — LLM cache and batch research
 ```

@@ -41,7 +41,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 12 | P6.2 LLM provider abstraction | ✅ done | [round-12-llm-provider.md](round-12-llm-provider.md) | `f5b4e48` |
 | 13 | P6.3 Advisory research analysts | ✅ done | [round-13-research-analysts.md](round-13-research-analysts.md) | `da87d27` |
 | 14 | P6.4 Report export | ✅ done | [round-14-report-export.md](round-14-report-export.md) | `ebb56f3` |
-| 15 | P6.5 LLM cache / batch research | ✅ done | [round-15-llm-cache-batch.md](round-15-llm-cache-batch.md) | `TBD` |
+| 15 | P6.5 LLM cache / batch research | ✅ done | [round-15-llm-cache-batch.md](round-15-llm-cache-batch.md) | `514a08b` |
 | 16+ | Optional hardening / runtime operator tooling | ⬜ pending | — | — |
 
 ## 下一步给 Codex 的指引
