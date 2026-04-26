@@ -15,6 +15,13 @@
         </div>
       </header>
 
+      <!-- Tab Navigation -->
+      <div class="research-tabs" style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border-color)">
+        <button class="research-tab is-active" data-tab="strategy" type="button" style="padding:10px 20px;font-family:var(--font-mono);font-size:12px;letter-spacing:0.5px;text-transform:uppercase;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--text-color);cursor:pointer">策略研报</button>
+        <button class="research-tab" data-tab="quant" type="button" style="padding:10px 20px;font-family:var(--font-mono);font-size:12px;letter-spacing:0.5px;text-transform:uppercase;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-dim);cursor:pointer">量化研报</button>
+      </div>
+
+      <div id="research-strategy-content">
       <main class="dashboard-grid">
         <section class="panel panel-highlight">
           <div class="panel-header">
@@ -594,6 +601,124 @@
           </div>
         </section>
       </main>
+      </div><!-- /research-strategy-content -->
+
+      <div id="research-quant-content" class="quant-theme" style="display:none">
+        <div class="quant-control-bar">
+          <div class="quant-control-group">
+            <label class="quant-label">标的</label>
+            <input id="quant-symbols" class="quant-input" type="text" value="SPY,QQQ" placeholder="SPY,QQQ">
+          </div>
+          <div class="quant-control-group">
+            <label class="quant-label">方法</label>
+            <select id="quant-method" class="quant-select">
+              <option value="risk_parity">风险平价</option>
+              <option value="mean_variance">均值方差</option>
+              <option value="min_cvar">最小 CVaR</option>
+            </select>
+          </div>
+          <div class="quant-control-group">
+            <label class="quant-label">天数</label>
+            <select id="quant-days" class="quant-select">
+              <option value="30">30</option>
+              <option value="60" selected>60</option>
+              <option value="90">90</option>
+              <option value="180">180</option>
+            </select>
+          </div>
+          <button id="quant-run-btn" class="quant-btn" type="button">全部运行</button>
+          <span id="quant-status" class="quant-status-dot" style="display:none"></span>
+        </div>
+
+        <div class="quant-grid">
+          <div class="quant-card" style="grid-column:span 2">
+            <div class="quant-card-header" style="border-left-color:#00e5a0">特征工程</div>
+            <div id="quant-features"></div>
+          </div>
+          <div class="quant-card" style="grid-column:span 2">
+            <div class="quant-card-header" style="border-left-color:#8b5cf6">因子分析</div>
+            <div id="quant-factors"></div>
+          </div>
+          <div class="quant-card">
+            <div class="quant-card-header" style="border-left-color:#f59e0b">组合优化</div>
+            <div id="quant-optimize"></div>
+          </div>
+          <div class="quant-card">
+            <div class="quant-card-header" style="border-left-color:#00c4d9">ML 模型</div>
+            <div id="quant-ml"></div>
+          </div>
+          <div class="quant-card" style="grid-row:span 2">
+            <div class="quant-card-header" style="border-left-color:#ff3d71">另类数据</div>
+            <div id="quant-alternative"></div>
+          </div>
+          <div class="quant-card" style="grid-column:span 2">
+            <div class="quant-card-header" style="border-left-color:#00e5a0">AI 简报</div>
+            <div id="quant-briefing"></div>
+          </div>
+          <div class="quant-card" style="grid-column:1 / -1">
+            <div class="quant-card-header" style="border-left-color:#f59e0b">自动研报</div>
+            <div id="quant-auto"></div>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        (function() {
+          var tabs = document.querySelectorAll('.research-tab');
+          var strategyContent = document.getElementById('research-strategy-content');
+          var quantContent = document.getElementById('research-quant-content');
+          var quantLoaded = false;
+
+          function switchTab(tabId) {
+            tabs.forEach(function(t) {
+              t.classList.remove('is-active');
+              t.style.borderBottomColor = 'transparent';
+              t.style.color = 'var(--text-dim)';
+            });
+            var activeTab = Array.from(tabs).find(function(t) { return t.dataset.tab === tabId; });
+            if (activeTab) {
+              activeTab.classList.add('is-active');
+              activeTab.style.borderBottomColor = 'var(--accent)';
+              activeTab.style.color = 'var(--text-color)';
+            }
+            if (tabId === 'quant') {
+              strategyContent.style.display = 'none';
+              quantContent.style.display = 'block';
+              if (!quantLoaded) {
+                quantLoaded = true;
+                if (window.ResearchQuant) {
+                  window.ResearchQuant.runAll();
+                }
+              }
+            } else {
+              quantContent.style.display = 'none';
+              strategyContent.style.display = 'block';
+            }
+          }
+
+          tabs.forEach(function(tab) {
+            tab.addEventListener('click', function() {
+              switchTab(tab.dataset.tab);
+            });
+          });
+
+          if (window.location.hash === '#quant') {
+            switchTab('quant');
+          }
+
+          document.getElementById('quant-run-btn').addEventListener('click', function() {
+            var syms = document.getElementById('quant-symbols').value.trim();
+            var method = document.getElementById('quant-method').value;
+            var days = parseInt(document.getElementById('quant-days').value, 10);
+            if (window.ResearchQuant) {
+              window.ResearchQuant.state.symbols = syms.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+              window.ResearchQuant.state.method = method;
+              window.ResearchQuant.state.days = days;
+              window.ResearchQuant.runAll();
+            }
+          });
+        })();
+      </script>
 {% endblock %}
 
 {% block scripts %}
@@ -602,4 +727,5 @@
     <script src="/static/components.js"></script>
     <script src="/static/hotkeys.js"></script>
     <script src="/static/research.js"></script>
+    <script src="/static/research_quant.js"></script>
 {% endblock %}

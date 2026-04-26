@@ -200,6 +200,15 @@ a:hover { color: var(--accent-bright); }
 }
 
 .sidebar-label { transition: opacity 0.15s; }
+.sidebar-sub {
+  padding: 4px 16px 4px 42px !important;
+  font-size: 11px !important;
+  border-left: none !important;
+  min-height: 28px !important;
+}
+.sidebar-sub:hover { color: var(--accent); background: var(--accent-soft); }
+.sidebar-sub.is-active { color: var(--accent); }
+.sidebar:not(:hover) .sidebar-sub { opacity: 0; }
 
 .sidebar-status {
   padding: 10px 16px;
@@ -1169,4 +1178,430 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-body); color: var(--text); }
 .button-generate:hover {
   background: var(--accent);
   color: var(--bg);
+}
+
+/* ==========================================================================
+   Quant Terminal Theme (Phase 1-3 Research Modules)
+   Dark professional theme for quantitative research displays.
+   Scope-limited via .quant-theme to avoid affecting existing pages.
+   ========================================================================== */
+
+.quant-theme {
+  --quant-bg: #0a0e14;
+  --quant-card: #141b22;
+  --quant-card-hover: #1a2330;
+  --quant-border: #1e2d3d;
+  --quant-border-active: #00e5a0;
+  --quant-accent: #00e5a0;
+  --quant-accent-dim: rgba(0, 229, 160, 0.15);
+  --quant-warn: #f59e0b;
+  --quant-warn-dim: rgba(245, 158, 11, 0.15);
+  --quant-danger: #ff3d71;
+  --quant-danger-dim: rgba(255, 61, 113, 0.15);
+  --quant-text: #c8d6e5;
+  --quant-text-dim: #6b8299;
+  --quant-text-faint: #3d5068;
+  --quant-mono: 'DM Mono', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --quant-sans: 'IBM Plex Sans', 'Source Sans 3', -apple-system, sans-serif;
+}
+
+/* ── Tab Bar ── */
+.quant-tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--quant-border);
+  background: var(--quant-card);
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+.quant-tab {
+  padding: 12px 28px;
+  font-family: var(--quant-mono);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--quant-text-dim);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.quant-tab:hover {
+  color: var(--quant-text);
+  background: var(--quant-card-hover);
+}
+.quant-tab.is-active {
+  color: var(--quant-accent);
+  border-bottom-color: var(--quant-accent);
+  background: var(--quant-card-hover);
+}
+
+/* ── Control Bar ── */
+.quant-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--quant-card);
+  border: 1px solid var(--quant-border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.quant-control-bar label {
+  font-family: var(--quant-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--quant-text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quant-control-bar input,
+.quant-control-bar select {
+  background: var(--quant-bg);
+  border: 1px solid var(--quant-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--quant-mono);
+  font-size: 12px;
+  color: var(--quant-text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.quant-control-bar input:focus,
+.quant-control-bar select:focus {
+  border-color: var(--quant-accent);
+}
+.quant-control-bar .quant-btn {
+  padding: 6px 18px;
+  font-family: var(--quant-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-radius: 4px;
+  border: 1px solid var(--quant-accent);
+  background: var(--quant-accent-dim);
+  color: var(--quant-accent);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.quant-control-bar .quant-btn:hover {
+  background: var(--quant-accent);
+  color: var(--quant-bg);
+}
+.quant-control-bar .quant-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Status Dot ── */
+.quant-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--quant-accent);
+  animation: quant-pulse 1.5s ease-in-out infinite;
+}
+.quant-status-dot.idle {
+  animation: none;
+  background: var(--quant-text-faint);
+}
+.quant-status-dot.error {
+  animation: none;
+  background: var(--quant-danger);
+}
+@keyframes quant-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ── Grid Layout ── */
+.quant-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+}
+.quant-grid .span-2 { grid-column: span 2; }
+.quant-grid .span-3 { grid-column: 1 / -1; }
+.quant-grid .span-row-2 { grid-row: span 2; }
+
+/* ── Card ── */
+.quant-card {
+  background: var(--quant-card);
+  border: 1px solid var(--quant-border);
+  border-radius: 8px;
+  padding: 16px;
+  position: relative;
+  transition: border-color 0.2s;
+  overflow: hidden;
+}
+.quant-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--quant-accent);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+.quant-card:hover {
+  border-color: var(--quant-text-faint);
+}
+.quant-card:hover::before {
+  opacity: 1;
+}
+.quant-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--quant-border);
+}
+.quant-card-header h3 {
+  font-family: var(--quant-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--quant-text);
+  margin: 0;
+}
+.quant-card-header .quant-badge {
+  font-family: var(--quant-mono);
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--quant-border);
+  color: var(--quant-text-dim);
+}
+
+/* ── Skeleton Loading ── */
+.quant-skeleton {
+  background: linear-gradient(90deg, var(--quant-card) 25%, var(--quant-card-hover) 50%, var(--quant-card) 75%);
+  background-size: 200% 100%;
+  animation: quant-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  height: 16px;
+  margin-bottom: 8px;
+}
+.quant-skeleton:last-child { margin-bottom: 0; }
+.quant-skeleton.h { height: 24px; }
+.quant-skeleton.xl { height: 120px; }
+@keyframes quant-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── KPI Display ── */
+.quant-kpi-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.quant-kpi {
+  flex: 1;
+  min-width: 70px;
+  text-align: center;
+}
+.quant-kpi .value {
+  display: block;
+  font-family: var(--quant-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--quant-text);
+  line-height: 1.2;
+}
+.quant-kpi .value.positive { color: var(--quant-accent); }
+.quant-kpi .value.negative { color: var(--quant-danger); }
+.quant-kpi .label {
+  display: block;
+  font-family: var(--quant-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--quant-text-dim);
+  margin-top: 2px;
+}
+
+/* ── Tables ── */
+.quant-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--quant-mono);
+  font-size: 11px;
+}
+.quant-table th {
+  color: var(--quant-text-dim);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--quant-border);
+}
+.quant-table td {
+  padding: 6px 8px;
+  color: var(--quant-text);
+  border-bottom: 1px solid rgba(30, 45, 61, 0.5);
+}
+.quant-table tr:hover td {
+  background: var(--quant-card-hover);
+}
+.quant-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tags ── */
+.quant-tag {
+  display: inline-block;
+  font-family: var(--quant-mono);
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--quant-border);
+  color: var(--quant-text-dim);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.quant-tag:hover {
+  border-color: var(--quant-accent);
+  color: var(--quant-accent);
+}
+.quant-tag.is-active {
+  border-color: var(--quant-accent);
+  background: var(--quant-accent-dim);
+  color: var(--quant-accent);
+}
+.quant-tag.danger {
+  border-color: var(--quant-danger);
+  color: var(--quant-danger);
+}
+.quant-tag.danger:hover {
+  background: var(--quant-danger-dim);
+}
+.quant-tag.warn {
+  border-color: var(--quant-warn);
+  color: var(--quant-warn);
+}
+
+/* ── AI Briefing ── */
+.quant-briefing {
+  font-family: var(--quant-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--quant-text);
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.quant-briefing .typing {
+  overflow: hidden;
+  animation: quant-type 2s steps(60, end);
+}
+@keyframes quant-type {
+  from { max-height: 0; }
+  to { max-height: 500px; }
+}
+.quant-briefing-meta {
+  font-family: var(--quant-mono);
+  font-size: 10px;
+  color: var(--quant-text-dim);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--quant-border);
+}
+
+/* ── Symbol Tabs inside cards ── */
+.quant-symbol-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.quant-symbol-tabs .quant-tag {
+  font-size: 10px;
+}
+
+/* ── Empty / Error States ── */
+.quant-empty {
+  font-family: var(--quant-mono);
+  font-size: 11px;
+  color: var(--quant-text-faint);
+  text-align: center;
+  padding: 24px 8px;
+}
+.quant-error {
+  font-family: var(--quant-mono);
+  font-size: 11px;
+  color: var(--quant-danger);
+  text-align: center;
+  padding: 16px 8px;
+}
+.quant-error .retry-btn {
+  margin-top: 8px;
+  padding: 4px 14px;
+  font-size: 10px;
+  background: var(--quant-danger-dim);
+  border: 1px solid var(--quant-danger);
+  color: var(--quant-danger);
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.quant-error .retry-btn:hover {
+  background: var(--quant-danger);
+  color: white;
+}
+
+/* ── SVG Chart Containers ── */
+.quant-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.quant-chart-svg text {
+  font-family: var(--quant-mono);
+  fill: var(--quant-text-dim);
+  font-size: 9px;
+}
+
+/* ── Report Sections ── */
+.quant-report-section {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--quant-bg);
+  border-radius: 4px;
+  border: 1px solid var(--quant-border);
+}
+.quant-report-section h4 {
+  font-family: var(--quant-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--quant-text-dim);
+  margin: 0 0 6px 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .quant-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .quant-grid .span-2 { grid-column: span 1; }
+  .quant-grid .span-3 { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .quant-grid { grid-template-columns: 1fr; }
+  .quant-control-bar { flex-direction: column; align-items: stretch; }
 }

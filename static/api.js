@@ -71,4 +71,15 @@ const API = {
 
   /* ── Diagnostics ── */
   diagnosticsSummary: "/diagnostics/summary",
+
+  /* ── Quant Research (Phase 1-3) ── */
+  quantFeatures: (symbols = "SPY,QQQ", days = 60) => `/research/features?symbols=${encodeURIComponent(symbols)}&days=${encodeURIComponent(days)}`,
+  quantFactors: (symbols = "SPY,QQQ", days = 60) => `/research/factors?symbols=${encodeURIComponent(symbols)}&days=${encodeURIComponent(days)}`,
+  quantOptimize: (symbols = "SPY,QQQ", method = "risk_parity") => `/research/optimize?symbols=${encodeURIComponent(symbols)}&method=${encodeURIComponent(method)}`,
+  quantMLPredict: (symbols = "SPY,QQQ") => `/research/ml/predict?symbols=${encodeURIComponent(symbols)}`,
+  quantAlternative: (symbols) => symbols ? `/research/alternative?symbols=${encodeURIComponent(symbols)}` : "/research/alternative",
+  quantAIBriefing: "/research/ai/briefing",
+  quantAutoResearchRun: "/research/auto-research/run",
+  quantAutoResearchLatest: "/research/auto-research/latest",
+  quantAttribution: (start, end) => `/research/attribution?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
 };
