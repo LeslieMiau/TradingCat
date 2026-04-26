@@ -160,19 +160,27 @@ class CapitalFlowFetcher:
 class MacroEventFetcher:
     """Fetch macro-economic events from public calendars.
 
-    No real source is wired yet — both fetchers return ``[]``. Subclass and
-    override to integrate ForexFactory, Investing.com, or FRED. The empty
-    result causes :class:`AlternativeDataService` to mark the source
-    ``degraded``, which is the honest state when nothing is configured.
+    Delegates to :class:`FredEconomicCalendar` when a FRED API key is
+    configured; otherwise returns ``[]`` (source marked ``degraded``).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fred_api_key: str | None = None) -> None:
         self._client = SentimentHttpClient(timeout_seconds=8.0)
+        if fred_api_key:
+            from tradingcat.adapters.fred_calendar import FredEconomicCalendar
+
+            self._fred = FredEconomicCalendar(api_key=fred_api_key, http=self._client)
+        else:
+            self._fred = None
 
     def fetch_upcoming(self, days: int = 14) -> list[MacroEvent]:
+        if self._fred is not None:
+            return self._fred.fetch_upcoming(days)
         return []
 
     def fetch_recent(self, days: int = 7) -> list[MacroEvent]:
+        if self._fred is not None:
+            return self._fred.fetch_recent(days)
         return []
 
 
@@ -189,10 +197,11 @@ class AlternativeDataService:
         symbols: list[str] | None = None,
         mock_data_path: str | Path | None = None,
         cache_dir: str | Path | None = None,
+        fred_api_key: str | None = None,
     ) -> None:
         self._social = SocialMediaFetcher(symbols, mock_data_path)
         self._flows = CapitalFlowFetcher(cache_dir)
-        self._macro = MacroEventFetcher()
+        self._macro = MacroEventFetcher(fred_api_key=fred_api_key)
 
     def snapshot(
         self,
