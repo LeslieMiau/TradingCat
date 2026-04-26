@@ -29,6 +29,15 @@ futu = [
 sentiment_akshare = [
   "akshare>=1.13,<2.0",
 ]
+sentiment_baostock = [
+  "baostock>=0.8,<1.0",
+]
+sentiment_tushare = [
+  "tushare>=1.4,<2.0",
+]
+sentiment_eastmoney = [
+  "curl_cffi>=0.7,<1.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -114,6 +114,10 @@ class RiskConfig(BaseModel):
     fallback_price_hk: float = 600.0
     fallback_price_cn_etf: float = 5.0
     fallback_price_cn_stock: float = 20.0
+    cn_market_rules_enabled: bool = True
+    cn_limit_pct_regular: float = 0.10
+    cn_limit_pct_st: float = 0.05
+    cn_limit_pct_growth_board: float = 0.20
 
     @field_validator(
         "max_single_stock_weight",
@@ -129,6 +133,9 @@ class RiskConfig(BaseModel):
         "fallback_price_hk",
         "fallback_price_cn_etf",
         "fallback_price_cn_stock",
+        "cn_limit_pct_regular",
+        "cn_limit_pct_st",
+        "cn_limit_pct_growth_board",
     )
     @classmethod
     def validate_non_negative(cls, value: float) -> float:
@@ -159,6 +166,282 @@ class YFinanceConfig(BaseModel):
         env_values = dotenv_values or {}
         enabled_raw = _getenv("TRADINGCAT_YFINANCE_ENABLED", "true", env_values).strip().lower()
         return cls(enabled=enabled_raw in {"1", "true", "yes", "on"})
+
+
+class AkshareConfig(BaseModel):
+    """AKShare A-share market-data adapter knobs.
+
+    Off by default — enabling it has no effect until ``AdapterFactory`` wires
+    the adapter (planned Round 02). Kept here so the env knob is part of a
+    single config shape.
+    """
+
+    enabled: bool = False
+    adjust: Literal["", "qfq", "hfq"] = "qfq"
+    spot_cache_ttl_seconds: float = 30.0
+
+    @field_validator("spot_cache_ttl_seconds")
+    @classmethod
+    def _non_negative_ttl(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("akshare.spot_cache_ttl_seconds must be non-negative")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AkshareConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_AKSHARE_ENABLED", "false", env_values).strip().lower()
+        adjust_raw = _getenv("TRADINGCAT_AKSHARE_ADJUST", "qfq", env_values).strip().lower()
+        if adjust_raw not in {"", "qfq", "hfq"}:
+            raise ValueError(
+                f"TRADINGCAT_AKSHARE_ADJUST must be '', 'qfq', or 'hfq' (got {adjust_raw!r})"
+            )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            adjust=adjust_raw,
+            spot_cache_ttl_seconds=float(
+                _getenv("TRADINGCAT_AKSHARE_SPOT_CACHE_TTL_SECONDS", "30.0", env_values)
+            ),
+        )
+
+
+class BaostockConfig(BaseModel):
+    """BaoStock A-share market-data adapter knobs.
+
+    Off by default. Round 03 only introduces the adapter and config; factory
+    routing is intentionally deferred to a later checkpoint.
+    """
+
+    enabled: bool = False
+    adjustflag: Literal["1", "2", "3"] = "2"
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "BaostockConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_BAOSTOCK_ENABLED", "false", env_values).strip().lower()
+        adjustflag_raw = _getenv("TRADINGCAT_BAOSTOCK_ADJUSTFLAG", "2", env_values).strip()
+        if adjustflag_raw not in {"1", "2", "3"}:
+            raise ValueError(
+                f"TRADINGCAT_BAOSTOCK_ADJUSTFLAG must be '1', '2', or '3' (got {adjustflag_raw!r})"
+            )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            adjustflag=adjustflag_raw,
+        )
+
+
+class TushareConfig(BaseModel):
+    """Tushare Pro A-share market-data and research adapter knobs."""
+
+    enabled: bool = False
+    token: str | None = None
+    adj: Literal["", "qfq", "hfq"] = "qfq"
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "TushareConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_TUSHARE_ENABLED", "false", env_values).strip().lower()
+        token_raw = _getenv("TRADINGCAT_TUSHARE_TOKEN", "", env_values).strip()
+        adj_raw = _getenv("TRADINGCAT_TUSHARE_ADJ", "qfq", env_values).strip().lower()
+        if adj_raw not in {"", "qfq", "hfq"}:
+            raise ValueError(
+                f"TRADINGCAT_TUSHARE_ADJ must be '', 'qfq', or 'hfq' (got {adj_raw!r})"
+            )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            token=token_raw or None,
+            adj=adj_raw,
+        )
+
+
+class EastMoneyNewsConfig(BaseModel):
+    """East Money news-source adapter knobs."""
+
+    enabled: bool = False
+    column: str = "351"
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+    timeout_seconds: float = 5.0
+    user_agent: str = "Mozilla/5.0 TradingCat research bot"
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("eastmoney news integer config values must be positive")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _positive_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("eastmoney news timeout must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "EastMoneyNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_EASTMONEY_NEWS_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            column=_getenv("TRADINGCAT_EASTMONEY_NEWS_COLUMN", "351", env_values).strip(),
+            page_size=int(_getenv("TRADINGCAT_EASTMONEY_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_EASTMONEY_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+            timeout_seconds=float(_getenv("TRADINGCAT_EASTMONEY_NEWS_TIMEOUT_SECONDS", "5.0", env_values)),
+            user_agent=_getenv(
+                "TRADINGCAT_EASTMONEY_NEWS_USER_AGENT",
+                "Mozilla/5.0 TradingCat research bot",
+                env_values,
+            ).strip(),
+        )
+
+
+class CLSNewsConfig(BaseModel):
+    enabled: bool = False
+    page_size: int = 20
+    cache_ttl_seconds: int = 300
+    timeout_seconds: float = 5.0
+    user_agent: str = "Mozilla/5.0 TradingCat research bot"
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("cls news integer config values must be positive")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _positive_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("cls news timeout must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "CLSNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_CLS_NEWS_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            page_size=int(_getenv("TRADINGCAT_CLS_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_CLS_NEWS_CACHE_TTL_SECONDS", "300", env_values)),
+            timeout_seconds=float(_getenv("TRADINGCAT_CLS_NEWS_TIMEOUT_SECONDS", "5.0", env_values)),
+            user_agent=_getenv("TRADINGCAT_CLS_NEWS_USER_AGENT", "Mozilla/5.0 TradingCat research bot", env_values).strip(),
+        )
+
+
+class FinnhubNewsConfig(BaseModel):
+    enabled: bool = False
+    token: str | None = None
+    symbols: list[str] = Field(default_factory=list)
+    lookback_days: int = 7
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+
+    @field_validator("lookback_days", "page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("finnhub news integer config values must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "FinnhubNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_FINNHUB_NEWS_ENABLED", "false", env_values).strip().lower()
+        symbols_raw = _getenv("TRADINGCAT_FINNHUB_NEWS_SYMBOLS", "", env_values)
+        token_raw = _getenv("TRADINGCAT_FINNHUB_TOKEN", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            token=token_raw or None,
+            symbols=_csv_values(symbols_raw, upper=True),
+            lookback_days=int(_getenv("TRADINGCAT_FINNHUB_NEWS_LOOKBACK_DAYS", "7", env_values)),
+            page_size=int(_getenv("TRADINGCAT_FINNHUB_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_FINNHUB_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+        )
+
+
+class AlphaVantageNewsConfig(BaseModel):
+    enabled: bool = False
+    api_key: str | None = None
+    tickers: list[str] = Field(default_factory=list)
+    page_size: int = 20
+    cache_ttl_seconds: int = 900
+
+    @field_validator("page_size", "cache_ttl_seconds")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("alpha vantage news integer config values must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AlphaVantageNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_ENABLED", "false", env_values).strip().lower()
+        tickers_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_TICKERS", "", env_values)
+        api_key_raw = _getenv("TRADINGCAT_ALPHA_VANTAGE_API_KEY", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            api_key=api_key_raw or None,
+            tickers=_csv_values(tickers_raw, upper=True),
+            page_size=int(_getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_CACHE_TTL_SECONDS", "900", env_values)),
+        )
+
+
+class LLMConfig(BaseModel):
+    """LLM layer guardrails. Disabled until provider/analyst rounds wire it."""
+
+    enabled: bool = False
+    provider: str = "disabled"
+    model: str = ""
+    base_url: str = ""
+    api_key: str | None = None
+    max_tokens: int = 2048
+    cost_per_1k_tokens: float = 0.0
+    daily_token_budget: int = 50_000
+    monthly_cost_budget: float = 25.0
+
+    @field_validator("max_tokens", "daily_token_budget")
+    @classmethod
+    def _positive_tokens(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("llm token values must be positive")
+        return value
+
+    @field_validator("monthly_cost_budget")
+    @classmethod
+    def _positive_cost(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("llm monthly cost budget must be positive")
+        return value
+
+    @field_validator("cost_per_1k_tokens")
+    @classmethod
+    def _non_negative_cost_rate(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("llm cost_per_1k_tokens must be non-negative")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "LLMConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_LLM_ENABLED", "false", env_values).strip().lower()
+        api_key = _getenv("TRADINGCAT_LLM_API_KEY", "", env_values).strip()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            provider=_getenv("TRADINGCAT_LLM_PROVIDER", "disabled", env_values).strip().lower(),
+            model=_getenv("TRADINGCAT_LLM_MODEL", "", env_values).strip(),
+            base_url=_getenv("TRADINGCAT_LLM_BASE_URL", "", env_values).strip(),
+            api_key=api_key or None,
+            max_tokens=int(_getenv("TRADINGCAT_LLM_MAX_TOKENS", "2048", env_values)),
+            cost_per_1k_tokens=float(
+                _getenv("TRADINGCAT_LLM_COST_PER_1K_TOKENS", "0.0", env_values)
+            ),
+            daily_token_budget=int(_getenv("TRADINGCAT_LLM_DAILY_TOKEN_BUDGET", "50000", env_values)),
+            monthly_cost_budget=float(_getenv("TRADINGCAT_LLM_MONTHLY_COST_BUDGET", "25.0", env_values)),
+        )
 
 
 class DuckDbConfig(BaseModel):
@@ -664,6 +947,78 @@ class AiResearchConfig(BaseModel):
         )
 
 
+class AdvisoryReportConfig(BaseModel):
+    """Daily advisory research-report scheduler knobs.
+
+    Off by default — opting in registers an APScheduler cron job that
+    runs the absorbed research pipeline (universe screener + analyst +
+    Markdown export) once per day. The output is filed under
+    ``output_dir`` named ``YYYY-MM-DD.md`` and pruned by
+    ``retention_days``.
+
+    The job never produces signals/orders; the report carries the
+    advisory-only banner and is read-only artefacts on disk.
+    """
+
+    enabled: bool = False
+    output_dir: Path = Path("data") / "reports" / "advisory"
+    cron_hour: int = 7
+    cron_minute: int = 45
+    cron_timezone: str = "Asia/Shanghai"
+    retention_days: int = 30
+    candidate_limit: int = 10
+
+    @field_validator("cron_hour")
+    @classmethod
+    def _hour_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError("advisory_report.cron_hour must be 0..23")
+        return value
+
+    @field_validator("cron_minute")
+    @classmethod
+    def _minute_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 59:
+            raise ValueError("advisory_report.cron_minute must be 0..59")
+        return value
+
+    @field_validator("retention_days", "candidate_limit")
+    @classmethod
+    def _positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("advisory_report counts must be positive")
+        return value
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AdvisoryReportConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = (
+            _getenv("TRADINGCAT_ADVISORY_REPORT_ENABLED", "false", env_values).strip().lower()
+        )
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            output_dir=Path(
+                _getenv(
+                    "TRADINGCAT_ADVISORY_REPORT_OUTPUT_DIR",
+                    "data/reports/advisory",
+                    env_values,
+                )
+            ),
+            cron_hour=int(_getenv("TRADINGCAT_ADVISORY_REPORT_CRON_HOUR", "7", env_values)),
+            cron_minute=int(_getenv("TRADINGCAT_ADVISORY_REPORT_CRON_MINUTE", "45", env_values)),
+            cron_timezone=_getenv(
+                "TRADINGCAT_ADVISORY_REPORT_CRON_TIMEZONE", "Asia/Shanghai", env_values
+            ).strip(),
+            retention_days=int(
+                _getenv("TRADINGCAT_ADVISORY_REPORT_RETENTION_DAYS", "30", env_values)
+            ),
+            candidate_limit=int(
+                _getenv("TRADINGCAT_ADVISORY_REPORT_CANDIDATE_LIMIT", "10", env_values)
+            ),
+        )
+        )
+
+
 class AppConfig(BaseModel):
     portfolio_value: float = 1_000_000.0
     base_currency: str = "CNY"
@@ -689,6 +1044,14 @@ class AppConfig(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     futu: FutuConfig = Field(default_factory=FutuConfig)
     yfinance: YFinanceConfig = Field(default_factory=YFinanceConfig)
+    akshare: AkshareConfig = Field(default_factory=AkshareConfig)
+    baostock: BaostockConfig = Field(default_factory=BaostockConfig)
+    tushare: TushareConfig = Field(default_factory=TushareConfig)
+    eastmoney_news: EastMoneyNewsConfig = Field(default_factory=EastMoneyNewsConfig)
+    cls_news: CLSNewsConfig = Field(default_factory=CLSNewsConfig)
+    finnhub_news: FinnhubNewsConfig = Field(default_factory=FinnhubNewsConfig)
+    alpha_vantage_news: AlphaVantageNewsConfig = Field(default_factory=AlphaVantageNewsConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
@@ -696,6 +1059,7 @@ class AppConfig(BaseModel):
     alternative_data: AlternativeDataConfig = Field(default_factory=AlternativeDataConfig)
     auto_research: AutoResearchConfig = Field(default_factory=AutoResearchConfig)
     ai_research: AiResearchConfig = Field(default_factory=AiResearchConfig)
+    advisory_report: AdvisoryReportConfig = Field(default_factory=AdvisoryReportConfig)
 
     @field_validator("portfolio_value")
     @classmethod
@@ -764,6 +1128,14 @@ class AppConfig(BaseModel):
             scheduler=SchedulerConfig.from_env(dotenv_values),
             futu=FutuConfig.from_env(dotenv_values),
             yfinance=YFinanceConfig.from_env(dotenv_values),
+            akshare=AkshareConfig.from_env(dotenv_values),
+            baostock=BaostockConfig.from_env(dotenv_values),
+            tushare=TushareConfig.from_env(dotenv_values),
+            eastmoney_news=EastMoneyNewsConfig.from_env(dotenv_values),
+            cls_news=CLSNewsConfig.from_env(dotenv_values),
+            finnhub_news=FinnhubNewsConfig.from_env(dotenv_values),
+            alpha_vantage_news=AlphaVantageNewsConfig.from_env(dotenv_values),
+            llm=LLMConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
@@ -771,4 +1143,5 @@ class AppConfig(BaseModel):
             alternative_data=AlternativeDataConfig.from_env(dotenv_values),
             auto_research=AutoResearchConfig.from_env(dotenv_values),
             ai_research=AiResearchConfig.from_env(dotenv_values),
+            advisory_report=AdvisoryReportConfig.from_env(dotenv_values),
         )

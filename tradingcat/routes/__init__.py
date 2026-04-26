@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from . import (
+    advisory,
     alerts,
     approvals,
     audit,
@@ -41,6 +42,7 @@ ROUTERS = [
     compliance.router,
     ops.router,
     research.router,
+    advisory.router,
     reports.router,
     preflight.router,
 ]

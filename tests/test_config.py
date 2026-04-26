@@ -10,6 +10,21 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_FUTU_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_FUTU_ENVIRONMENT", "real")
     monkeypatch.setenv("TRADINGCAT_FUTU_PORT", "22222")
+    monkeypatch.setenv("TRADINGCAT_BAOSTOCK_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_BAOSTOCK_ADJUSTFLAG", "3")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_TOKEN", "secret-token")
+    monkeypatch.setenv("TRADINGCAT_TUSHARE_ADJ", "hfq")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_COLUMN", "350")
+    monkeypatch.setenv("TRADINGCAT_EASTMONEY_NEWS_PAGE_SIZE", "9")
+    monkeypatch.setenv("TRADINGCAT_CLS_NEWS_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_FINNHUB_NEWS_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_FINNHUB_TOKEN", "fh-token")
+    monkeypatch.setenv("TRADINGCAT_FINNHUB_NEWS_SYMBOLS", "AAPL,MSFT")
+    monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_ENABLED", "true")
+    monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_API_KEY", "av-key")
+    monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_TICKERS", "SPY,QQQ")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_POSTGRES_DSN", "postgresql:///tradingcat_test")
     monkeypatch.setenv("TRADINGCAT_DUCKDB_ENABLED", "true")
@@ -39,6 +54,21 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.futu.enabled is True
     assert config.futu.environment == "REAL"
     assert config.futu.port == 22222
+    assert config.baostock.enabled is True
+    assert config.baostock.adjustflag == "3"
+    assert config.tushare.enabled is True
+    assert config.tushare.token == "secret-token"
+    assert config.tushare.adj == "hfq"
+    assert config.eastmoney_news.enabled is True
+    assert config.eastmoney_news.column == "350"
+    assert config.eastmoney_news.page_size == 9
+    assert config.cls_news.enabled is True
+    assert config.finnhub_news.enabled is True
+    assert config.finnhub_news.token == "fh-token"
+    assert config.finnhub_news.symbols == ["AAPL", "MSFT"]
+    assert config.alpha_vantage_news.enabled is True
+    assert config.alpha_vantage_news.api_key == "av-key"
+    assert config.alpha_vantage_news.tickers == ["SPY", "QQQ"]
     assert config.postgres.enabled is True
     assert config.postgres.dsn == "postgresql:///tradingcat_test"
     assert config.duckdb.enabled is True

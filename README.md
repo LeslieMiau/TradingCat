@@ -214,6 +214,25 @@ Operator notes:
 - Use `liquidity_bucket=low` or `enabled=false` to keep a symbol persisted but out of the default personal-trading universe.
 - After a universe change, run `POST /data/history/sync` for the affected symbols and then verify `GET /data/history/coverage`.
 
+## Absorbed Research Capabilities
+
+A research-only capability layer absorbed from `hsliuping/TradingAgents-CN`
+across rounds 01–15 ships in this repo: A-share data adapters (AKShare /
+BaoStock / Tushare), Chinese news sources (East Money / 财联社 / Finnhub /
+Alpha Vantage), CN hard risk rules (涨跌停 / T+1 / ST), technical features,
+universe screener, and a budget-gated LLM advisory layer. **Every piece is
+off by default and never produces signals/orders/approvals.** See
+[`docs/ABSORB_CAPABILITIES.md`](docs/ABSORB_CAPABILITIES.md) for the
+operator cookbook (env knobs, optional deps, how to verify).
+
+Smoke run:
+
+```bash
+.venv/bin/python scripts/absorb_dogfood.py
+# audits env knobs, then runs an offline end-to-end pipeline with a fake
+# LLM and writes a Markdown report to data/reports/dogfood/
+```
+
 ## Current Architecture Boundaries
 
 - `tradingcat/routes/` stays thin. Route handlers should delegate to `app.py` properties, facades, or dedicated services instead of composing research/reporting logic inline.
