@@ -390,6 +390,28 @@ class AlphaVantageNewsConfig(BaseModel):
         )
 
 
+class HkRssNewsConfig(BaseModel):
+    """HK financial news via RSS (AAStocks, HKEX, etc.)."""
+
+    enabled: bool = False
+    url: str = "https://www.aastocks.com/tc/resources/rss.ashx"
+    page_size: int = 20
+    cache_ttl_seconds: int = 600
+    symbols: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "HkRssNewsConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_HKRSS_NEWS_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            url=_getenv("TRADINGCAT_HKRSS_NEWS_URL", "https://www.aastocks.com/tc/resources/rss.ashx", env_values),
+            page_size=int(_getenv("TRADINGCAT_HKRSS_NEWS_PAGE_SIZE", "20", env_values)),
+            cache_ttl_seconds=int(_getenv("TRADINGCAT_HKRSS_NEWS_CACHE_TTL_SECONDS", "600", env_values)),
+            symbols=_csv_values(_getenv("TRADINGCAT_HKRSS_NEWS_SYMBOLS", "", env_values), upper=True),
+        )
+
+
 class LLMConfig(BaseModel):
     """LLM layer guardrails. Disabled until provider/analyst rounds wire it."""
 
@@ -1050,6 +1072,7 @@ class AppConfig(BaseModel):
     cls_news: CLSNewsConfig = Field(default_factory=CLSNewsConfig)
     finnhub_news: FinnhubNewsConfig = Field(default_factory=FinnhubNewsConfig)
     alpha_vantage_news: AlphaVantageNewsConfig = Field(default_factory=AlphaVantageNewsConfig)
+    hk_rss_news: HkRssNewsConfig = Field(default_factory=HkRssNewsConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     market_awareness: MarketAwarenessConfig = Field(default_factory=MarketAwarenessConfig)
@@ -1134,6 +1157,7 @@ class AppConfig(BaseModel):
             cls_news=CLSNewsConfig.from_env(dotenv_values),
             finnhub_news=FinnhubNewsConfig.from_env(dotenv_values),
             alpha_vantage_news=AlphaVantageNewsConfig.from_env(dotenv_values),
+            hk_rss_news=HkRssNewsConfig.from_env(dotenv_values),
             llm=LLMConfig.from_env(dotenv_values),
             risk=RiskConfig(),
             market_awareness=MarketAwarenessConfig.from_env(dotenv_values),
