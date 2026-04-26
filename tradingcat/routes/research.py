@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Query
 
 from tradingcat.api.schemas import AssetCorrelationPayload, ResearchNewsSummaryPayload
 from tradingcat.api.view_models import MarketAwarenessResponse, ResearchReportResponse, ResearchScorecardResponse, StrategyDetailResponse
@@ -132,3 +132,83 @@ def research_allocations_summary(request: Request):
 def research_strategy_detail(request: Request, strategy_id: str, as_of: date | None = None):
     app = get_app_state(request)
     return app.research_facade.strategy_detail(strategy_id, as_of or date.today())
+
+
+# ---- Phase 1-3 service endpoints ----
+
+
+@router.get("/features")
+def research_features(
+    request: Request,
+    symbols: str = Query("SPY,QQQ", description="Comma-separated symbols"),
+    days: int = 180,
+):
+    app = get_app_state(request)
+    return app.research_facade.features([s.strip() for s in symbols.split(",") if s.strip()], days)
+
+
+@router.get("/factors")
+def research_factors(
+    request: Request,
+    symbols: str = Query("SPY,QQQ", description="Comma-separated symbols"),
+    days: int = 180,
+):
+    app = get_app_state(request)
+    return app.research_facade.factors([s.strip() for s in symbols.split(",") if s.strip()], days)
+
+
+@router.post("/optimize")
+def research_optimize(
+    request: Request,
+    symbols: str = Query(..., description="Comma-separated symbols"),
+    method: str = "risk_parity",
+):
+    app = get_app_state(request)
+    return app.research_facade.optimize(
+        [s.strip() for s in symbols.split(",") if s.strip()],
+        method,
+    )
+
+
+@router.get("/ml/predict")
+def research_ml_predict(
+    request: Request,
+    symbols: str = Query("SPY,QQQ", description="Comma-separated symbols"),
+):
+    app = get_app_state(request)
+    return app.research_facade.ml_predict([s.strip() for s in symbols.split(",") if s.strip()])
+
+
+@router.get("/alternative")
+def research_alternative(
+    request: Request,
+    symbols: str | None = Query(None, description="Comma-separated symbols (optional)"),
+):
+    app = get_app_state(request)
+    parsed = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+    return app.research_facade.alternative_data_snapshot(parsed)
+
+
+@router.get("/ai/briefing")
+def research_ai_briefing(request: Request):
+    app = get_app_state(request)
+    return app.research_facade.ai_briefing()
+
+
+@router.post("/auto-research/run")
+def research_auto_run(request: Request):
+    app = get_app_state(request)
+    return app.research_facade.auto_research_report()
+
+
+@router.get("/auto-research/latest")
+def research_auto_latest(request: Request):
+    app = get_app_state(request)
+    report = app.auto_research.latest_report()
+    return report or {"error": "no reports available"}
+
+
+@router.get("/attribution")
+def research_attribution(request: Request, start: date, end: date):
+    app = get_app_state(request)
+    return app.research_facade.attribution(start, end)

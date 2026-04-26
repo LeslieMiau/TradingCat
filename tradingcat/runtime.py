@@ -16,9 +16,14 @@ from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.research import BacktestExperimentRepository
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
+from tradingcat.adapters.alternative import AlternativeDataService
+from tradingcat.services.ai_researcher import AIResearcher
+from tradingcat.services.algo_execution import AlgoExecutor
 from tradingcat.services.ashare_indices import AshareIndexObservationService
 from tradingcat.services.alpha_radar import AlphaRadarService
+from tradingcat.services.attribution import PerformanceAttribution
 from tradingcat.services.approval import ApprovalService
+from tradingcat.services.auto_research import AutoResearchPipeline
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.fear_greed import FearGreedToolService
 from tradingcat.services.macro_calendar import MacroCalendarService
@@ -26,8 +31,10 @@ from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.market_sentiment import MarketSentimentService
+from tradingcat.services.ml_pipeline import MLPipeline
 from tradingcat.services.news_observation import NewsObservationService
 from tradingcat.services.participation_decision import ParticipationDecisionService
+from tradingcat.services.portfolio_optimization import OptimizerConfig, PortfolioOptimizer
 from tradingcat.services.research import ResearchService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
 from tradingcat.services.strategy_registry import StrategyRegistry, StrategySignalProvider
@@ -78,6 +85,14 @@ class ApplicationRuntime:
     rule_engine: RuleEngine
     strategy_registry: StrategyRegistry
     strategy_signal_provider: StrategySignalProvider
+    # Phase 1–3 services
+    portfolio_optimizer: PortfolioOptimizer
+    ml_pipeline: MLPipeline
+    algo_executor: AlgoExecutor | None
+    performance_attribution: PerformanceAttribution  # static methods, retained for interface consistency
+    ai_researcher: AIResearcher
+    alternative_data: AlternativeDataService
+    auto_research: AutoResearchPipeline
 
     def close(self) -> None:
         """Release owned network resources (HTTP pool, etc).
@@ -89,6 +104,10 @@ class ApplicationRuntime:
         try:
             self.sentiment_http.close()
         except Exception:  # noqa: BLE001 — never block shutdown
+            pass
+        try:
+            self.alternative_data.close()
+        except Exception:
             pass
 
     @classmethod
@@ -189,6 +208,25 @@ class ApplicationRuntime:
             market_data=market_history,
             execution=execution,
         )
+        # Phase 1-3 services
+        portfolio_optimizer = PortfolioOptimizer()
+        ml_pipeline = MLPipeline(models_dir=config.data_dir / "models")
+        algo_executor: AlgoExecutor | None = None
+        if hasattr(execution, "submit_order"):
+            algo_executor = AlgoExecutor(
+                submit_fn=lambda symbol, side, qty: execution.submit_order(symbol, side, qty),
+            )
+        performance_attribution = PerformanceAttribution()
+        ai_researcher = AIResearcher(
+            api_key=config.ai_research.api_key or None,
+            model=config.ai_research.model,
+            data_dir=config.data_dir / "ai_reports",
+        )
+        alternative_data = AlternativeDataService(
+            symbols=config.alternative_data.symbols,
+            cache_dir=str(config.data_dir / "alternative"),
+        )
+        auto_research = AutoResearchPipeline(data_dir=str(config.data_dir))
         return cls(
             market_data_adapter=market_data_adapter,
             live_broker=live_broker,
@@ -208,6 +246,13 @@ class ApplicationRuntime:
             rule_engine=rule_engine,
             strategy_registry=strategy_registry,
             strategy_signal_provider=strategy_signal_provider,
+            portfolio_optimizer=portfolio_optimizer,
+            ml_pipeline=ml_pipeline,
+            algo_executor=algo_executor,
+            performance_attribution=performance_attribution,
+            ai_researcher=ai_researcher,
+            alternative_data=alternative_data,
+            auto_research=auto_research,
         )
 
     def register_strategies(self, strategies: list[object]) -> None:

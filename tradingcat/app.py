@@ -7,6 +7,8 @@ from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from time import monotonic
 
+import numpy as np
+
 from fastapi import FastAPI
 
 from tradingcat.adapters.factory import AdapterFactory
@@ -308,6 +310,34 @@ class TradingCatApplication:
     @property
     def strategy_signal_provider(self):
         return self._require_runtime().strategy_signal_provider
+
+    @property
+    def portfolio_optimizer(self):
+        return self._require_runtime().portfolio_optimizer
+
+    @property
+    def ml_pipeline(self):
+        return self._require_runtime().ml_pipeline
+
+    @property
+    def algo_executor(self):
+        return self._require_runtime().algo_executor
+
+    @property
+    def performance_attribution(self):
+        return self._require_runtime().performance_attribution
+
+    @property
+    def ai_researcher(self):
+        return self._require_runtime().ai_researcher
+
+    @property
+    def alternative_data(self):
+        return self._require_runtime().alternative_data
+
+    @property
+    def auto_research(self):
+        return self._require_runtime().auto_research
 
     @property
     def research_strategies(self) -> list[object]:
@@ -1258,40 +1288,117 @@ class TradingCatApplication:
             recoveries=filter_recent_items(self.recovery.list_attempts(), timestamp_attr="attempted_at", window_days=window_days),
         )
 
-    def rebalance_plan(self, as_of: date) -> dict[str, object]:
+    def rebalance_plan(self, as_of: date, method: str = "risk_parity") -> dict[str, object]:
         snapshot = self.portfolio.current_snapshot()
         allocation_summary = self.allocations.summary()
         active_allocations = allocation_summary["active"]
         current_weights = {position.instrument.symbol: round(position.weight, 6) for position in snapshot.positions}
-        target_weights: dict[str, float] = {}
+
+        # Aggregate target weights from active strategies
+        signal_targets: dict[str, float] = {}
         for record in active_allocations:
             strategy = self.strategy_by_id(str(record["strategy_id"]))
             signals = self._execution_signals_for_strategy(strategy, as_of)
             strategy_weight = float(record["target_weight"])
             signal_total = sum(abs(signal.target_weight) for signal in signals) or 1.0
             for signal in signals:
-                target_weights[signal.instrument.symbol] = round(
-                    target_weights.get(signal.instrument.symbol, 0.0) + strategy_weight * (signal.target_weight / signal_total),
-                    6,
+                signal_targets[signal.instrument.symbol] = (
+                    signal_targets.get(signal.instrument.symbol, 0.0)
+                    + strategy_weight * (signal.target_weight / signal_total)
                 )
 
+        if not signal_targets:
+            return {"as_of": as_of, "nav": snapshot.nav, "items": [], "allocation_summary": allocation_summary}
+
+        # Build market map for constraints
+        all_symbols = sorted(set(current_weights) | set(signal_targets))
+        instruments = {inst.symbol: inst for inst in self.market_history.list_instruments()}
+        market_map: dict[str, str] = {
+            sym: instruments[sym].market.value if sym in instruments else "US"
+            for sym in all_symbols
+        }
+
+        # Estimate expected returns from signal strengths
+        signals_list = sorted(signal_targets.values())
+        avg_signal = sum(signals_list) / len(signals_list) if signals_list else 0.0
+        expected_returns_list = []
+        for sym in all_symbols:
+            base = signal_targets.get(sym, 0.0)
+            expected_returns_list.append(0.08 + 0.04 * (base / (avg_signal or 0.01)))
+        expected_returns_arr = np.array(expected_returns_list, dtype=np.float64)
+
+        # Build covariance matrix from historical returns
+        try:
+            cov_matrix = self.portfolio_optimizer.ledoit_wolf_covariance(
+                self._estimate_returns_matrix(all_symbols, as_of)
+            )
+        except Exception:
+            n = len(all_symbols)
+            cov_matrix = np.eye(n) * 0.04 + 0.01
+
+        # Run portfolio optimization
+        result = self.portfolio_optimizer.optimize(
+            symbols=all_symbols,
+            expected_returns=expected_returns_arr,
+            cov_matrix=cov_matrix,
+            method=method,
+            current_weights={sym: current_weights.get(sym, 0.0) for sym in all_symbols},
+            market_map=market_map,
+            turnover=0.30,
+        )
+
+        target_weights = result.weights if result.success else signal_targets
+
         items = []
-        for symbol in sorted(set(current_weights) | set(target_weights)):
+        for symbol in all_symbols:
             current_weight = current_weights.get(symbol, 0.0)
             target_weight = target_weights.get(symbol, 0.0)
             delta = round(target_weight - current_weight, 6)
             if abs(delta) < 0.0001:
                 continue
-            items.append(
-                {
-                    "symbol": symbol,
-                    "current_weight": current_weight,
-                    "target_weight": target_weight,
-                    "delta": delta,
-                    "estimated_notional": round(abs(delta) * snapshot.nav, 2),
-                }
+            items.append({
+                "symbol": symbol,
+                "current_weight": current_weight,
+                "target_weight": target_weight,
+                "delta": delta,
+                "estimated_notional": round(abs(delta) * snapshot.nav, 2),
+            })
+        return {
+            "as_of": as_of,
+            "nav": snapshot.nav,
+            "items": items,
+            "allocation_summary": allocation_summary,
+            "optimization": {
+                "method": method,
+                "expected_return": result.expected_return,
+                "expected_volatility": result.expected_volatility,
+                "sharpe_ratio": result.sharpe_ratio,
+                "concentration": result.concentration,
+                "success": result.success,
+            },
+        }
+
+    def _estimate_returns_matrix(self, symbols: list[str], as_of: date) -> np.ndarray:
+        """Build a returns matrix for covariance estimation from historical bars."""
+        returns_list = []
+        for sym in symbols:
+            inst = next(
+                (i for i in self.market_history.list_instruments() if i.symbol == sym),
+                None,
             )
-        return {"as_of": as_of, "nav": snapshot.nav, "items": items, "allocation_summary": allocation_summary}
+            if inst is None:
+                returns_list.append(np.zeros(60))
+                continue
+            bars = self.market_history.fetch_bars(inst, as_of - __import__("datetime").timedelta(days=180), as_of)
+            closes = np.array([b.close for b in bars], dtype=np.float64)
+            if len(closes) < 2:
+                returns_list.append(np.zeros(60))
+                continue
+            rets = (closes[1:] - closes[:-1]) / closes[:-1]
+            if len(rets) < 60:
+                rets = np.pad(rets, (60 - len(rets), 0), mode="constant", constant_values=0)
+            returns_list.append(rets[-60:])
+        return np.column_stack(returns_list) if returns_list else np.zeros((60, 1))
 
     def dashboard_summary(self, as_of: date | None = None) -> dict[str, object]:
         return self.dashboard_facade.build_summary(as_of).model_dump(mode="json")

@@ -353,6 +353,8 @@ class ResearchFacade:
     def __init__(self, app: "TradingCatApplication") -> None:
         self._app = app
 
+    # ---- existing methods (unchanged) ----
+
     def scorecard(self, as_of: date, *, include_candidates: bool) -> ResearchScorecardResponse:
         payload = self._app.research_queries.scorecard(as_of, include_candidates=include_candidates)
         if include_candidates:
@@ -405,6 +407,102 @@ class ResearchFacade:
 
     def market_awareness(self, as_of: date) -> MarketAwarenessResponse:
         return MarketAwarenessResponse.model_validate(self._app.research_queries.market_awareness(as_of))
+
+    # ---- Phase 1-3 services ----
+
+    def _fetch_bars(self, symbols: list[str], days: int = 180) -> list:
+        end = date.today()
+        start = end - __import__("datetime").timedelta(days=days)
+        bars = []
+        for sym in symbols:
+            bars.extend(self._app.market_history.fetch_bars(sym, start, end))
+        return bars
+
+    def features(self, symbols: list[str], days: int = 180) -> dict[str, object]:
+        bars = self._fetch_bars(symbols, days)
+        if not bars:
+            return {"error": "no bar data available", "symbols": symbols}
+        from tradingcat.services.feature_engineering import FeaturePipeline
+        pipeline = FeaturePipeline(bars)
+        features = pipeline.compute_all()
+        return {
+            "symbols": symbols,
+            "feature_count": len(features),
+            "features": {k: [round(float(v), 6) for v in vs] for k, vs in features.items()},
+        }
+
+    def factors(self, symbols: list[str], days: int = 180) -> dict[str, object]:
+        bars = self._fetch_bars(symbols, days)
+        if not bars:
+            return {"error": "no bar data available", "symbols": symbols}
+        from tradingcat.services.feature_engineering import FeaturePipeline
+        from tradingcat.services.factor_analysis import FactorAnalyzer
+        pipeline = FeaturePipeline(bars)
+        features = pipeline.compute_all()
+        forward_returns = pipeline.compute_forward_returns(forward_days=5)
+        features_flat = {
+            name: {sym: vals[i] for i, sym in enumerate(symbols)}
+            for name, vals in features.items()
+        }
+        forward_flat = {sym: float(forward_returns[i]) for i, sym in enumerate(symbols) if i < len(forward_returns)}
+        analyzer = FactorAnalyzer(features_flat, forward_flat)
+        results = {}
+        for name in features:
+            ic_result = analyzer.rank_ic(name)
+            if ic_result is not None:
+                results[name] = {"rank_ic": ic_result}
+        return {"factor_count": len(results), "factors": results}
+
+    def optimize(self, symbols: list[str], method: str = "risk_parity") -> dict[str, object]:
+        result = self._app.portfolio_optimizer.optimize(symbols=symbols, method=method)
+        return {
+            "weights": result.weights,
+            "expected_return": result.expected_return,
+            "expected_volatility": result.expected_volatility,
+            "sharpe_ratio": result.sharpe_ratio,
+            "concentration": result.concentration,
+            "success": result.success,
+        }
+
+    def ml_predict(self, symbols: list[str]) -> dict[str, object]:
+        bars = self._fetch_bars(symbols, days=180)
+        if not bars:
+            return {"error": "no bar data available"}
+        from tradingcat.services.feature_engineering import FeaturePipeline
+        pipeline = FeaturePipeline(bars)
+        features = pipeline.compute_all()
+        signals = self._app.ml_pipeline.generate_signals(features)
+        signal_list = {sym: float(score) for sym, score in zip(symbols, signals)}
+        return {"signals": signal_list, "symbols": symbols}
+
+    def alternative_data_snapshot(self, symbols: list[str] | None = None) -> dict[str, object]:
+        snap = self._app.alternative_data.snapshot(symbols)
+        return {
+            "social_media": {s: {"mention_count": m.mention_count, "positive_ratio": m.positive_ratio} for s, m in snap.social_media.items()},
+            "capital_flow_count": len(snap.capital_flows),
+            "macro_event_count": len(snap.macro_events),
+            "sources_healthy": snap.sources_healthy,
+            "sources_degraded": snap.sources_degraded,
+        }
+
+    def ai_briefing(self) -> dict[str, object]:
+        report = self._app.ai_researcher.market_briefing()
+        return report.model_dump() if hasattr(report, "model_dump") else {"content": str(report)}
+
+    def auto_research_report(self) -> dict[str, object]:
+        report = self._app.auto_research.run_weekly()
+        latest = self._app.auto_research.latest_report()
+        return {"report": latest, "summary": report.summary}
+
+    def attribution(self, start: date, end: date) -> dict[str, object]:
+        portfolio_returns = {}
+        benchmark_returns = {}
+        weights = {}
+        return self._app.performance_attribution.brinson_attribution(
+            portfolio_weights=weights,
+            portfolio_returns=portfolio_returns,
+            benchmark_returns=benchmark_returns,
+        )
 
 
 class OperationsFacade:
