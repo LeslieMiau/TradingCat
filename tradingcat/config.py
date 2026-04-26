@@ -412,6 +412,46 @@ class HkRssNewsConfig(BaseModel):
         )
 
 
+class CoinGeckoConfig(BaseModel):
+    """Crypto price data from CoinGecko public API."""
+
+    enabled: bool = False
+    api_key: str | None = None
+    symbols: list[str] = Field(default_factory=lambda: ["BTC", "ETH", "SOL"])
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "CoinGeckoConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_COINGECKO_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            api_key=_getenv("TRADINGCAT_COINGECKO_API_KEY", "", env_values).strip() or None,
+            symbols=_csv_values(
+                _getenv("TRADINGCAT_COINGECKO_SYMBOLS", "BTC,ETH,SOL", env_values), upper=True
+            ),
+        )
+
+
+class PolygonConfig(BaseModel):
+    """US stock data via Polygon.io free tier."""
+
+    enabled: bool = False
+    api_key: str = ""
+    symbols: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "AAPL"])
+
+    @classmethod
+    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "PolygonConfig":
+        env_values = dotenv_values or {}
+        enabled_raw = _getenv("TRADINGCAT_POLYGON_ENABLED", "false", env_values).strip().lower()
+        return cls(
+            enabled=enabled_raw in {"1", "true", "yes", "on"},
+            api_key=_getenv("TRADINGCAT_POLYGON_API_KEY", "", env_values).strip(),
+            symbols=_csv_values(
+                _getenv("TRADINGCAT_POLYGON_SYMBOLS", "SPY,QQQ,AAPL", env_values), upper=True
+            ),
+        )
+
+
 class LLMConfig(BaseModel):
     """LLM layer guardrails. Disabled until provider/analyst rounds wire it."""
 
@@ -912,6 +952,7 @@ class AlternativeDataConfig(BaseModel):
     cache_dir: str = "data/alternative"
     flow_days: int = 20
     macro_days: int = 14
+    fred_api_key: str | None = None
 
     @classmethod
     def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "AlternativeDataConfig":
@@ -925,6 +966,7 @@ class AlternativeDataConfig(BaseModel):
             cache_dir=_getenv("TRADINGCAT_ALTERNATIVE_DATA_CACHE_DIR", "data/alternative", env_values),
             flow_days=int(_getenv("TRADINGCAT_ALTERNATIVE_DATA_FLOW_DAYS", "20", env_values)),
             macro_days=int(_getenv("TRADINGCAT_ALTERNATIVE_DATA_MACRO_DAYS", "14", env_values)),
+            fred_api_key=_getenv("TRADINGCAT_FRED_API_KEY", "", env_values).strip() or None,
         )
 
 
@@ -1079,6 +1121,8 @@ class AppConfig(BaseModel):
     market_sentiment: MarketSentimentConfig = Field(default_factory=MarketSentimentConfig)
     notifier: NotifierConfig = Field(default_factory=NotifierConfig)
     alternative_data: AlternativeDataConfig = Field(default_factory=AlternativeDataConfig)
+    coingecko: CoinGeckoConfig = Field(default_factory=CoinGeckoConfig)
+    polygon: PolygonConfig = Field(default_factory=PolygonConfig)
     auto_research: AutoResearchConfig = Field(default_factory=AutoResearchConfig)
     ai_research: AiResearchConfig = Field(default_factory=AiResearchConfig)
     advisory_report: AdvisoryReportConfig = Field(default_factory=AdvisoryReportConfig)
@@ -1164,6 +1208,8 @@ class AppConfig(BaseModel):
             market_sentiment=MarketSentimentConfig.from_env(dotenv_values),
             notifier=NotifierConfig.from_env(dotenv_values),
             alternative_data=AlternativeDataConfig.from_env(dotenv_values),
+            coingecko=CoinGeckoConfig.from_env(dotenv_values),
+            polygon=PolygonConfig.from_env(dotenv_values),
             auto_research=AutoResearchConfig.from_env(dotenv_values),
             ai_research=AiResearchConfig.from_env(dotenv_values),
             advisory_report=AdvisoryReportConfig.from_env(dotenv_values),
