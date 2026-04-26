@@ -11,6 +11,7 @@ from tradingcat.adapters.sentiment_http import SentimentHttpClient
 from tradingcat.adapters.sentiment_sources.cn_market_flows import CNMarketFlowsClient
 from tradingcat.adapters.sentiment_sources.cnn_fear_greed import CNNFearGreedClient
 from tradingcat.adapters.sentiment_sources.hk_southbound import HKSouthboundClient
+from tradingcat.repositories.insight_store import InsightStore
 from tradingcat.repositories.sentiment_history import MarketSentimentHistoryRepository
 from tradingcat.config import AppConfig
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
@@ -27,6 +28,7 @@ from tradingcat.services.auto_research import AutoResearchPipeline
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.fear_greed import FearGreedToolService
 from tradingcat.services.macro_calendar import MacroCalendarService
+from tradingcat.services.insight_engine import InsightEngine
 from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
@@ -93,6 +95,8 @@ class ApplicationRuntime:
     ai_researcher: AIResearcher
     alternative_data: AlternativeDataService
     auto_research: AutoResearchPipeline
+    insight_store: InsightStore
+    insight_engine: InsightEngine
 
     def close(self) -> None:
         """Release owned network resources (HTTP pool, etc).
@@ -228,6 +232,12 @@ class ApplicationRuntime:
             fred_api_key=config.alternative_data.fred_api_key,
         )
         auto_research = AutoResearchPipeline(data_dir=str(config.data_dir))
+        insight_store = InsightStore(config)
+        insight_engine = InsightEngine(
+            store=insight_store,
+            market_data=market_history,
+            market_awareness=market_awareness,
+        )
         return cls(
             market_data_adapter=market_data_adapter,
             live_broker=live_broker,
@@ -254,6 +264,8 @@ class ApplicationRuntime:
             ai_researcher=ai_researcher,
             alternative_data=alternative_data,
             auto_research=auto_research,
+            insight_store=insight_store,
+            insight_engine=insight_engine,
         )
 
     def register_strategies(self, strategies: list[object]) -> None:

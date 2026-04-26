@@ -340,6 +340,14 @@ class TradingCatApplication:
         return self._require_runtime().auto_research
 
     @property
+    def insight_store(self):
+        return self._require_runtime().insight_store
+
+    @property
+    def insight_engine(self):
+        return self._require_runtime().insight_engine
+
+    @property
     def research_strategies(self) -> list[object]:
         return self.strategy_registry.all()
 
