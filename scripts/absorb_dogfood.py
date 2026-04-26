@@ -240,9 +240,14 @@ def run_dogfood(report_dir: Path) -> Path:
         budget,
         model="dogfood-fake",
         response_text=(
-            "Advisory summary: top candidates concentrated in CN growth + AI infra. "
-            "CSI 300 supportive on policy ETF tailwind; 300308 momentum + earnings-beat alignment. "
-            "Risks: NVDA stretched valuation; tracking macro + China tightening."
+            "研究摘要：候选池集中在 A 股成长 + AI 基础设施。"
+            "沪深 300 ETF 受政策利好支撑；300308 动量与业绩超预期共振。\n"
+            "- CSI 300 ETF：政策面与机构资金配置带来托底\n"
+            "- 中际旭创 300308：800G 光模块订单饱满，短期催化清晰\n"
+            "- NVIDIA：AI 基础设施长线趋势仍在，但估值已偏高\n"
+            "- 风险：英伟达估值偏贵，需关注美股波动\n"
+            "- 风险：A 股流动性受外部关税与宏观政策扰动\n"
+            "- 来源：东方财富、财联社、Finnhub 资讯综合"
         ),
     )
     analyst = ResearchAnalystService(provider)

@@ -45,7 +45,7 @@ def test_batch_research_runs_screener_analyst_and_markdown():
     assert result.candidates[0].instrument.symbol == "300308"
     assert result.analyst_outputs[0].metadata["advisory_only"] is True
     assert result.report_markdown is not None
-    assert "Batch Research" in result.report_markdown
+    assert "批量研究" in result.report_markdown
     assert len(gate.ledger.list_usage()) == 1
 
 
@@ -62,4 +62,4 @@ def test_batch_research_writes_report_when_path_requested(tmp_path):
 
     assert result.report_path == report_path
     assert result.report_markdown is None
-    assert Path(report_path).read_text(encoding="utf-8").startswith("# Batch Research")
+    assert Path(report_path).read_text(encoding="utf-8").startswith("# 批量研究")

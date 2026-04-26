@@ -38,7 +38,7 @@ def test_universe_screener_ranks_multidimensional_candidates():
 
     assert [item.instrument.symbol for item in ranked] == ["300308", "600000"]
     assert ranked[0].score > ranked[1].score
-    assert "bullish MA alignment" in ranked[0].reasons
+    assert "均线多头排列" in ranked[0].reasons
     assert ranked[0].metadata["execution_mode"] == "research_only"
 
 

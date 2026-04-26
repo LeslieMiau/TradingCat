@@ -45,8 +45,12 @@ def test_report_export_renders_markdown_sections():
     )
 
     assert "# Daily Research" in markdown
-    assert "Advisory research only" in markdown
-    assert "## Analyst Outputs" in markdown
+    assert "仅作研究参考" in markdown
+    assert "## 分析师研究" in markdown
+    assert "## 候选标的排行" in markdown
+    assert "## 资讯引用" in markdown
+    assert "置信度：" in markdown
+    assert "要点：" in markdown
     assert "- Policy support" in markdown
     assert "| 600000 | 0.8000 | 0.7000 | 0.8000 | 0.9000 |" in markdown
     assert "[cls] 重大政策支持" in markdown
@@ -60,6 +64,6 @@ def test_report_export_writes_to_requested_path(tmp_path):
     assert returned == output
     assert output.exists()
     content = output.read_text(encoding="utf-8")
-    assert "_No analyst outputs._" in content
-    assert "_No candidates._" in content
-    assert "_No news items._" in content
+    assert "_暂无分析师输出。_" in content
+    assert "_暂无候选标的。_" in content
+    assert "_暂无资讯。_" in content

@@ -63,14 +63,14 @@ class BatchResearchService:
         if report_path is not None:
             written = self._exporter.export_markdown(
                 report_path,
-                title="Batch Research",
+                title="批量研究",
                 analysts=[analyst_output],
                 candidates=candidates,
                 news_items=normalized_news,
             )
             return BatchResearchResult(candidates=candidates, analyst_outputs=[analyst_output], report_path=written)
         markdown = self._exporter.render_markdown(
-            title="Batch Research",
+            title="批量研究",
             analysts=[analyst_output],
             candidates=candidates,
             news_items=normalized_news,

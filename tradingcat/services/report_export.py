@@ -49,9 +49,9 @@ class ReportExportService:
         lines = [
             f"# {_clean(title)}",
             "",
-            f"Generated at: {generated_at.astimezone(UTC).isoformat()}",
+            f"生成时间：{generated_at.astimezone(UTC).isoformat()}",
             "",
-            "> Advisory research only. This report does not create signals, orders, approvals, or execution instructions.",
+            "> 仅作研究参考。本报告不生成交易信号、订单、审批或执行指令。",
             "",
         ]
         lines.extend(_analyst_section(list(analysts)))
@@ -61,9 +61,9 @@ class ReportExportService:
 
 
 def _analyst_section(outputs: list[AnalystOutput]) -> list[str]:
-    lines = ["## Analyst Outputs", ""]
+    lines = ["## 分析师研究", ""]
     if not outputs:
-        return [*lines, "_No analyst outputs._", ""]
+        return [*lines, "_暂无分析师输出。_", ""]
     for output in outputs:
         lines.extend(
             [
@@ -71,30 +71,30 @@ def _analyst_section(outputs: list[AnalystOutput]) -> list[str]:
                 "",
                 _clean(output.summary),
                 "",
-                f"Confidence: {output.confidence:.2f}",
+                f"置信度：{output.confidence:.2f}",
                 "",
             ]
         )
         if output.bullets:
-            lines.append("Key points:")
+            lines.append("要点：")
             lines.extend(f"- {_clean(item)}" for item in output.bullets)
             lines.append("")
         if output.risks:
-            lines.append("Risks:")
+            lines.append("风险：")
             lines.extend(f"- {_clean(item)}" for item in output.risks)
             lines.append("")
         if output.source_refs:
-            lines.append("Sources:")
+            lines.append("来源：")
             lines.extend(f"- {_clean(item)}" for item in output.source_refs)
             lines.append("")
     return lines
 
 
 def _candidate_section(candidates: list[UniverseCandidate]) -> list[str]:
-    lines = ["## Universe Candidates", ""]
+    lines = ["## 候选标的排行", ""]
     if not candidates:
-        return [*lines, "_No candidates._", ""]
-    lines.append("| Symbol | Score | Technical | Fundamental | News | Reasons |")
+        return [*lines, "_暂无候选标的。_", ""]
+    lines.append("| 标的 | 综合分 | 技术面 | 基本面 | 新闻面 | 原因 |")
     lines.append("|---|---:|---:|---:|---:|---|")
     for item in candidates:
         reasons = "; ".join(_clean(reason) for reason in item.reasons[:4])
@@ -107,11 +107,11 @@ def _candidate_section(candidates: list[UniverseCandidate]) -> list[str]:
 
 
 def _news_section(news_items: list[NewsItem]) -> list[str]:
-    lines = ["## News Items", ""]
+    lines = ["## 资讯引用", ""]
     if not news_items:
-        return [*lines, "_No news items._", ""]
+        return [*lines, "_暂无资讯。_", ""]
     for item in news_items:
-        when = item.published_at.astimezone(UTC).isoformat() if item.published_at else "unknown time"
+        when = item.published_at.astimezone(UTC).isoformat() if item.published_at else "时间未知"
         url = f" ({item.url})" if item.url else ""
         lines.append(f"- [{_clean(item.source)}] {_clean(item.title)}{url} - {when}")
     lines.append("")
