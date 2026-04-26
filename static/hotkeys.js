@@ -5,7 +5,7 @@
 
 function initGlobalTradingHotkeys() {
   registerShortcut("Ctrl+X", "一键撤销所有挂单", async () => {
-    if (!confirm("⚠️ 确定要撤销所有未完成订单吗 (Cancel All Open)?")) return;
+    if (!confirm("⚠️ 确定要撤销所有未完成订单吗？")) return;
     const res = await apiFetch(API.ordersCancelOpen, { method: "POST" });
     if (res.ok) {
       showToast("所有挂单已撤销", "success");
@@ -14,17 +14,17 @@ function initGlobalTradingHotkeys() {
     }
   });
 
-  registerShortcut("Shift+X", "触发全局一键核按钮 (Kill Switch)", async () => {
-    if (!confirm("🚨 警告：这会触发系统 Kill Switch 并清仓！确定执行吗？")) return;
+  registerShortcut("Shift+X", "触发全局紧急关停", async () => {
+    if (!confirm("🚨 警告：这会触发系统紧急关停并清仓，确定执行吗？")) return;
     const res = await apiFetch(API.killSwitch, { method: "POST" });
     if (res.ok) {
-      showToast("Kill Switch 已激活！系统已锁定。", "error", 5000);
+      showToast("紧急关停已激活，系统已锁定。", "error", 5000);
     } else {
       showToast(res.error || "触发失败", "error");
     }
   });
 
-  registerShortcut("Ctrl+B", "极速手动买入 (Quick Trade)", () => {
+  registerShortcut("Ctrl+B", "快速手动买入", () => {
     showQuickTradeModal();
   });
 }
@@ -39,67 +39,67 @@ function showQuickTradeModal() {
   modal.innerHTML = `
     <div class="shortcut-overlay__card" style="min-width: 400px;">
       <h3 style="margin-bottom: 20px; color: var(--accent);">
-        ⚡ 极速下单 (Quick Trade)
+        ⚡ 极速下单
       </h3>
       <div id="quick-trade-error" style="display:none; padding:12px; margin-bottom:16px; background:var(--block-soft); border-left:3px solid var(--block); color:#ff6b6b; font-size:13px; font-weight:500;"></div>
       <form id="quick-trade-form" style="display:flex; flex-direction:column; gap:12px;">
         <label>
-          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">标的代码 (Symbol)</span>
+          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">标的代码</span>
           <input type="text" id="qt-symbol" required placeholder="例如: SPY" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:var(--font-mono); text-transform:uppercase;">
         </label>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">方向 (Side)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">方向</span>
             <select id="qt-side" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
-              <option value="buy">买入 (BUY)</option>
-              <option value="sell">卖出 (SELL)</option>
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
             </select>
           </label>
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">市场 (Market)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">市场</span>
             <select id="qt-market" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
-              <option value="US">行情 (US)</option>
-              <option value="HK">港股 (HK)</option>
-              <option value="CN">A股 (CN)</option>
+              <option value="US">美股</option>
+              <option value="HK">港股</option>
+              <option value="CN">A股</option>
             </select>
           </label>
         </div>
         <label>
-          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">数量 (Quantity)</span>
+          <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">数量</span>
           <input type="number" id="qt-qty" required min="1" step="1" value="100" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:var(--font-mono);">
         </label>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">执行算法 (Algo)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">执行算法</span>
             <select id="qt-algo" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
-              <option value="NONE">直接成交 (Direct)</option>
+              <option value="NONE">直接成交</option>
               <option value="TWAP">TWAP (时间加权)</option>
               <option value="VWAP">VWAP (成交量加权)</option>
               <option value="LADDER">LADDER (梯阶/网格)</option>
             </select>
           </label>
           <label>
-            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">原因 (Reason / Tag)</span>
+            <span style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">原因标签</span>
             <select id="qt-reason" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;">
-              <option value="Manual Plan">计划内执行 (Planned)</option>
-              <option value="FOMO">怕错过 (FOMO)</option>
-              <option value="Panic">恐慌规避 (Panic)</option>
-              <option value="Rebound">抢反弹 (Rebound)</option>
+              <option value="Manual Plan">计划内执行</option>
+              <option value="FOMO">怕错过</option>
+              <option value="Panic">恐慌规避</option>
+              <option value="Rebound">抢反弹</option>
             </select>
           </label>
         </div>
 
         <div id="qt-ladder-params" style="display:none; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-top:12px; padding:12px; background:var(--accent-soft); border-radius:4px; border:1px dashed var(--accent);">
           <label>
-            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">档位 (Levels)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">档位</span>
             <input type="number" id="qt-ladder-levels" value="5" min="2" max="20" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
           <label>
-            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">起始价 (Start)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">起始价</span>
             <input type="number" id="qt-ladder-start" step="0.01" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
           <label>
-            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">终止价 (End)</span>
+            <span style="display:block; font-size:11px; color:var(--accent); margin-bottom:4px;">终止价</span>
             <input type="number" id="qt-ladder-end" step="0.01" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:12px;">
           </label>
         </div>
@@ -153,10 +153,10 @@ function showQuickTradeModal() {
       showToast("订单已提交", "success");
       modal.remove();
     } else {
-      // Show hard block error natively in modal
+      // 在弹窗里直接展示硬阻塞错误
       const errBox = document.getElementById("quick-trade-error");
       errBox.style.display = "block";
-      errBox.innerText = "🛑 风险拦截 (Hard Block): " + (res.data?.error || res.error || "未知拒单原因");
+      errBox.innerText = "🛑 风险拦截：" + (res.data?.error || res.error || "未知拒单原因");
 
       document.querySelector("#quick-trade-form button[type='submit']").innerText = "执行下单 (Enter)";
       document.querySelector("#quick-trade-form button[type='submit']").disabled = false;

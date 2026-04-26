@@ -313,13 +313,13 @@ def summarize_validation_diagnostics(
             severity = "error"
             ready = False
             findings.append("Trade validation passed or was skipped, but quote validation failed.")
-            next_actions.append("Check market data permissions and OpenD quote connectivity.")
+            next_actions.append("检查行情权限和 OpenD 行情连接。")
         elif trade_status == "failed":
             category = "trade_channel_failed"
             severity = "error"
             ready = False
             findings.append("Quote validation passed or was skipped, but trade validation failed.")
-            next_actions.append("Check trade permissions, trade unlock status, and account environment.")
+            next_actions.append("检查交易权限、交易解锁状态和账户环境。")
 
         if market_data_error:
             category = "market_data_mapping_failed" if category == "ready_for_validation" else category
@@ -336,7 +336,7 @@ def summarize_validation_diagnostics(
                 severity = "error"
                 ready = False
                 findings.append(f"Market data smoke test had {len(failed_symbols)} failed symbol checks.")
-                next_actions.append("Check quote entitlements for the failed symbols or narrow the smoke test universe.")
+                next_actions.append("检查失败标的的行情权限，或缩小冒烟测试股票池范围。")
 
         if execution_preview_error:
             category = "risk_or_preview_failed" if category == "ready_for_validation" else category

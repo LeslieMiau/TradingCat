@@ -361,7 +361,7 @@ class ResearchFacade:
             self._app.dashboard_snapshot_service.save_scorecard(
                 as_of,
                 payload,
-                snapshot_reason="Persisted from the latest research candidate scorecard.",
+                snapshot_reason="已从最新研究候选评分卡持久化。",
             )
         return ResearchScorecardResponse.model_validate(payload)
 

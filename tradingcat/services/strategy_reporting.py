@@ -85,13 +85,13 @@ class StrategyReportingService:
             missing_corporate_action_symbols = [str(item) for item in experiment.assumptions.get("missing_corporate_action_symbols", [])]
             missing_fx_pairs = [str(item) for item in experiment.assumptions.get("missing_fx_pairs", [])]
             if missing_history_symbol_list:
-                blocking_reasons.append(f"History coverage is incomplete for: {', '.join(missing_history_symbol_list)}.")
+                blocking_reasons.append(f"这些标的的历史覆盖不完整：{', '.join(missing_history_symbol_list)}。")
             if missing_corporate_action_symbols:
                 blocking_reasons.append(
-                    f"Corporate action coverage is incomplete for: {', '.join(missing_corporate_action_symbols)}."
+                    f"这些标的的公司行为覆盖不完整：{', '.join(missing_corporate_action_symbols)}。"
                 )
             if missing_fx_pairs:
-                blocking_reasons.append(f"FX coverage is incomplete for: {', '.join(missing_fx_pairs)}.")
+                blocking_reasons.append(f"这些汇率对的覆盖不完整：{', '.join(missing_fx_pairs)}。")
             blocking_reasons = list(dict.fromkeys(blocking_reasons))
             research_passed = bool(experiment.passed_validation)
             minimum_coverage_ratio = round(float(history_coverage.get("minimum_coverage_ratio", 0.0)), 4)
@@ -209,12 +209,12 @@ class StrategyReportingService:
                 if not strategy_report["passed_validation"]:
                     reasons.append("Failed out-of-sample validation thresholds.")
                 if float(strategy_report["max_selected_correlation"]) >= 0.7:
-                    reasons.append("Correlation gate exceeded the 0.7 limit.")
+                    reasons.append("相关性门槛超过了 0.7 限制。")
             elif strategy_report["capacity_tier"] == "limited":
                 action = "paper_only"
                 reasons.append("Capacity is limited, keep it in research or low-allocation mode.")
             else:
-                reasons.append("Passed validation and correlation gate.")
+                reasons.append("已通过验证和相关性门槛。")
 
             if float(metrics["turnover"]) > 1.5:
                 reasons.append("Turnover is elevated and should be monitored for implementation drag.")
@@ -246,7 +246,7 @@ class StrategyReportingService:
 
         next_actions = []
         if not report["portfolio_passed"]:
-            next_actions.append("Portfolio layer does not yet clear the admission gate; keep allocation in paper-trading mode.")
+            next_actions.append("组合层尚未通过准入门槛；当前 allocation 继续保持纸面交易模式。")
         if any(bool(item.get("promotion_blocked")) for item in recommendations):
             next_actions.append("Complete local historical data coverage before promoting any blocked strategy beyond paper-only mode.")
         if any(item["action"] == "drop" for item in recommendations):

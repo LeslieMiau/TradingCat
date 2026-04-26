@@ -399,13 +399,13 @@ class StrategyAnalysisService:
                 avg_sharpe = mean(float(row["sharpe"]) for row in members)
                 avg_drawdown = mean(float(row["max_drawdown"]) for row in members)
                 representative = sorted(members, key=lambda row: float(row["profitability_score"]), reverse=True)[0]
-                summary = representative["reasons"][0] if representative.get("reasons") else "No summary."
+                summary = representative["reasons"][0] if representative.get("reasons") else "暂无摘要。"
             else:
                 avg_score = 0.0
                 avg_return = 0.0
                 avg_sharpe = 0.0
                 avg_drawdown = 0.0
-                summary = "No strategies in this bucket."
+                summary = "该分组当前没有策略。"
             groups.append(
                 {
                     "verdict": verdict,
@@ -529,4 +529,4 @@ class StrategyAnalysisService:
             actions.append("Keep capacity-constrained strategies in paper-only or low-allocation mode.")
         if stable:
             actions.append("Stable strategies can be prioritized in the next allocation review.")
-        return actions or ["No stability-specific follow-up is required for the current sample."]
+        return actions or ["当前样本不需要额外的稳定性后续动作。"]

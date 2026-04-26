@@ -1,6 +1,6 @@
 # TradingCat
 
-TradingCat 是一个面向港股、美股和 A 股的本地优先交易系统基线。本仓库实现了 [PLAN.md](/Users/miau/Documents/TradingCat-chinese-ui-content/PLAN.md) 中描述的 V1 架构：Python 控制平面、明确的领域模型、策略生成、风控检查、审批流程、执行适配器，以及最小事件驱动回测引擎。
+TradingCat 是一个面向港股、美股和 A 股的本地优先交易系统基线。本仓库实现了 [PLAN.md](/Users/miau/Documents/TradingCat/PLAN.md) 中描述的 V1 架构：Python 控制平面、明确的领域模型、策略生成、风控检查、审批流程、执行适配器，以及最小事件驱动回测引擎。
 
 ## 已实现内容
 
@@ -127,7 +127,7 @@ TradingCat 是一个面向港股、美股和 A 股的本地优先交易系统基
 - `data/` 下的本地 JSON 持久化，覆盖审批、订单、组合状态和回测实验。
 - 市场时段服务和 APScheduler 本地后台任务，带启动/关闭生命周期。
 - Futu 适配器工厂可选启用；当 `futu` SDK 或 OpenD 不可用时，自动降级到模拟适配器。
-- Broker、market data、diagnostics、preflight、execution gate、readiness、acceptance、rollout 和 live acceptance 等运维面已接入 dashboard。
+- 券商、行情、诊断、预检、执行门禁、运行就绪度、验收、分阶段上线和实盘验收等运维视图都已接入 dashboard。
 - 研究面已包含 walk-forward 验证、策略相关性、稳定性分桶、推荐动作、候选策略评分、研究想法、资讯摘要、策略筛选和 allocation review。
 - 策略 C 已能产出最小保护性看跌/备兑看涨研究信号；实盘执行仍限定股票和 ETF 腿。
 - 执行状态支持重复成交去重、券商订单对账、券商持仓与本地快照核对、订单状态机和执行质量汇总。
@@ -172,7 +172,7 @@ curl "http://127.0.0.1:8000/data/instruments?enabled_only=true&tradable_only=tru
 
 仓库包含从 `hsliuping/TradingAgents-CN` 第 01-15 轮吸收而来的研究层能力：A 股数据适配器（AKShare / BaoStock / Tushare）、中文资讯源（东方财富 / 财联社 / Finnhub / Alpha Vantage）、中国市场硬风控规则（涨跌停 / T+1 / ST）、技术特征、股票池筛选器，以及带预算门禁的 LLM 研究建议层。
 
-除中国市场硬风控规则外，这些能力默认全部关闭，并且仅作为研究建议使用；它们不会生成 `Signal`、`OrderIntent`、审批或执行指令。操作手册见 [docs/ABSORB_CAPABILITIES.md](/Users/miau/Documents/TradingCat-chinese-ui-content/docs/ABSORB_CAPABILITIES.md)。
+除中国市场硬风控规则外，这些能力默认全部关闭，并且仅作为研究建议使用；它们不会生成 `Signal`、`OrderIntent`、审批或执行指令。操作手册见 [docs/ABSORB_CAPABILITIES.md](/Users/miau/Documents/TradingCat/docs/ABSORB_CAPABILITIES.md)。
 
 离线冒烟运行：
 
@@ -186,11 +186,11 @@ curl "http://127.0.0.1:8000/data/instruments?enabled_only=true&tradable_only=tru
 
 - `tradingcat/routes/` 保持薄路由。路由处理器应委托给 `app.py` 属性、facade 或专用 service，不在路由内拼装研究/报表逻辑。
 - `tradingcat/facades.py` 负责面向传输层的读模型。Dashboard 和 research facade 应从 query/projection/reporting service 组装响应，不直接进入重型编排代码。
-- `tradingcat/services/query_services.py` 负责 readiness、data quality、research query 等读侧聚合。
+- `tradingcat/services/query_services.py` 负责 readiness、数据质量、research query 等读侧聚合。
 - `tradingcat/services/portfolio_projections.py` 负责账户持仓、现金、净值曲线和 allocation projection 等 dashboard 共用计算。
 - `tradingcat/services/strategy_reporting.py` 负责研究报告、稳定性、推荐、scorecard 和策略详情组装。`StrategyAnalysisService` 保持为实验、相关性、benchmark 和历史数据辅助的底层分析核心。
 - `tradingcat/strategies/simple.py` 放生产策略实现和共享元数据/辅助方法；研究候选策略放在 `tradingcat/strategies/research_candidates.py`。
-- `sample_instruments()` 仅用于 fallback/diagnostic 路径；持久化 instrument catalog 是研究和策略详情流程的默认事实来源。
+- `sample_instruments()` 仅用于回退或诊断路径；持久化 instrument catalog 是研究和策略详情流程的默认事实来源。
 
 ## 快速开始
 
@@ -348,5 +348,5 @@ curl http://127.0.0.1:8000/reports/latest/dashboard
 - Futu OpenD 仍是外部依赖；本地 PostgreSQL、DuckDB/Parquet 和 APScheduler 已通过配置接入。
 - V1 中 A 股执行按设计保持人工确认。
 - 运行时状态和审计日志可迁移到本地 PostgreSQL；研究实验可迁移到本地 DuckDB + Parquet。
-- Futu 集成当前是带 fallback 的适配器层；真实交易仍依赖本地 OpenD 可用性、账户权限，以及对 live SDK 响应字段的最终验证。
+- Futu 集成当前是带回退能力的适配器层；真实交易仍依赖本地 OpenD 可用性、账户权限，以及对 live SDK 响应字段的最终验证。
 - `AppConfig` 支持环境驱动启动，包括 `TRADINGCAT_FUTU_*`、本地 PostgreSQL、DuckDB/Parquet 和 scheduler backend 设置。

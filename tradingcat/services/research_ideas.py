@@ -129,7 +129,7 @@ class ResearchIdeasService:
         if impacted_symbols:
             summary_lines.append(f"Watchlist impact: {', '.join(sorted(impacted_symbols))}.")
         if not summary_lines:
-            summary_lines.append("No dominant market theme detected from the provided items.")
+            summary_lines.append("从当前提供的条目中未识别出主导市场主题。")
 
         return {
             "item_count": len(items),
@@ -146,13 +146,13 @@ class ResearchIdeasService:
         if "macro" in dominant_topics:
             actions.append("Re-run ETF and broad-risk sleeves with updated macro assumptions.")
         if "earnings" in dominant_topics:
-            actions.append("Check earnings-window exposure before the next equity rebalance.")
+            actions.append("在下一次股票再平衡前检查财报窗口风险暴露。")
         if "regulation" in dominant_topics:
-            actions.append("Review compliance checklist impacts before enabling affected markets.")
+            actions.append("在启用受影响市场前先复核合规清单影响。")
         if "risk" in dominant_topics:
             actions.append("Inspect kill-switch thresholds, drawdown state, and option budget usage.")
         if impacted_symbols:
-            actions.append(f"Review symbol-level exposure for: {', '.join(impacted_symbols[:5])}.")
+            actions.append(f"复核这些标的的仓位暴露：{', '.join(impacted_symbols[:5])}。")
         if not actions:
-            actions.append("No immediate research action required from the provided news set.")
+            actions.append("当前资讯集合暂时不需要立即采取新的研究动作。")
         return actions

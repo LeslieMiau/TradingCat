@@ -296,7 +296,7 @@ def build_operations_period_report(
     next_actions = _dedupe_strings(
         blocker_actions
         + [alert.recovery_action for alert in alerts[:5]]
-        + [f"Review failed recovery attempt: {attempt.detail}" for attempt in recoveries if attempt.status == "failed"]
+        + [f"复核失败的恢复尝试：{attempt.detail}" for attempt in recoveries if attempt.status == "failed"]
     )
 
     return {
@@ -391,13 +391,13 @@ def build_postmortem_report(
     root_cause_hints: list[str] = []
     if latest is not None:
         if "trade" in str(latest["category"]) or "broker" in str(latest["category"]):
-            root_cause_hints.append("Check OpenD connectivity, trade unlock state, and account environment.")
+            root_cause_hints.append("检查 OpenD 连接、交易解锁状态和账户环境。")
         if "market_data" in str(latest["category"]) or "quote" in str(latest["category"]):
-            root_cause_hints.append("Check quote permissions, symbol coverage, and field mappings.")
+            root_cause_hints.append("检查行情权限、标的覆盖范围和字段映射。")
         if "risk" in str(latest["category"]):
-            root_cause_hints.append("Review risk thresholds, recent drawdown state, and option budget usage.")
+            root_cause_hints.append("复核风控阈值、近期回撤状态和期权预算使用情况。")
     if not root_cause_hints and not readiness.get("ready", False):
-        root_cause_hints.append("Resolve readiness blockers before the next execution cycle.")
+        root_cause_hints.append("在下一次执行周期前先解决 readiness 阻塞项。")
 
     recommended_actions = _dedupe_strings(
         [alert.recovery_action for alert in alerts[:5]]

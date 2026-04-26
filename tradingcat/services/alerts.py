@@ -34,8 +34,8 @@ class AlertService:
                 self._record(
                     severity="error",
                     category="broker_unhealthy",
-                    message=str(broker_status.get("detail", "Broker health check failed")),
-                    recovery_action="Check OpenD login state and rerun /broker/validate.",
+                    message=str(broker_status.get("detail", "券商健康检查失败")),
+                    recovery_action="检查 OpenD 登录状态，然后重新运行 /broker/validate。",
                     details={"backend": str(broker_status.get("backend", "unknown"))},
                 )
             )
@@ -48,8 +48,8 @@ class AlertService:
                     self._record(
                         severity="error",
                         category=f"{channel}_channel_failed",
-                        message=str(channel_payload.get("detail", f"{channel} channel failed")),
-                        recovery_action=f"Repair the {channel} channel before attempting execution.",
+                        message=str(channel_payload.get("detail", f"{channel} 通道失败")),
+                        recovery_action=f"先修复 {channel} 通道，再尝试执行。",
                         details={"channel": channel},
                     )
                 )
@@ -60,8 +60,8 @@ class AlertService:
                 self._record(
                     severity="warning",
                     category="market_data_partial_failure",
-                    message=f"Market data smoke test failed for {len(failed_symbols)} symbol checks.",
-                    recovery_action="Review symbol permissions and field mappings, then rerun /market-data/smoke-test.",
+                    message=f"市场数据冒烟测试在 {len(failed_symbols)} 个标的检查上失败。",
+                    recovery_action="检查标的权限和字段映射，然后重新运行 /market-data/smoke-test。",
                     details={"failed_count": len(failed_symbols)},
                 )
             )
@@ -71,8 +71,8 @@ class AlertService:
                 self._record(
                     severity="warning",
                     category="duplicate_fills_detected",
-                    message=f"Detected {execution_reconciliation.duplicate_fills} duplicate broker fills during reconciliation.",
-                    recovery_action="Inspect broker deal history and confirm duplicate fills are expected retries, not replay errors.",
+                    message=f"对账过程中检测到 {execution_reconciliation.duplicate_fills} 笔重复券商成交。",
+                    recovery_action="检查券商成交历史，确认重复成交是预期重试而不是回放错误。",
                     details={"duplicate_fills": execution_reconciliation.duplicate_fills},
                 )
             )
@@ -82,8 +82,8 @@ class AlertService:
                 self._record(
                     severity="error",
                     category="unmatched_broker_orders",
-                    message=f"Found {execution_reconciliation.unmatched_broker_orders} broker orders that are not linked to local state.",
-                    recovery_action="Investigate unexpected broker orders before continuing automated execution.",
+                    message=f"发现 {execution_reconciliation.unmatched_broker_orders} 笔券商订单未关联到本地状态。",
+                    recovery_action="在继续自动执行前，先排查这些意外券商订单。",
                     details={"unmatched_broker_orders": execution_reconciliation.unmatched_broker_orders},
                 )
             )
@@ -93,8 +93,8 @@ class AlertService:
                 self._record(
                     severity="warning",
                     category="cash_mismatch",
-                    message=f"Broker cash differs from local snapshot by {portfolio_reconciliation.cash_difference:.2f}.",
-                    recovery_action="Refresh fills and portfolio state, then verify broker cash manually.",
+                    message=f"券商现金与本地快照相差 {portfolio_reconciliation.cash_difference:.2f}。",
+                    recovery_action="刷新成交和组合状态，然后人工核对券商现金。",
                     details={"cash_difference": portfolio_reconciliation.cash_difference},
                 )
             )
@@ -104,8 +104,8 @@ class AlertService:
                 self._record(
                     severity="warning",
                     category="position_mismatch",
-                    message="Broker positions differ from the local portfolio snapshot.",
-                    recovery_action="Run execution reconciliation and compare live positions before next trading cycle.",
+                    message="券商持仓与本地组合快照不一致。",
+                    recovery_action="在下一次交易周期前运行执行对账，并比较实时持仓。",
                     details={
                         "missing_symbols": len(portfolio_reconciliation.missing_symbols),
                         "unexpected_symbols": len(portfolio_reconciliation.unexpected_symbols),

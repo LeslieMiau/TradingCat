@@ -55,7 +55,7 @@ class DashboardSnapshotService:
         reason = None
         if not scorecard.get("rows"):
             status = "missing"
-            reason = "No persisted research scorecard is available yet."
+            reason = "当前还没有可用的持久化研究评分卡。"
         elif missing_strategy_ids:
             status = "stale"
             preview = ", ".join(missing_strategy_ids[:5])
@@ -92,7 +92,7 @@ class DashboardSnapshotService:
         snapshot = DashboardScorecardSnapshot(
             as_of=as_of,
             snapshot_status="ready" if bool(scorecard.get("rows")) else "missing",
-            snapshot_reason=snapshot_reason if scorecard.get("rows") else "No candidate scorecard rows were persisted.",
+            snapshot_reason=snapshot_reason if scorecard.get("rows") else "尚未持久化任何候选评分卡行。",
             portfolio_passed=bool(scorecard.get("portfolio_passed", False)),
             portfolio_metrics=dict(scorecard.get("portfolio_metrics", {})),
             accepted_strategy_ids=[str(item) for item in scorecard.get("accepted_strategy_ids", [])],
@@ -134,7 +134,7 @@ class DashboardSnapshotService:
         return {
             "as_of": as_of.isoformat(),
             "snapshot_status": "missing",
-            "snapshot_reason": "No persisted dashboard snapshot is available yet. Run /research/candidates/scorecard or /research/report/run first.",
+            "snapshot_reason": "当前还没有可用的持久化 dashboard 快照，请先运行 /research/candidates/scorecard 或 /research/report/run。",
             "snapshot_as_of": None,
             "snapshot_generated_at": None,
             "portfolio_passed": False,

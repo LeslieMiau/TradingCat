@@ -176,7 +176,7 @@ class ReconciliationService:
             "filled_quantity": total_filled_quantity,
             "missing_baselines": quality["missing_baselines"],
             "insufficient_data": len(samples) == 0,
-            "message": "No execution samples with baselines available yet." if not samples else f"TCA built from {len(samples)} filled samples.",
+            "message": "当前还没有带基线的执行样本可用。" if not samples else f"TCA 基于 {len(samples)} 笔已成交样本构建。",
             "asset_class_summary": quality["asset_class_summary"],
             "direction_summary": direction_summary,
             "samples": samples,
@@ -235,7 +235,7 @@ class ReconciliationService:
                 "average_metric": None,
                 "max_metric": None,
                 "severity": "insufficient_data",
-                "message": f"No filled {asset_class} samples available yet.",
+                "message": f"当前还没有已成交的 {asset_class} 样本。",
             }
 
         metric_values = [float(sample[metric_name]) for sample in samples]
@@ -294,7 +294,7 @@ class ReconciliationService:
                 "filled_quantity": 0.0,
                 "average_slippage_bps": None,
                 "average_premium_deviation": None,
-                "message": "No samples for this direction.",
+                "message": "当前方向没有可用样本。",
             }
 
         equity_values = [float(sample["deviation_value"]) for sample in samples if sample["deviation_metric"] == "slippage_bps"]

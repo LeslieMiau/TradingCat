@@ -48,12 +48,12 @@ def evaluate_slippage(
         "threshold_bps": threshold,
     }
     if equity_samples == 0:
-        return _gate("pending", "No filled equity samples yet.", metric)
+        return _gate("pending", "尚无已成交股票样本。", metric)
     if equity_breaches == 0:
-        return _gate("pass", f"All {equity_samples} equity fills within {threshold:.0f} bps.", metric)
+        return _gate("pass", f"全部 {equity_samples} 笔股票成交都在 {threshold:.0f} bps 阈值内。", metric)
     return _gate(
         "fail",
-        f"{equity_breaches}/{equity_samples} equity fills exceeded the {threshold:.0f} bps slippage budget.",
+        f"{equity_breaches}/{equity_samples} 笔股票成交超出了 {threshold:.0f} bps 滑点预算。",
         metric,
     )
 
@@ -70,7 +70,7 @@ def evaluate_exception_rate(
         "threshold_ratio": EXCEPTION_RATE_THRESHOLD,
     }
     if cycle_count == 0:
-        return _gate("pending", "No execution cycles observed in the window.", metric)
+        return _gate("pending", "当前窗口内尚未观察到执行周期。", metric)
     rate = exception_count / cycle_count
     metric["observed_ratio"] = round(rate, 4)
     if rate <= EXCEPTION_RATE_THRESHOLD:
@@ -131,7 +131,7 @@ def evaluate_portfolio_reconciliation(
     if not portfolio_reconciliation:
         return _gate(
             "pending",
-            "No portfolio reconciliation snapshot available (broker disconnected?).",
+            "当前没有组合对账快照可用（可能是券商断连）。",
             metric,
         )
     failures: list[str] = []
@@ -170,7 +170,7 @@ def evaluate_trade_ledger_reconciliation(
     if not latest:
         return _gate(
             "pending",
-            "No trade ledger reconciliation run recorded yet.",
+            "当前还没有交易流水对账运行记录。",
             {"stale_hours": TRADE_LEDGER_RECONCILIATION_STALE_HOURS},
         )
     status = str(latest.get("status", "pending"))
@@ -256,7 +256,7 @@ def evaluate_kill_switch_latency(
     if not latencies:
         return _gate(
             "pending",
-            "No kill-switch activations with detection timestamps recorded yet.",
+            "当前还没有记录到带检测时间戳的 kill switch 激活事件。",
             metric,
         )
     max_latency = max(latencies)
@@ -301,7 +301,7 @@ def evaluate_scheduler_health(
     """
     job_list = list(jobs or [])
     if not job_list:
-        return _gate("pending", "No scheduler jobs registered.", {"enabled_jobs": 0})
+        return _gate("pending", "当前没有注册任何调度任务。", {"enabled_jobs": 0})
 
     run_list = list(runs or [])
     latest_success_by_job: dict[str, datetime] = {}

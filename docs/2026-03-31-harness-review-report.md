@@ -1,7 +1,7 @@
 # TradingCat Harness 交付报告
 
 日期：2026-03-31
-读者：Opus 4.6 reviewer
+读者：Opus 4.6 审阅人
 范围：工程阻塞项 harness cycle 已全部完成（`PLAN.json` 12/12）
 最新交付 commit：`7655ee5 harness: finish control-plane blocker alignment`
 
@@ -21,7 +21,7 @@
 - 常驻 `:8000` 和新启动的 `uvicorn` 在关键 gate endpoint 上一致。
 - 生产 readiness 只考虑默认执行策略。
 - 阻塞原因已收敛到真实 signal 依赖。
-- 缺少 candidate snapshot 时 dashboard 不再空白。
+- 缺少候选快照时 dashboard 不再空白。
 - rollout policy mismatch 已在 go-live 和 live-acceptance 中成为明确阻塞项。
 - `PLAN.json` 完成，worktree 干净。
 
@@ -89,7 +89,7 @@
 
 ### E. Dashboard fallback 变得诚实且可用
 
-- 持久化 candidate snapshot 缺失时，策略面板回退到当前 `research_readiness.strategies`。
+- 持久化候选快照缺失时，策略面板回退到当前 `research_readiness.strategies`。
 - fallback 保留 `display_status`、`status_reason`、`blocked_by_data_count`。
 - Dashboard 仍不会在 GET 请求中触发 live candidate scorecard 重算，只使用最小策略状态 fallback。
 - Dashboard 上的 acceptance progress 更贴近 `live_acceptance`，并包含当前 `next_requirement`。
@@ -110,7 +110,7 @@
 
 结果：`8 passed`
 
-更宽的 closeout 回归：
+更宽的收尾回归：
 
 ```bash
 .venv/bin/pytest tests/test_runtime_recovery.py tests/test_dashboard_facade.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_rollout_policy.py tests/test_service_health.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_rollout_live_acceptance_and_go_live_surface_acceptance_blockers tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress tests/test_api.py::test_dashboard_summary_uses_live_research_readiness_rows_when_snapshot_missing tests/test_api.py::test_dashboard_summary_returns_missing_snapshot_without_live_scorecard_recompute -q
@@ -161,8 +161,8 @@ Resident vs fresh 结构一致性：
 
 - `TradingCatApplication` 仍是较大的编排外壳。本轮收紧了 contract，但没有做更大抽取，因为目标是 parity 和诚实状态，而不是另一轮架构大改。
 - 部分 typed response 仍有 Pydantic serialization warning。它们没有阻塞本轮 harness，但适合作为后续 cleanup。
-- Dashboard fallback 只重建最小策略状态行，不重建完整 candidate scorecard。这是有意取舍，但 reviewer 应确认该限制符合产品/运维预期。
-- `go-live` 仍包含来自 diagnostics 和 rollout 的操作员 next action。阻塞项拆分已经更清晰，但 reviewer 仍可继续挑战“诊断信号”和“升档阻塞”的边界。
+- Dashboard fallback 只重建最小策略状态行，不重建完整 candidate scorecard。这是有意取舍，但审阅时应确认该限制符合产品/运维预期。
+- `go-live` 仍包含来自 diagnostics 和 rollout 的操作员下一步动作。阻塞项拆分已经更清晰，但审阅时仍可继续挑战“诊断信号”和“升档阻塞”的边界。
 
 ## 7. 本报告不声称的内容
 
@@ -186,7 +186,7 @@ Resident vs fresh 结构一致性：
 Harness cycle 已完全关闭：
 
 - [PLAN.json](/Users/miau/Documents/TradingCat/PLAN.json) 为 `12/12` complete。
-- [PROGRESS.md](/Users/miau/Documents/TradingCat/PROGRESS.md) 包含完整 session log 和最终证据。
+- [PROGRESS.md](/Users/miau/Documents/TradingCat/PROGRESS.md) 包含完整会话日志和最终证据。
 - Worktree 干净。
 
 最终 commit chain：

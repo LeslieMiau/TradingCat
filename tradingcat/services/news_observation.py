@@ -255,7 +255,7 @@ class NewsObservationService:
         if tone == MarketAwarenessSignalStatus.BLOCKED:
             return "Public news feeds were unavailable, so the observation is degraded."
         if not item_count:
-            return "No high-signal headlines were retained from the current news feed set."
+            return "当前资讯集合中没有保留下高信号标题。"
         prefix = "News flow leans supportive." if tone == MarketAwarenessSignalStatus.SUPPORTIVE else "News flow leans cautious." if tone == MarketAwarenessSignalStatus.WARNING else "News flow is mixed."
         topic_text = f" Dominant topics: {', '.join(dominant_topics)}." if dominant_topics else ""
         degrade_text = " Some feeds degraded, so confidence is capped." if degraded else ""

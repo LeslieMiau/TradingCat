@@ -201,7 +201,7 @@ registerCommand("美股账户", "切换到美股视图", () => { state.activeAcc
 registerCommand("日报", "打开日报页面", () => { window.location.href = "/dashboard/journal"; }, "导航");
 registerCommand("研究", "打开研究页面", () => { window.location.href = "/dashboard/research"; }, "导航");
 registerCommand("运营", "打开运营页面", () => { window.location.href = "/dashboard/operations"; }, "导航");
-registerCommand("极速下单", "打开快速下单面板 (Ctrl+B)", () => showQuickTradeModal(), "交易");
+registerCommand("极速下单", "打开快速下单面板（Ctrl+B）", () => showQuickTradeModal(), "交易");
 registerCommand("一键撤单", "撤销所有挂单 (Ctrl+X)", () => {
   if (confirm("确定要撤销所有未完成订单吗?")) {
     apiFetch(API.ordersCancelOpen, { method: "POST" }).then((r) => {

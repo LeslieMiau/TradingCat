@@ -39,7 +39,7 @@
         type: "gate",
         count: gateReasons.length,
         tone: gateReasons.length ? "blocked" : "ok",
-        note: gateReasons.length ? gateReasons.map(gateReasonText).join(" | ") : "当前没有 execution gate 阻塞。",
+        note: gateReasons.length ? gateReasons.map(gateReasonText).join(" | ") : "当前没有执行门禁阻塞。",
       },
       {
         type: "approval",

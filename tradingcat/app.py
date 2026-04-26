@@ -1525,7 +1525,7 @@ class TradingCatApplication:
             instrument=instrument,
             side=OrderSide(side),
             target_weight=implicit_weight,
-            reason=emotional_tag or "Manual Quick Trade",
+            reason=emotional_tag or "人工快速下单",
         )
         self.risk.check(
             [signal],
@@ -1596,7 +1596,7 @@ class TradingCatApplication:
             severity="error",
             category="scheduler_job_failed",
             message=f"Scheduled job '{job_name}' ({job_id}) failed: {type(exc).__name__}: {exc}",
-            recovery_action="Inspect logs, retry via POST /scheduler/jobs/{job_id}/run, confirm downstream state.",
+            recovery_action="检查日志，通过 POST /scheduler/jobs/{job_id}/run 重试，并确认下游状态。",
             details={"job_id": job_id, "error_type": type(exc).__name__, "error": str(exc)[:200]},
         )
 

@@ -1,13 +1,13 @@
 # TradingCat Harness 交付报告
 
 日期：2026-03-29
-读者：Opus 4.6 reviewer
+读者：Opus 4.6 审阅人
 范围：30 天个人交易者 harness plan 已全部完成（`PLAN.json` 48/48）
 最新交付 commit：`299f1bd dashboard: align readiness diagnostics and gating`
 
 ## 1. 执行摘要
 
-本轮 harness 完成了 `PLAN.json` 的全部 backlog，并围绕一个核心目标收紧 TradingCat：不要把 synthetic 或不完整研究误判为 production-ready。
+本轮 harness 完成了 `PLAN.json` 的全部积压项，并围绕一个核心目标收紧 TradingCat：不要把 synthetic 或不完整研究误判为可直接投入生产。
 
 主要目标包括：
 
@@ -118,7 +118,7 @@
 
 ### E. 最终 dashboard / diagnostics 对齐
 
-最终 closeout commit 处理最后 6 个 plan item：
+最终收尾 commit 处理了最后 6 个计划项：
 
 - `/preflight/startup`、`/diagnostics/summary` 和 `/ops/readiness` 对齐同一组 research blocker。
 - Dashboard strategy rows 暴露 `display_status` 和 `status_reason`。
@@ -137,20 +137,20 @@
 
 ## 4. 本轮架构修正
 
-本轮一度引入轻微架构漂移。最终 closeout 有意修复最明显的 harness-induced decay，而不是只继续堆功能。
+本轮一度引入轻微架构漂移。最终收尾阶段有意修复最明显的 harness 引入衰减，而不是只继续堆功能。
 
 关键修正：
 
 - Dashboard/readiness 聚合在 [tradingcat/app.py](/Users/miau/Documents/TradingCat/tradingcat/app.py) 中使用短生命周期 summary cache，避免一次请求重复计算同一批重型摘要。
 - [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py) 不再在 strategy-row loop 内重复计算 selection/allocation summary。
-- `dashboard/summary` 不再通过 GET 请求隐式生成 plan/summary；没有 archive 时返回显式 fallback notes。
+- `dashboard/summary` 不再通过 GET 请求隐式生成 plan/summary；没有归档时会返回显式的回退说明。
 - Dashboard 复用同一条 `strategy_signal_map + build_profit_scorecard` 路径，而不是为了 portfolio metrics 再计算一整份 strategy report。
 
 这很重要，因为 harness 后期的主要风险不是正确性回归，而是 `app.py` 和 `facades.py` 的软边界侵蚀。
 
 ## 5. 已完成验证
 
-最终 closeout 验证包括：
+最终收尾验证包括：
 
 ```bash
 .venv/bin/pytest tests/test_research_reporting.py tests/test_selection_service.py tests/test_allocation_service.py tests/test_dashboard_facade.py tests/test_reports_helper.py tests/test_operations_journal.py tests/test_api.py::test_preflight_and_readiness_align_research_blockers tests/test_api.py::test_dashboard_page_and_assets tests/test_api.py::test_dashboard_summary_endpoint tests/test_api.py::test_dashboard_summary_surfaces_strategy_status_and_acceptance_progress -q
@@ -161,7 +161,7 @@
 也在隔离实例上做了真实 HTTP 验证：
 
 - `GET /preflight/startup`：确认 `healthy=true`、`research_ready=false`、`system_ready=false`。
-- `GET /diagnostics/summary`：确认 synthetic fallback / missing history blocker 出现在顶层 `blockers`。
+- `GET /diagnostics/summary`：确认 synthetic fallback / missing history blocker 会出现在顶层 `blockers`。
 - `GET /ops/readiness`：确认 readiness blocker list 与 `research_readiness.blocking_reasons` 对齐。
 - `GET /dashboard/summary`：确认存在 `details.acceptance_progress`，且 `strategy_c_option_overlay.display_status="blocked_by_data"`。
 
@@ -177,7 +177,7 @@
 
 3. Dashboard 聚合逻辑
    [tradingcat/facades.py](/Users/miau/Documents/TradingCat/tradingcat/facades.py)
-   检查 `blocked_by_data`、`paper_only` 和 fallback note 行为的状态推导。
+   检查 `blocked_by_data`、`paper_only` 和回退说明行为的状态推导。
 
 4. 前端渲染 contract
    [static/dashboard_strategy.js](/Users/miau/Documents/TradingCat/static/dashboard_strategy.js)、[static/dashboard_operations.js](/Users/miau/Documents/TradingCat/static/dashboard_operations.js)
@@ -191,7 +191,7 @@
 
 - `tests/test_api.py::test_preflight_and_broker_recovery_endpoints` 单独运行时仍很慢。功能已由更窄 API 测试和真实 HTTP 验证覆盖，但该测试仍适合后续拆瘦。
 - 即使完成 cache/aggregation 清理，`TradingCatApplication` 仍是大型 orchestrator。本轮没有继续大规模 service extraction，以避免 destabilize 最终交付。
-- `strategy_c_option_overlay` 仍保持“因 option-history 路径 synthetic 而 blocked”的真实姿态。这是有意设计，但 reviewer 应确认其他地方不会意外把它过度 promotion。
+- `strategy_c_option_overlay` 仍保持“因 option-history 路径 synthetic 而 blocked”的真实姿态。这是有意设计，但审阅时应确认其他地方不会意外把它过度 promotion。
 
 ## 8. 工作区说明
 

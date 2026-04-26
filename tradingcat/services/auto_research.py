@@ -179,7 +179,7 @@ class AutoResearchPipeline:
             parts.append(f"{n_ok}/{len(report.strategy_signals)} strategies above Sharpe 0.5")
         if report.factor_decay_warnings:
             parts.append(f"{len(report.factor_decay_warnings)} factor(s) flagged for decay")
-        report.summary = " | ".join(parts) if parts else "No data available"
+        report.summary = " | ".join(parts) if parts else "暂无可用数据"
 
     # ------------------------------------------------------------------
     # Persistence

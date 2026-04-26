@@ -26,7 +26,7 @@
 
     const strategies = state.summary?.strategies ?? {};
     const snapshotNote = strategies.snapshot_status && strategies.snapshot_status !== "ready"
-      ? `研究快照状态: ${strategies.snapshot_status} ${strategies.snapshot_reason ?? ""}`.trim()
+      ? `研究快照状态：${labelStatus(strategies.snapshot_status)} ${strategies.snapshot_reason ?? ""}`.trim()
       : null;
     const metrics = strategies.portfolio_metrics ?? {};
     if (metricsEl) {
@@ -284,7 +284,7 @@
     const candidates = state.summary?.candidates ?? {};
     const snapshotStatus = candidates.snapshot_status;
     const snapshotNote = snapshotStatus && snapshotStatus !== "ready"
-      ? `研究快照状态: ${snapshotStatus} ${candidates.snapshot_reason ?? ""}`.trim()
+      ? `研究快照状态：${labelStatus(snapshotStatus)} ${candidates.snapshot_reason ?? ""}`.trim()
       : null;
     if (metricsEl) {
       metricsEl.innerHTML = [

@@ -61,7 +61,7 @@ class VolumePriceToolService:
             MarketAwarenessPriceVolumeState.DIVERGENCE: "The three indices are diverging and do not yet confirm each other.",
         }[state]
         degrade_text = " Some index legs degraded." if degraded else ""
-        return f"{state_text} Aggregate score {score:.2f}.{degrade_text}"
+        return f"{state_text} 综合评分 {score:.2f}。{degrade_text}"
 
     @staticmethod
     def _guidance(state: MarketAwarenessPriceVolumeState, score: float) -> str:

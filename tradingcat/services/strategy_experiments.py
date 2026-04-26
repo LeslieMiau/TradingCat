@@ -434,7 +434,7 @@ class StrategyExperimentService:
     ) -> list[str]:
         blockers: list[str] = []
         if data_source != "historical":
-            blockers.append("Research used synthetic fallback data; keep the strategy out of keep/active until local history is complete.")
+            blockers.append("研究使用了 synthetic fallback 数据；在本地历史补齐之前，不应将策略提升到 keep/active。")
         elif signal_symbol_count == 0 and total_signal_count == 0:
             blockers.append("Strategy produced no signals for validation.")
         elif history_symbol_count < signal_symbol_count:

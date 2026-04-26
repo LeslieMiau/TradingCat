@@ -117,11 +117,11 @@ class HistorySyncService:
             "next_actions": [
                 f"Run POST /data/history/sync for the highest-priority symbol first: {repairs[0]['symbol']}."
                 if repairs
-                else "No repair sync is needed for the current history window.",
+                else "当前历史窗口不需要修复同步。",
                 "Recheck GET /data/history/coverage after the repair sync completes.",
             ]
             if repairs
-            else ["No repair sync is needed for the current history window."],
+            else ["当前历史窗口不需要修复同步。"],
         }
 
     def clear(self) -> None:

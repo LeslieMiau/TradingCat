@@ -113,7 +113,7 @@ class StrategyAllocationService:
     def _next_actions(self, summary: dict[str, object]) -> list[str]:
         actions: list[str] = []
         if not summary["active"]:
-            actions.append("No active strategy allocation is ready; keep the portfolio in paper-trading mode.")
+            actions.append("当前没有可用的活跃策略配额；组合继续保持纸面交易模式。")
         if summary["paper_only"]:
             actions.append("Keep paper-only strategies outside live capital but continue collecting evidence.")
         if len(summary["market_weights"]) > 1:
