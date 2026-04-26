@@ -39,7 +39,7 @@ P6 LLM 层（advisory only）   ── budget gate → provider abstraction → 
 | 10 | P5 Universe screener | ✅ done | [round-10-universe-screener.md](round-10-universe-screener.md) | `705e328` |
 | 11 | P6.1 LLM budget gate | ✅ done | [round-11-llm-budget.md](round-11-llm-budget.md) | `92f85c7` |
 | 12 | P6.2 LLM provider abstraction | ✅ done | [round-12-llm-provider.md](round-12-llm-provider.md) | `f5b4e48` |
-| 13 | P6.3 Advisory research analysts | ✅ done | [round-13-research-analysts.md](round-13-research-analysts.md) | TBD |
+| 13 | P6.3 Advisory research analysts | ✅ done | [round-13-research-analysts.md](round-13-research-analysts.md) | `da87d27` |
 | 14 | P6.4 Report export | ⬜ pending | — | — |
 | 15+ | P6 cache / batch research | ⬜ pending | — | — |
 

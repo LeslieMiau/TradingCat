@@ -43,5 +43,5 @@ Round 14：新增研究报告导出（Markdown first）。
 ## Commit
 
 ```
-TBD
+da87d27 absorb-tradingagents-cn: round 13 — advisory research analysts
 ```
