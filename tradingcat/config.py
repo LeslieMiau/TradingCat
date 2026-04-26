@@ -1016,7 +1016,6 @@ class AdvisoryReportConfig(BaseModel):
                 _getenv("TRADINGCAT_ADVISORY_REPORT_CANDIDATE_LIMIT", "10", env_values)
             ),
         )
-        )
 
 
 class AppConfig(BaseModel):
