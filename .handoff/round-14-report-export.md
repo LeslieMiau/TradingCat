@@ -40,5 +40,5 @@ Round 15：新增 LLM response cache 和批量研究辅助。
 ## Commit
 
 ```
-TBD
+ebb56f3 absorb-tradingagents-cn: round 14 — research report export
 ```
