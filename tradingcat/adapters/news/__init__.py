@@ -8,6 +8,7 @@ from tradingcat.adapters.news.eastmoney import EastMoneyNewsClient, EastMoneyNew
 from tradingcat.adapters.news.cls import CLSNewsClient
 from tradingcat.adapters.news.finnhub import FinnhubNewsClient
 from tradingcat.adapters.news.alpha_vantage import AlphaVantageNewsClient
+from tradingcat.adapters.news.hkrss import HkRssNewsClient
 
 __all__ = [
     "AlphaVantageNewsClient",
@@ -15,5 +16,6 @@ __all__ = [
     "EastMoneyNewsClient",
     "EastMoneyNewsUnavailable",
     "FinnhubNewsClient",
+    "HkRssNewsClient",
     "NewsItem",
 ]
