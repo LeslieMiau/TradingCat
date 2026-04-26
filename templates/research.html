@@ -707,15 +707,7 @@
           }
 
           document.getElementById('quant-run-btn').addEventListener('click', function() {
-            var syms = document.getElementById('quant-symbols').value.trim();
-            var method = document.getElementById('quant-method').value;
-            var days = parseInt(document.getElementById('quant-days').value, 10);
-            if (window.ResearchQuant) {
-              window.ResearchQuant.state.symbols = syms.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-              window.ResearchQuant.state.method = method;
-              window.ResearchQuant.state.days = days;
-              window.ResearchQuant.runAll();
-            }
+            if (window.ResearchQuant) window.ResearchQuant.runFromUI();
           });
         })();
       </script>

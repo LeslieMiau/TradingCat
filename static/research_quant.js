@@ -11,24 +11,8 @@
     errors: {},
     activeSymbol: null,
   };
-  var container = null;
-
-  function qs(params) {
-    return Object.keys(params).map(function(k) {
-      return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-    }).join('&');
-  }
-
-  function fetchJSON(url, opts) {
-    opts = opts || {};
-    return fetch(url, {
-      method: opts.method || 'GET',
-      headers: { 'Accept': 'application/json' },
-    }).then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    });
-  }
+  var abortController = null;
+  var MODULES = ['features','factors','optimize','ml','alternative','briefing'];
 
   /* ── SVG Helpers ── */
   function createSVG(tag, attrs) {
@@ -134,19 +118,27 @@
   }
 
   /* ── Data Fetching ── */
+  function fetchFromAPI(url, opts) {
+    return apiFetch(url, opts || {}).then(function(result) {
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    });
+  }
+
   function fetchAll() {
+    if (abortController) abortController.abort();
+    abortController = new AbortController();
     var s = state.symbols.join(',');
-    var calls = {
-      features: fetchJSON('/research/features?symbols=' + encodeURIComponent(s) + '&days=' + state.days),
-      factors: fetchJSON('/research/factors?symbols=' + encodeURIComponent(s) + '&days=' + state.days),
-      optimize: fetchJSON('/research/optimize?symbols=' + encodeURIComponent(s) + '&method=' + state.method, { method: 'POST' }),
-      ml: fetchJSON('/research/ml/predict?symbols=' + encodeURIComponent(s)),
-      alternative: fetchJSON('/research/alternative?symbols=' + encodeURIComponent(s)),
-      briefing: fetchJSON('/research/ai/briefing'),
-    };
-    state.loading = { features: true, factors: true, optimize: true, ml: true, alternative: true, briefing: true };
-    ['features','factors','optimize','ml','alternative','briefing'].forEach(function(k) { showSkeleton('quant-' + k); });
-    Object.keys(calls).forEach(function(key) {
+    var calls = {};
+    calls.features = fetchFromAPI(API.quantFeatures(s, state.days));
+    calls.factors = fetchFromAPI(API.quantFactors(s, state.days));
+    calls.optimize = fetchFromAPI(API.quantOptimize(s, state.method), { method: 'POST' });
+    calls.ml = fetchFromAPI(API.quantMLPredict(s));
+    calls.alternative = fetchFromAPI(API.quantAlternative(s));
+    calls.briefing = fetchFromAPI(API.quantAIBriefing);
+    state.loading = {};
+    MODULES.forEach(function(k) { state.loading[k] = true; showSkeleton('quant-' + k); });
+    MODULES.forEach(function(key) {
       calls[key].then(function(d) {
         state.data[key] = d;
         state.loading[key] = false;
@@ -331,7 +323,7 @@
   /* ── 7. Auto Research ── */
   function fetchAutoResearch() {
     showSkeleton('quant-auto');
-    fetchJSON('/research/auto-research/run', { method: 'POST' }).then(function(data) {
+    fetchFromAPI(API.quantAutoResearchRun, { method: 'POST' }).then(function(data) {
       renderAutoResearch(data);
     }).catch(function(err) {
       showError('quant-auto', err.message);
@@ -375,17 +367,20 @@
 
   /* ── Public API ── */
   global.ResearchQuant = {
-    init: function(elId) {
-      container = document.getElementById(elId);
-      if (!container) return;
+    runAll: fetchAll,
+    runFromUI: function() {
+      var syms = document.getElementById('quant-symbols').value.trim();
+      var method = document.getElementById('quant-method').value;
+      var days = parseInt(document.getElementById('quant-days').value, 10);
+      state.symbols = syms.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+      state.method = method;
+      state.days = days;
       fetchAll();
     },
-    runAll: fetchAll,
     fetchAutoResearch: fetchAutoResearch,
     switchSymbol: function(sym) {
       state.activeSymbol = sym;
       renderFeatures();
     },
-    state: state,
   };
 })(window);
