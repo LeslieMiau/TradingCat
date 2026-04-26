@@ -157,6 +157,7 @@ class FutuMarketDataAdapter:
 
     def fetch_quotes(self, instruments: list[Instrument]) -> dict[str, float]:
         codes = [_normalize_code(instrument) for instrument in instruments]
+        normalized_to_symbol = {code: instrument.symbol for code, instrument in zip(codes, instruments, strict=False)}
         ret, data = self._quote_ctx.get_market_snapshot(codes)
         if ret != self._ft.RET_OK:
             raise RuntimeError(f"Futu quote snapshot failed: {data}")
@@ -166,10 +167,18 @@ class FutuMarketDataAdapter:
                 "Futu snapshot count mismatch: requested %d codes, got %d rows",
                 len(codes), len(snapshots),
             )
-        return {
-            code.split(".", 1)[1]: float(row["last_price"])
-            for code, row in zip(codes, snapshots)
-        }
+        quotes: dict[str, float] = {}
+        for index, row in enumerate(snapshots):
+            requested_code = codes[index] if index < len(codes) else None
+            row_code = str(row.get("code") or requested_code or "")
+            symbol = normalized_to_symbol.get(row_code)
+            if symbol is None and index < len(instruments):
+                symbol = instruments[index].symbol
+            if symbol is None:
+                logger.warning("Skipping Futu snapshot row with unmapped code: %s", row_code)
+                continue
+            quotes[symbol] = float(row["last_price"])
+        return quotes
 
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
         if market is None:

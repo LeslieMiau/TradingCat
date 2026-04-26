@@ -71,7 +71,7 @@ def test_research_report_blocks_synthetic_promotion_without_local_history(tmp_pa
     assert report["report_status"] == "blocked"
     assert report["minimum_history_coverage_ratio"] == 0.0
     assert report["blocking_reasons"]
-    assert any("synthetic fallback data" in reason.lower() for reason in etf_report["blocking_reasons"])
+    assert any("synthetic fallback" in reason.lower() for reason in etf_report["blocking_reasons"])
 
 
 def test_option_strategy_generates_research_only_option_signal():
@@ -143,12 +143,42 @@ def test_market_driven_strategies_emit_indicator_snapshots_from_persistent_unive
     assert etf_signals
     assert all(signal.instrument.symbol not in {"SPY", "QQQ"} for signal in etf_signals)
     assert etf_signals[0].metadata["signal_source"] == "historical_momentum_rotation"
+    assert etf_signals[0].metadata["current_price"] == etf_signals[0].metadata["indicator_snapshot"]["close"]
+    assert etf_signals[0].metadata["previous_close"] > 0
     assert "momentum_252d" in etf_signals[0].metadata["indicator_snapshot"]
     assert stock_signals[0].instrument.symbol == "AAPL"
     assert stock_signals[0].metadata["signal_source"] == "historical_equity_momentum"
     assert "avg_dollar_volume_20d" in stock_signals[0].metadata["indicator_snapshot"]
     assert option_signals[0].metadata["underlying_symbol"] == "IVV"
     assert option_signals[0].metadata["signal_source"] == "historical_option_overlay"
+
+
+def test_equity_momentum_cn_signal_includes_cn_risk_prices(tmp_path):
+    """CN stock signals should include current_price and previous_close metadata."""
+    market_data = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    market_data.upsert_instruments(
+        [
+            Instrument(
+                symbol="000001",
+                market=Market.CN,
+                asset_class=AssetClass.STOCK,
+                currency="CNY",
+                name="Ping An Bank",
+                liquidity_bucket="high",
+                avg_daily_dollar_volume_m=1800,
+            )
+        ]
+    )
+
+    signal = EquityMomentumStrategy(market_data).generate_signals(date(2026, 3, 8))[0]
+
+    assert signal.instrument.market == Market.CN
+    assert signal.metadata["current_price"] == signal.metadata["indicator_snapshot"]["close"]
+    assert signal.metadata["previous_close"] > 0
 
 
 def test_research_experiment_prefers_historical_market_data(tmp_path):
@@ -448,7 +478,7 @@ def test_research_recommendations_downgrade_partial_history_to_paper_only(tmp_pa
     assert recommendation["action"] == "paper_only"
     assert recommendation["promotion_blocked"] is True
     assert recommendation["data_ready"] is False
-    assert any("history coverage is incomplete" in reason.lower() for reason in recommendation["reasons"])
+    assert any("历史覆盖不完整" in reason for reason in recommendation["reasons"])
 
 
 def test_research_report_marks_partial_history_as_hard_blocked(tmp_path):
@@ -484,7 +514,7 @@ def test_research_report_marks_partial_history_as_hard_blocked(tmp_path):
     assert report["report_status"] == "blocked"
     assert report["portfolio_passed"] is False
     assert report["minimum_history_coverage_ratio"] < 0.95
-    assert any("history coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
+    assert any("历史覆盖不完整" in reason for reason in report["blocking_reasons"])
 
 
 def test_research_report_blocks_missing_corporate_actions(tmp_path):
@@ -518,7 +548,7 @@ def test_research_report_blocks_missing_corporate_actions(tmp_path):
     assert strategy_report["missing_corporate_action_symbols"] == ["QQQ", "SPY"]
     assert strategy_report["corporate_action_blockers"]
     assert report["hard_blocked"] is True
-    assert any("corporate action coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
+    assert any("corporate action coverage is unavailable" in reason.lower() for reason in report["blocking_reasons"])
 
 
 def test_research_stability_report_returns_summary(tmp_path):
@@ -726,7 +756,7 @@ def test_research_report_blocks_missing_fx_coverage(tmp_path):
     assert strategy_report["missing_fx_pairs"] == ["HKD", "USD"]
     assert strategy_report["fx_blockers"]
     assert report["hard_blocked"] is True
-    assert any("fx coverage is incomplete" in reason.lower() for reason in report["blocking_reasons"])
+    assert any("fx coverage into" in reason.lower() for reason in report["blocking_reasons"])
 
 
 def test_research_strategy_detail_exposes_fx_gaps(tmp_path):

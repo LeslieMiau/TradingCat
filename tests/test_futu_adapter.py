@@ -42,7 +42,7 @@ class _FakeQuoteContext:
         ), None
 
     def get_market_snapshot(self, codes):
-        return 0, _FakeTable([{"last_price": 101.25} for _ in codes])
+        return 0, _FakeTable([{"code": code, "last_price": 101.25} for code in codes])
 
     def get_option_chain(self, code, start, end):
         return 0, _FakeTable(
@@ -149,6 +149,15 @@ def test_futu_market_adapter_maps_quote_bar_and_option_chain(fake_futu_sdk):
 def test_futu_normalize_code_pads_hk_symbols():
     instrument = Instrument(symbol="0700", market=Market.HK, asset_class=AssetClass.STOCK, currency="HKD")
     assert _normalize_code(instrument) == "HK.00700"
+
+
+def test_futu_market_adapter_preserves_original_hk_symbol(fake_futu_sdk):
+    adapter = FutuMarketDataAdapter(FutuConfig(enabled=True))
+    instrument = Instrument(symbol="0700", market=Market.HK, asset_class=AssetClass.STOCK, currency="HKD")
+
+    quotes = adapter.fetch_quotes([instrument])
+
+    assert quotes == {"0700": 101.25}
 
 
 def test_futu_normalize_code_maps_cn_symbols_to_exchange_prefix():

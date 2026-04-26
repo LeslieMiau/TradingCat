@@ -51,6 +51,24 @@ def test_risk_engine_scales_to_available_cash_and_lot_size():
     assert intents[1].quantity == 250.0
 
 
+def test_risk_engine_accepts_cn_fallback_signal_with_available_prices():
+    engine = RiskEngine(RiskConfig())
+    signals = EtfRotationStrategy().generate_signals(date(2026, 3, 7))
+
+    intents = engine.check(
+        signals,
+        portfolio_nav=1_000_000,
+        drawdown=0.0,
+        daily_pnl=0.0,
+        weekly_pnl=0.0,
+        prices={"SPY": 100.0, "QQQ": 100.0, "510300": 4.8},
+    )
+
+    cn_intent = next(intent for intent in intents if intent.instrument.symbol == "510300")
+    assert cn_intent.quantity > 0
+    assert cn_intent.requires_approval is True
+
+
 def test_risk_engine_respects_market_cash_budget():
     engine = RiskEngine(RiskConfig())
     signal = EquityMomentumStrategy().generate_signals(date(2026, 3, 7))[0]

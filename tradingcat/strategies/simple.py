@@ -124,6 +124,12 @@ def _latest_close(closes: list[float]) -> float | None:
     return round(closes[-1], 4) if closes else None
 
 
+def _previous_close(closes: list[float]) -> float | None:
+    if len(closes) >= 2:
+        return round(closes[-2], 4)
+    return _latest_close(closes)
+
+
 def _sma(closes: list[float], window: int) -> float | None:
     if len(closes) < window:
         return None
@@ -212,14 +218,26 @@ class EtfRotationStrategy(Strategy):
                 continue
             trend_positive = close >= sma_200
             score = round((momentum_63d * 0.3) + (momentum_126d * 0.3) + (momentum_252d * 0.4), 4)
-            ranked.append((instrument, score, trend_positive, close, sma_200, momentum_63d, momentum_126d, momentum_252d))
+            ranked.append(
+                (
+                    instrument,
+                    score,
+                    trend_positive,
+                    close,
+                    _previous_close(closes),
+                    sma_200,
+                    momentum_63d,
+                    momentum_126d,
+                    momentum_252d,
+                )
+            )
         ranked.sort(key=lambda item: (not item[2], -item[1], -float(item[0].avg_daily_dollar_volume_m or 0.0), item[0].symbol))
         selected = ranked[:3]
         if not selected:
             return self._fallback_signals(as_of)
         weights = [0.18, 0.15, 0.12]
         signals: list[Signal] = []
-        for index, (instrument, score, trend_positive, close, sma_200, momentum_63d, momentum_126d, momentum_252d) in enumerate(selected):
+        for index, (instrument, score, trend_positive, close, previous_close, sma_200, momentum_63d, momentum_126d, momentum_252d) in enumerate(selected):
             signals.append(
                 Signal(
                     strategy_id=self.strategy_id,
@@ -233,6 +251,8 @@ class EtfRotationStrategy(Strategy):
                     ),
                     metadata={
                         "signal_source": "historical_momentum_rotation",
+                        "current_price": close,
+                        "previous_close": previous_close,
                         "indicator_snapshot": {
                             "close": close,
                             "sma_200": sma_200,
@@ -281,11 +301,23 @@ class EquityMomentumStrategy(Strategy):
             if not trend_ok or blackout_active:
                 continue
             liquidity_score = _liquidity_score(avg_dollar_volume_20d, instrument.avg_daily_dollar_volume_m)
-            ranked.append((instrument, momentum_63d, close, sma_20, sma_50, avg_volume_20d, avg_dollar_volume_20d, liquidity_score))
+            ranked.append(
+                (
+                    instrument,
+                    momentum_63d,
+                    close,
+                    _previous_close(closes),
+                    sma_20,
+                    sma_50,
+                    avg_volume_20d,
+                    avg_dollar_volume_20d,
+                    liquidity_score,
+                )
+            )
         ranked.sort(key=lambda item: (-item[1], -item[7], item[0].symbol))
         if not ranked:
             return self._fallback_signals(as_of)
-        instrument, momentum_63d, close, sma_20, sma_50, avg_volume_20d, avg_dollar_volume_20d, _ = ranked[0]
+        instrument, momentum_63d, close, previous_close, sma_20, sma_50, avg_volume_20d, avg_dollar_volume_20d, _ = ranked[0]
         return [
             Signal(
                 strategy_id=self.strategy_id,
@@ -296,6 +328,8 @@ class EquityMomentumStrategy(Strategy):
                 reason=f"{instrument.symbol} passed trend, liquidity, and blackout filters with strong 63-day momentum.",
                 metadata={
                     "signal_source": "historical_equity_momentum",
+                    "current_price": close,
+                    "previous_close": previous_close,
                     "indicator_snapshot": {
                         "close": close,
                         "sma_20": sma_20,

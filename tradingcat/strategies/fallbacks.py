@@ -6,6 +6,14 @@ from tradingcat.adapters.market import sample_instruments
 from tradingcat.domain.models import AssetClass, OrderSide, Signal
 
 
+def _fallback_price_metadata(price: float = 100.0) -> dict[str, object]:
+    return {
+        "signal_source": "fallback_rotation_template",
+        "current_price": price,
+        "previous_close": price,
+    }
+
+
 def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]:
     instruments = sample_instruments()
     return [
@@ -16,7 +24,7 @@ def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]
             side=OrderSide.BUY,
             target_weight=0.20,
             reason="3/6/12 month momentum and 200-day trend filter are positive",
-            metadata={"signal_source": "fallback_rotation_template"},
+            metadata=_fallback_price_metadata(),
         ),
         Signal(
             strategy_id=strategy_id,
@@ -25,7 +33,7 @@ def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]
             side=OrderSide.BUY,
             target_weight=0.15,
             reason="Relative momentum ranks in the top bucket",
-            metadata={"signal_source": "fallback_rotation_template"},
+            metadata=_fallback_price_metadata(),
         ),
         Signal(
             strategy_id=strategy_id,
@@ -34,7 +42,7 @@ def fallback_etf_rotation_signals(strategy_id: str, as_of: date) -> list[Signal]
             side=OrderSide.BUY,
             target_weight=0.10,
             reason="A-share ETF selected for semi-automatic rotation sleeve",
-            metadata={"signal_source": "fallback_rotation_template"},
+            metadata=_fallback_price_metadata(),
         ),
     ]
 
