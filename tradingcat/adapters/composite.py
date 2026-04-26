@@ -5,6 +5,7 @@ from datetime import date
 
 from tradingcat.adapters.base import MarketDataAdapter
 from tradingcat.adapters.cn.akshare import AkshareUnavailable
+from tradingcat.adapters.cn.baostock import BaostockUnavailable
 from tradingcat.domain.models import Bar, FxRate, Instrument, Market, OptionContract
 
 
@@ -12,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class CompositeMarketDataAdapter:
-    """Market-data router that sends CN instruments to AKShare with fallback."""
+    """Market-data router that sends CN instruments to the configured CN adapter (AKShare or BaoStock) with fallback."""
 
     def __init__(
         self,
         *,
-        akshare_inner: MarketDataAdapter,
+        cn_inner: MarketDataAdapter,
         us_hk_inner: MarketDataAdapter,
     ) -> None:
-        self._akshare_inner = akshare_inner
+        self._cn_inner = cn_inner
         self._us_hk_inner = us_hk_inner
 
     def fetch_bars(self, instrument: Instrument, start: date, end: date) -> list[Bar]:
@@ -28,17 +29,17 @@ class CompositeMarketDataAdapter:
             return self._us_hk_inner.fetch_bars(instrument, start, end)
 
         try:
-            bars = self._akshare_inner.fetch_bars(instrument, start, end)
-        except AkshareUnavailable as exc:
-            logger.info("AKShare unavailable for %s, falling back: %s", instrument.symbol, exc)
+            bars = self._cn_inner.fetch_bars(instrument, start, end)
+        except (AkshareUnavailable, BaostockUnavailable) as exc:
+            logger.info("CN adapter unavailable for %s, falling back: %s", instrument.symbol, exc)
             return self._us_hk_inner.fetch_bars(instrument, start, end)
         except Exception as exc:
-            logger.warning("AKShare fetch_bars failed for %s, falling back: %s", instrument.symbol, exc)
+            logger.warning("CN adapter fetch_bars failed for %s, falling back: %s", instrument.symbol, exc)
             return self._us_hk_inner.fetch_bars(instrument, start, end)
 
         if bars:
             return bars
-        logger.info("AKShare returned no bars for %s, falling back", instrument.symbol)
+        logger.info("CN adapter returned no bars for %s, falling back", instrument.symbol)
         return self._us_hk_inner.fetch_bars(instrument, start, end)
 
     def fetch_quotes(self, instruments: list[Instrument]) -> dict[str, float]:
@@ -52,12 +53,12 @@ class CompositeMarketDataAdapter:
             return quotes
 
         try:
-            cn_quotes = self._akshare_inner.fetch_quotes(cn_instruments)
-        except AkshareUnavailable as exc:
-            logger.info("AKShare quotes unavailable, falling back: %s", exc)
+            cn_quotes = self._cn_inner.fetch_quotes(cn_instruments)
+        except (AkshareUnavailable, BaostockUnavailable) as exc:
+            logger.info("CN adapter quotes unavailable, falling back: %s", exc)
             cn_quotes = {}
         except Exception as exc:
-            logger.warning("AKShare fetch_quotes failed, falling back: %s", exc)
+            logger.warning("CN adapter fetch_quotes failed, falling back: %s", exc)
             cn_quotes = {}
 
         missing = [

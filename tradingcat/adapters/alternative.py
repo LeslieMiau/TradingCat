@@ -1,8 +1,11 @@
 """Alternative data sources: sentiment, capital flows, macro events.
 
-Each fetcher follows the same contract — returns None on failure so upstream
-services can mark the data point stale.  Uses SentimentHttpClient for all
-HTTP calls (single connection pool, TTL cache, exponential backoff).
+No real provider is wired here yet — fetchers return empty results when no
+data source is configured. :class:`AlternativeDataService` marks each empty
+source as ``degraded`` so consumers see the honest state instead of fake
+data. Subclass any fetcher and override its ``fetch_*`` method to integrate
+a real source. ``SentimentHttpClient`` is reused for HTTP-backed
+implementations (single connection pool, TTL cache, exponential backoff).
 """
 from __future__ import annotations
 
@@ -75,9 +78,11 @@ class AlternativeDataSnapshot:
 class SocialMediaFetcher:
     """Aggregate social-media mention data by symbol.
 
-    Uses mock data when no API key is configured (default state for a
-    personal trader).  Production deployments can wire in a real provider
-    (Brand24, StockTwits, etc.) by subclassing and overriding ``_fetch()``.
+    No real provider is wired. If ``mock_data_path`` is given and the JSON
+    file contains an entry for the requested symbol, that entry is returned;
+    otherwise the symbol is omitted. Production deployments should subclass
+    and override ``_fetch_single()`` to call a real provider (Brand24,
+    StockTwits, etc.).
     """
 
     def __init__(
@@ -117,29 +122,23 @@ class SocialMediaFetcher:
         )
 
     def _load_mock(self, symbol: str) -> dict[str, Any] | None:
-        if self._mock_data_path and self._mock_data_path.exists():
-            try:
-                store: dict[str, Any] = json.loads(self._mock_data_path.read_text())
-                return store.get(symbol)
-            except Exception:
-                logger.exception("Failed to load mock data for %s", symbol)
-                return None
-        # Built-in fallback
-        return {
-            "source": "mock",
-            "mention_count": 50,
-            "positive_ratio": 0.40,
-            "negative_ratio": 0.25,
-            "neutral_ratio": 0.35,
-            "total_volume": 10000,
-        }
+        if not self._mock_data_path or not self._mock_data_path.exists():
+            return None
+        try:
+            store: dict[str, Any] = json.loads(self._mock_data_path.read_text())
+            return store.get(symbol)
+        except Exception:
+            logger.exception("Failed to load mock data for %s", symbol)
+            return None
 
 
 class CapitalFlowFetcher:
     """Northbound / Southbound capital flows via public API sources.
 
-    Currently uses mock data.  EastMoney HTTP API integration can be added
-    by subclassing (see the existing CN market-data patterns).
+    No real source is wired yet — all fetchers return ``[]``. Subclass and
+    override to integrate EastMoney or Stock Connect feeds. The empty result
+    causes :class:`AlternativeDataService` to mark the source ``degraded``,
+    which is the honest state when nothing is configured.
     """
 
     def __init__(self, cache_dir: str | Path | None = None) -> None:
@@ -147,36 +146,10 @@ class CapitalFlowFetcher:
         self._client = SentimentHttpClient(timeout_seconds=10.0)
 
     def fetch_northbound(self, days: int = 20) -> list[CapitalFlowRecord]:
-        records: list[CapitalFlowRecord] = []
-        for i in range(days):
-            d = date.today() - timedelta(days=i)
-            if d.weekday() >= 5:
-                continue
-            records.append(CapitalFlowRecord(
-                market="northbound",
-                date=d,
-                net_inflow=0.0,
-                cumulative_5d=0.0,
-                cumulative_20d=0.0,
-            ))
-        records.sort(key=lambda r: r.date)
-        return records
+        return []
 
     def fetch_southbound(self, days: int = 20) -> list[CapitalFlowRecord]:
-        records: list[CapitalFlowRecord] = []
-        for i in range(days):
-            d = date.today() - timedelta(days=i)
-            if d.weekday() >= 5:
-                continue
-            records.append(CapitalFlowRecord(
-                market="southbound",
-                date=d,
-                net_inflow=0.0,
-                cumulative_5d=0.0,
-                cumulative_20d=0.0,
-            ))
-        records.sort(key=lambda r: r.date)
-        return records
+        return []
 
     def fetch_all(self, days: int = 20) -> list[CapitalFlowRecord]:
         result = self.fetch_northbound(days)
@@ -185,40 +158,30 @@ class CapitalFlowFetcher:
 
 
 class MacroEventFetcher:
-    """Fetch upcoming macro-economic events from public calendars.
+    """Fetch macro-economic events from public calendars.
 
-    Returns mock events out of the box.  Wire in a real provider
-    (ForexFactory, Investing.com) by replacing ``_fetch_events()``.
+    Delegates to :class:`FredEconomicCalendar` when a FRED API key is
+    configured; otherwise returns ``[]`` (source marked ``degraded``).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fred_api_key: str | None = None) -> None:
         self._client = SentimentHttpClient(timeout_seconds=8.0)
+        if fred_api_key:
+            from tradingcat.adapters.fred_calendar import FredEconomicCalendar
+
+            self._fred = FredEconomicCalendar(api_key=fred_api_key, http=self._client)
+        else:
+            self._fred = None
 
     def fetch_upcoming(self, days: int = 14) -> list[MacroEvent]:
-        events: list[MacroEvent] = []
-        today = date.today()
-        for i in range(days):
-            d = today + timedelta(days=i)
-            if d.weekday() >= 5:
-                continue
-            events.append(MacroEvent(
-                date=d, country="US", event="mock data — no calendar configured",
-                importance="medium",
-            ))
-        return events
+        if self._fred is not None:
+            return self._fred.fetch_upcoming(days)
+        return []
 
     def fetch_recent(self, days: int = 7) -> list[MacroEvent]:
-        events: list[MacroEvent] = []
-        today = date.today()
-        for i in range(1, days + 1):
-            d = today - timedelta(days=i)
-            if d.weekday() >= 5:
-                continue
-            events.append(MacroEvent(
-                date=d, country="US", event="mock data — no calendar configured",
-                importance="medium",
-            ))
-        return events
+        if self._fred is not None:
+            return self._fred.fetch_recent(days)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +197,11 @@ class AlternativeDataService:
         symbols: list[str] | None = None,
         mock_data_path: str | Path | None = None,
         cache_dir: str | Path | None = None,
+        fred_api_key: str | None = None,
     ) -> None:
         self._social = SocialMediaFetcher(symbols, mock_data_path)
         self._flows = CapitalFlowFetcher(cache_dir)
-        self._macro = MacroEventFetcher()
+        self._macro = MacroEventFetcher(fred_api_key=fred_api_key)
 
     def snapshot(
         self,
@@ -255,10 +219,16 @@ class AlternativeDataService:
             sources_degraded.append("social_media")
 
         flows = self._flows.fetch_all(flow_days)
-        sources_healthy.append("capital_flows")
+        if flows:
+            sources_healthy.append("capital_flows")
+        else:
+            sources_degraded.append("capital_flows")
 
         upcoming = self._macro.fetch_upcoming(macro_days)
-        sources_healthy.append("macro_events")
+        if upcoming:
+            sources_healthy.append("macro_events")
+        else:
+            sources_degraded.append("macro_events")
 
         return AlternativeDataSnapshot(
             social_media=social,

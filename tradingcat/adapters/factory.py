@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
 from tradingcat.adapters.cn.akshare import AKSHARE_AVAILABLE, AkshareMarketDataAdapter, AkshareUnavailable
+from tradingcat.adapters.cn.baostock import BAOSTOCK_AVAILABLE, BaostockMarketDataAdapter, BaostockUnavailable
 from tradingcat.adapters.composite import CompositeMarketDataAdapter
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.adapters.futu import FutuAdapterUnavailable, FutuBrokerAdapter, FutuMarketDataAdapter
@@ -108,21 +109,38 @@ class AdapterFactory:
             logger.info("Using Static (fallback) market data adapter")
             adapter = StaticMarketDataAdapter()
 
-        if not self._config.akshare.enabled:
-            return adapter
-        if not AKSHARE_AVAILABLE:
-            logger.warning("AKShare market data enabled but SDK is unavailable; using %s only", backend_name)
-            return adapter
-        try:
-            akshare_adapter = AkshareMarketDataAdapter(
-                adjust=self._config.akshare.adjust,
-                spot_cache_ttl_seconds=self._config.akshare.spot_cache_ttl_seconds,
-            )
-        except AkshareUnavailable as exc:
-            logger.warning("AKShare market data unavailable during initialization; using %s only: %s", backend_name, exc)
-            return adapter
-        logger.info("Using composite market data adapter: CN->AKShare, US/HK->%s", backend_name)
-        return CompositeMarketDataAdapter(akshare_inner=akshare_adapter, us_hk_inner=adapter)
+        cn_adapter = None
+        cn_name: str | None = None
+
+        if self._config.akshare.enabled:
+            if not AKSHARE_AVAILABLE:
+                logger.warning("AKShare enabled but SDK is unavailable")
+            else:
+                try:
+                    cn_adapter = AkshareMarketDataAdapter(
+                        adjust=self._config.akshare.adjust,
+                        spot_cache_ttl_seconds=self._config.akshare.spot_cache_ttl_seconds,
+                    )
+                    cn_name = "AKShare"
+                except AkshareUnavailable as exc:
+                    logger.warning("AKShare unavailable during initialization: %s", exc)
+
+        if cn_adapter is None and self._config.baostock.enabled:
+            if not BAOSTOCK_AVAILABLE:
+                logger.warning("BaoStock enabled but SDK is unavailable")
+            else:
+                try:
+                    cn_adapter = BaostockMarketDataAdapter(
+                        adjustflag=self._config.baostock.adjustflag,
+                    )
+                    cn_name = "BaoStock"
+                except BaostockUnavailable as exc:
+                    logger.warning("BaoStock unavailable during initialization: %s", exc)
+
+        if cn_adapter is not None:
+            logger.info("Using composite market data adapter: CN->%s, US/HK->%s", cn_name, backend_name)
+            return CompositeMarketDataAdapter(cn_inner=cn_adapter, us_hk_inner=adapter)
+        return adapter
 
     def create_live_broker_adapter(self):
         if not self._config.futu.enabled:

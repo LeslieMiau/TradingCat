@@ -225,6 +225,7 @@ class ApplicationRuntime:
         alternative_data = AlternativeDataService(
             symbols=config.alternative_data.symbols,
             cache_dir=str(config.data_dir / "alternative"),
+            fred_api_key=config.alternative_data.fred_api_key,
         )
         auto_research = AutoResearchPipeline(data_dir=str(config.data_dir))
         return cls(
