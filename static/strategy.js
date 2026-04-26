@@ -2,14 +2,28 @@ function renderMonthlyHeatmap(rows) {
   const root = document.getElementById("monthly-heatmap");
   if (!root) return;
   const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthLabelMap = {
+    Jan: "1月",
+    Feb: "2月",
+    Mar: "3月",
+    Apr: "4月",
+    May: "5月",
+    Jun: "6月",
+    Jul: "7月",
+    Aug: "8月",
+    Sep: "9月",
+    Oct: "10月",
+    Nov: "11月",
+    Dec: "12月",
+  };
   if (!rows || !rows.length) {
     root.innerHTML = '<div class="detail-empty">当前没有月度收益数据。</div>';
     return;
   }
   const header = `
     <div class="heatmap-row">
-      <div class="heatmap-label">Year</div>
-      ${monthLabels.map((label) => `<div class="heatmap-label">${label}</div>`).join("")}
+      <div class="heatmap-label">年份</div>
+      ${monthLabels.map((label) => `<div class="heatmap-label">${monthLabelMap[label]}</div>`).join("")}
     </div>
   `;
   const body = rows.map((row) => `
@@ -36,7 +50,7 @@ function renderYearlyPerformance(rows) {
       <td>${escapeHtml(row.year)}</td>
       <td class="${(row.strategy_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.strategy_return))}</td>
       <td class="${(row.benchmark_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(row.benchmark_return))}</td>
-      <td class="${(row.excess_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(row.excess_return == null ? "N/A" : fmtPct(row.excess_return))}</td>
+      <td class="${(row.excess_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(row.excess_return == null ? "暂无" : fmtPct(row.excess_return))}</td>
     </tr>
   `).join("");
 }
@@ -62,8 +76,8 @@ function buildImplementationRows(signals, strategyPlans, positions, recentOrders
     const approval = plan ? recentApprovals.find((entry) => entry.intent_id === plan.intent_id) : null;
     return {
       item,
-      planState: plan ? fmtPct(plan.target_weight) : "N/A",
-      holdingState: position ? fmtPct(position.weight) : "N/A",
+      planState: plan ? fmtPct(plan.target_weight) : "暂无",
+      holdingState: position ? fmtPct(position.weight) : "暂无",
       orderState: order?.status || (plan ? "not_submitted" : "missing"),
       approvalState: approval?.status || (plan?.requires_approval ? "pending" : "auto"),
     };
@@ -137,10 +151,10 @@ function renderStrategyFailure(message) {
 function renderStrategyOverview(context) {
   const { payload, recommendation, benchmark } = context;
   document.getElementById("strategy-title").textContent = payload.strategy_id;
-  document.getElementById("strategy-subtitle").textContent = `Verdict: ${recommendation.verdict || "N/A"} / Action: ${recommendation.action || "N/A"}`;
-  document.getElementById("detail-updated").textContent = `As of ${payload.as_of}`;
+  document.getElementById("strategy-subtitle").textContent = `结论：${labelVerdict(recommendation.verdict)} / 动作：${labelStatus(recommendation.action)}`;
+  document.getElementById("detail-updated").textContent = `截至 ${payload.as_of}`;
   document.getElementById("strategy-detail-metrics").innerHTML = [
-    metricTile("年化收益", fmtPct(payload.metrics.annualized_return), `Profit score ${fmt(recommendation.profitability_score)}`, "ok"),
+    metricTile("年化收益", fmtPct(payload.metrics.annualized_return), `盈利评分 ${fmt(recommendation.profitability_score)}`, "ok"),
     metricTile("夏普", fmt(payload.metrics.sharpe), `Calmar ${fmt(payload.metrics.calmar)}`, "ok"),
     metricTile("最大回撤", fmtPct(payload.metrics.max_drawdown), `波动 ${fmtPct(payload.metrics.volatility)}`, "warning"),
     metricTile("验证通过率", fmtPct(recommendation.validation_pass_rate), `稳定性 ${fmt(recommendation.stability_score)}`, "warning"),
@@ -173,11 +187,11 @@ function renderStrategyOverview(context) {
 
 function renderStrategyProfile(context) {
   const { payload, metadata, benchmark, recommendation } = context;
-  document.getElementById("strategy-thesis").textContent = metadata.thesis || "No strategy thesis available.";
+  document.getElementById("strategy-thesis").textContent = metadata.thesis || "暂无策略假设说明。";
   document.getElementById("strategy-meta-list").innerHTML = [
     `名称: ${metadata.name || payload.strategy_id}`,
-    `节奏: ${metadata.cadence || "N/A"}`,
-    `关注市场: ${(metadata.focus_markets || []).join(", ") || "N/A"}`,
+    `节奏: ${metadata.cadence || "暂无"}`,
+    `关注市场: ${(metadata.focus_markets || []).map(labelMarket).join(", ") || "暂无"}`,
     `当前信号数: ${fmt(payload.signal_count)}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   document.getElementById("strategy-focus-tags").innerHTML = (metadata.focus_instruments || []).length
@@ -190,9 +204,9 @@ function renderStrategyProfile(context) {
     ? payload.signals.map((item) => `
         <tr>
           <td>${escapeHtml(item.symbol)}</td>
-          <td>${escapeHtml(item.market)}</td>
-          <td>${escapeHtml(item.asset_class)}</td>
-          <td>${escapeHtml(item.side)}</td>
+          <td>${escapeHtml(labelMarket(item.market))}</td>
+          <td>${escapeHtml(labelAssetClass(item.asset_class))}</td>
+          <td>${escapeHtml(labelSide(item.side))}</td>
           <td>${escapeHtml(fmtPct(item.target_weight))}</td>
           <td>${escapeHtml(item.reason)}</td>
         </tr>
@@ -200,7 +214,7 @@ function renderStrategyProfile(context) {
     : '<tr><td colspan="6" class="table-empty">当前没有信号。</td></tr>';
   document.getElementById("benchmark-list").innerHTML = benchmark.ready
     ? [
-        `benchmark: ${benchmark.symbol}`,
+        `基准: ${benchmark.symbol}`,
         `年化收益: ${fmtPct(benchmark.metrics?.annualized_return)}`,
         `夏普: ${fmt(benchmark.metrics?.sharpe)}`,
         `最大回撤: ${fmtPct(benchmark.metrics?.max_drawdown)}`,
@@ -210,16 +224,16 @@ function renderStrategyProfile(context) {
     : '<li class="detail-empty">当前没有可用基准数据。</li>';
   document.getElementById("verdict-reasons").innerHTML = (recommendation.reasons || []).length
     ? recommendation.reasons.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
-    : '<li class="detail-empty">当前没有额外 verdict 理由。</li>';
+    : '<li class="detail-empty">当前没有额外结论理由。</li>';
 }
 
 function renderStrategyImplementation(context) {
   const { payload, strategyPlans, implRows, submittedCount, filledCount, pendingApprovalCount } = context;
   document.getElementById("strategy-implementation-metrics").innerHTML = [
-    metricTile("信号", fmt((payload.signals || []).length), "research targets today", (payload.signals || []).length ? "ok" : "warning"),
-    metricTile("进计划", fmt(strategyPlans.length), "linked plan rows", strategyPlans.length ? "ok" : "warning"),
-    metricTile("已出单", fmt(submittedCount), "recent orders", submittedCount ? "ok" : "warning"),
-    metricTile("待审批", fmt(pendingApprovalCount), "manual chain", pendingApprovalCount ? "warning" : "ok"),
+    metricTile("信号", fmt((payload.signals || []).length), "今日研究目标", (payload.signals || []).length ? "ok" : "warning"),
+    metricTile("进计划", fmt(strategyPlans.length), "关联计划行", strategyPlans.length ? "ok" : "warning"),
+    metricTile("已出单", fmt(submittedCount), "最近订单", submittedCount ? "ok" : "warning"),
+    metricTile("待审批", fmt(pendingApprovalCount), "人工链路", pendingApprovalCount ? "warning" : "ok"),
   ].join("");
   document.getElementById("strategy-implementation-table").innerHTML = implRows.length
     ? implRows.map((row) => `
@@ -228,8 +242,8 @@ function renderStrategyImplementation(context) {
           <td>${escapeHtml(fmtPct(row.item.target_weight))}</td>
           <td>${escapeHtml(row.planState)}</td>
           <td>${escapeHtml(row.holdingState)}</td>
-          <td class="status-${statusTone(row.orderState)}">${escapeHtml(row.orderState)}</td>
-          <td class="status-${statusTone(row.approvalState)}">${escapeHtml(row.approvalState)}</td>
+          <td class="status-${statusTone(row.orderState)}">${escapeHtml(labelStatus(row.orderState))}</td>
+          <td class="status-${statusTone(row.approvalState)}">${escapeHtml(labelStatus(row.approvalState))}</td>
         </tr>
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前没有今日落地数据。</td></tr>';
@@ -250,10 +264,10 @@ function renderStrategyImplementation(context) {
 function renderStrategyAccountImpact(context) {
   const { strategyPlans, accountImpact } = context;
   document.getElementById("strategy-account-impact-metrics").innerHTML = [
-    metricTile("影响账户", fmt(accountImpact.rows.length), "markets touched", accountImpact.rows.length ? "ok" : "warning"),
-    metricTile("主账户", accountLabel(accountImpact.dominantImpact?.market || "N/A"), accountImpact.dominantImpact ? `delta ${fmtPct(accountImpact.dominantImpact.delta)}` : "no impact", accountImpact.dominantImpact ? "warning" : "empty"),
-    metricTile("目标总暴露", fmtPct(accountImpact.totalExposure), "sum of target weights", "ok"),
-    metricTile("计划单", fmt(strategyPlans.length), "linked plan rows", strategyPlans.length ? "ok" : "warning"),
+    metricTile("影响账户", fmt(accountImpact.rows.length), "触达市场", accountImpact.rows.length ? "ok" : "warning"),
+    metricTile("主账户", accountLabel(accountImpact.dominantImpact?.market || "暂无"), accountImpact.dominantImpact ? `偏离 ${fmtPct(accountImpact.dominantImpact.delta)}` : "暂无影响", accountImpact.dominantImpact ? "warning" : "empty"),
+    metricTile("目标总暴露", fmtPct(accountImpact.totalExposure), "目标权重合计", "ok"),
+    metricTile("计划单", fmt(strategyPlans.length), "关联计划行", strategyPlans.length ? "ok" : "warning"),
   ].join("");
   document.getElementById("strategy-account-impact-table").innerHTML = accountImpact.rows.length
     ? accountImpact.rows.map((row) => `
@@ -277,16 +291,16 @@ function renderStrategyAccountImpact(context) {
 function renderStrategyValidation(context) {
   const { payload, benchmark } = context;
   document.getElementById("walk-forward-list").innerHTML = (payload.walk_forward_windows || []).length
-    ? payload.walk_forward_windows.map((item) => `<li>Window ${escapeHtml(item.window_index)}: Sharpe ${escapeHtml(fmt(item.metrics.sharpe))}, MaxDD ${escapeHtml(fmtPct(item.metrics.max_drawdown))}, passed=${escapeHtml(String(item.passed))}</li>`).join("")
+    ? payload.walk_forward_windows.map((item) => `<li>窗口 ${escapeHtml(item.window_index)}: 夏普 ${escapeHtml(fmt(item.metrics.sharpe))}, 最大回撤 ${escapeHtml(fmtPct(item.metrics.max_drawdown))}, 通过=${escapeHtml(fmt(item.passed))}</li>`).join("")
     : '<li class="detail-empty">当前没有 walk-forward 明细。</li>';
   document.getElementById("assumption-list").innerHTML = [
-    `data_source: ${payload.assumptions.data_source}`,
-    `history_complete: ${payload.assumptions.history_complete}`,
-    `history_symbols: ${payload.assumptions.history_symbols}`,
-    `missing_history_symbols: ${payload.assumptions.missing_history_symbols}`,
-    `commission_bps: ${payload.assumptions.commission_bps}`,
-    `slippage_bps: ${payload.assumptions.slippage_bps}`,
-    `total_cost_bps: ${payload.assumptions.total_cost_bps}`,
+    `数据源: ${payload.assumptions.data_source}`,
+    `历史完整: ${fmt(payload.assumptions.history_complete)}`,
+    `历史标的: ${payload.assumptions.history_symbols}`,
+    `缺失历史标的: ${payload.assumptions.missing_history_symbols}`,
+    `佣金 bps: ${payload.assumptions.commission_bps}`,
+    `滑点 bps: ${payload.assumptions.slippage_bps}`,
+    `总成本 bps: ${payload.assumptions.total_cost_bps}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   const split = payload.sample_split || {};
   document.getElementById("sample-split-list").innerHTML = [
@@ -303,11 +317,11 @@ function renderStrategyValidation(context) {
   const missingCoverageSymbols = payload.missing_coverage_symbols || [];
   const coverageBlockers = payload.history_coverage_blockers || [];
   document.getElementById("coverage-list").innerHTML = [
-    `coverage ready: ${coverage.ready}`,
-    `minimum ratio: ${fmtPct(minimumCoverageRatio)}`,
-    `threshold: ${fmtPct(coverageThreshold)}`,
-    `missing symbols: ${missingCoverageSymbols.length ? missingCoverageSymbols.join(", ") : "none"}`,
-    ...coverageBlockers.slice(0, 3).map((item) => `blocker: ${item}`),
+    `覆盖就绪: ${fmt(coverage.ready)}`,
+    `最低覆盖率: ${fmtPct(minimumCoverageRatio)}`,
+    `门槛: ${fmtPct(coverageThreshold)}`,
+    `缺失标的: ${missingCoverageSymbols.length ? missingCoverageSymbols.join(", ") : "无"}`,
+    ...coverageBlockers.slice(0, 3).map((item) => `阻塞: ${item}`),
     ...(coverage.reports || []).slice(0, 5).map((item) => `${item.symbol}: ${fmtPct(item.coverage_ratio)} (${item.bar_count}/${item.expected_count})`),
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   renderMonthlyHeatmap(payload.monthly_table || []);

@@ -63,7 +63,7 @@ function priceVolumeStateLabel(value) {
     divergence: "分歧",
     repair: "修复",
   };
-  return mapping[value] || value || "N/A";
+  return mapping[value] || displayValue(value);
 }
 
 function sentimentBandLabel(value) {
@@ -74,7 +74,7 @@ function sentimentBandLabel(value) {
     constructive: "偏积极",
     greed: "贪婪",
   };
-  return mapping[value] || value || "N/A";
+  return mapping[value] || displayValue(value);
 }
 
 function participationDecisionLabel(value) {
@@ -84,11 +84,11 @@ function participationDecisionLabel(value) {
     wait: "等待",
     avoid: "回避",
   };
-  return mapping[value] || value || "N/A";
+  return mapping[value] || displayValue(value);
 }
 
 function boolLabel(value) {
-  if (value == null) return "N/A";
+  if (value == null) return "暂无";
   return value ? "是" : "否";
 }
 
@@ -103,10 +103,10 @@ function renderMarketNews(payload, errorMessage = null) {
   if (!observation || errorMessage) {
     noteEl.textContent = errorMessage || "重点新闻观察暂不可用";
     metricsEl.innerHTML = [
-      metricTile("倾向", "N/A", "news unavailable", "blocked"),
-      metricTile("评分", "N/A", "waiting for feeds", "empty"),
-      metricTile("重点条数", "0", "no headlines", "empty"),
-      metricTile("数据", errorMessage ? "error" : "missing", errorMessage || "snapshot unavailable", "blocked"),
+      metricTile("倾向", "暂无", "新闻不可用", "blocked"),
+      metricTile("评分", "暂无", "等待资讯源", "empty"),
+      metricTile("重点条数", "0", "暂无标题", "empty"),
+      metricTile("数据", errorMessage ? "错误" : "缺失", errorMessage || "快照不可用", "blocked"),
     ].join("");
     setList("research-market-news-list", [], "当前没有可用重点资讯。");
     setList("research-market-news-blockers", errorMessage ? [errorMessage] : [], "当前没有额外说明。");
@@ -115,17 +115,17 @@ function renderMarketNews(payload, errorMessage = null) {
 
   noteEl.textContent = observation.explanation || "重点新闻观察已就绪";
   metricsEl.innerHTML = [
-    metricTile("倾向", observation.tone || "N/A", `score ${fmt(observation.score)}`, marketAwarenessTone(observation.tone)),
-    metricTile("主导主题", observation.dominant_topics?.[0] || "N/A", `${fmt((observation.dominant_topics || []).length)} topic(s)`, marketAwarenessTone(observation.tone)),
-    metricTile("重点条数", fmt((observation.key_items || []).length), observation.degraded ? "degraded" : "feeds ready", (observation.key_items || []).length ? "ok" : "warning"),
-    metricTile("阻塞", fmt((observation.blockers || []).length), observation.degraded ? "partial feed failure" : "no blockers", (observation.blockers || []).length ? "warning" : "ok"),
+    metricTile("倾向", labelStatus(observation.tone) || "暂无", `评分 ${fmt(observation.score)}`, marketAwarenessTone(observation.tone)),
+    metricTile("主导主题", observation.dominant_topics?.[0] || "暂无", `${fmt((observation.dominant_topics || []).length)} 个主题`, marketAwarenessTone(observation.tone)),
+    metricTile("重点条数", fmt((observation.key_items || []).length), observation.degraded ? "降级输出" : "资讯源就绪", (observation.key_items || []).length ? "ok" : "warning"),
+    metricTile("阻塞", fmt((observation.blockers || []).length), observation.degraded ? "部分资讯源失败" : "无阻塞", (observation.blockers || []).length ? "warning" : "ok"),
   ].join("");
   listEl.innerHTML = (observation.key_items || []).length
     ? observation.key_items.map((item) => `
         <li>
           <strong>${escapeHtml(item.title)}</strong><br />
-          <span class="meta-text">${escapeHtml(item.source)} / ${escapeHtml(item.topic)} / ${escapeHtml(item.tone)} / ${escapeHtml(fmtTime(item.published_at))}</span><br />
-          <span class="meta-text">影响市场: ${escapeHtml((item.markets || []).join(", ") || "N/A")}${(item.symbols || []).length ? ` / 相关符号: ${escapeHtml(item.symbols.join(", "))}` : ""}</span>
+          <span class="meta-text">${escapeHtml(item.source)} / ${escapeHtml(item.topic)} / ${escapeHtml(labelStatus(item.tone))} / ${escapeHtml(fmtTime(item.published_at))}</span><br />
+          <span class="meta-text">影响市场: ${escapeHtml((item.markets || []).map(labelMarket).join(", ") || "暂无")}${(item.symbols || []).length ? ` / 相关符号: ${escapeHtml(item.symbols.join(", "))}` : ""}</span>
         </li>
       `).join("")
     : '<li class="detail-empty">当前没有保留下来的重点资讯。</li>';
@@ -168,14 +168,14 @@ function renderAshareIndices(payload, errorMessage = null) {
         <article class="detail-card">
           <h3>${escapeHtml(view.label)}</h3>
           <div class="tag-row">
-            <span class="badge status-${marketAwarenessTone(view.trend_status)}">${escapeHtml(view.trend_status)}</span>
+            <span class="badge status-${marketAwarenessTone(view.trend_status)}">${escapeHtml(labelStatus(view.trend_status))}</span>
             <span class="badge status-${marketAwarenessTone(view.price_volume_state)}">${escapeHtml(priceVolumeStateLabel(view.price_volume_state))}</span>
-            <span class="tag">score ${escapeHtml(fmt(view.score))}</span>
+            <span class="tag">评分 ${escapeHtml(fmt(view.score))}</span>
           </div>
           <ul class="detail-list">
             <li>收盘: ${escapeHtml(fmt(view.close))}</li>
             <li>1D / 5D / 20D: ${escapeHtml(fmtPct(view.return_1d))} / ${escapeHtml(fmtPct(view.return_5d))} / ${escapeHtml(fmtPct(view.return_20d))}</li>
-            <li>20D 量比: ${escapeHtml(view.volume_ratio_20d == null ? "N/A" : `${fmt(view.volume_ratio_20d)}x`)}</li>
+            <li>20D 量比: ${escapeHtml(view.volume_ratio_20d == null ? "暂无" : `${fmt(view.volume_ratio_20d)}x`)}</li>
             <li>站上 20 / 50 / 200 日: ${escapeHtml(boolLabel(view.above_sma20))} / ${escapeHtml(boolLabel(view.above_sma50))} / ${escapeHtml(boolLabel(view.above_sma200))}</li>
           </ul>
           <p class="detail-paragraph">${escapeHtml(view.explanation)}</p>
@@ -195,10 +195,10 @@ function renderFearGreed(payload, errorMessage = null) {
   if (!fearGreed || errorMessage) {
     noteEl.textContent = errorMessage || "恐贪工具暂不可用";
     metricsEl.innerHTML = [
-      metricTile("情绪区间", "N/A", "fear-greed unavailable", "blocked"),
-      metricTile("评分", "N/A", "waiting for observation", "empty"),
-      metricTile("因子数", "0", "no contributors", "empty"),
-      metricTile("说明", "missing", "snapshot unavailable", "blocked"),
+      metricTile("情绪区间", "暂无", "恐贪工具不可用", "blocked"),
+      metricTile("评分", "暂无", "等待观察", "empty"),
+      metricTile("因子数", "0", "暂无因子", "empty"),
+      metricTile("说明", "缺失", "快照不可用", "blocked"),
     ].join("");
     setList("research-fear-greed-contributors", [], "当前没有情绪因子。");
     setList("research-fear-greed-explanation", errorMessage ? [errorMessage] : [], "当前没有额外解释。");
@@ -207,10 +207,10 @@ function renderFearGreed(payload, errorMessage = null) {
 
   noteEl.textContent = fearGreed.explanation || "恐贪工具已就绪";
   metricsEl.innerHTML = [
-    metricTile("情绪区间", sentimentBandLabel(fearGreed.band), fearGreed.band || "N/A", marketAwarenessTone(fearGreed.band)),
-    metricTile("评分", fmt(fearGreed.score), "internal composite", marketAwarenessTone(fearGreed.band)),
-    metricTile("因子数", fmt((fearGreed.contributors || []).length), "score drivers", (fearGreed.contributors || []).length ? "ok" : "warning"),
-    metricTile("状态", fearGreed.band || "N/A", "internal sentiment", marketAwarenessTone(fearGreed.band)),
+    metricTile("情绪区间", sentimentBandLabel(fearGreed.band), sentimentBandLabel(fearGreed.band), marketAwarenessTone(fearGreed.band)),
+    metricTile("评分", fmt(fearGreed.score), "内部综合分", marketAwarenessTone(fearGreed.band)),
+    metricTile("因子数", fmt((fearGreed.contributors || []).length), "评分驱动因子", (fearGreed.contributors || []).length ? "ok" : "warning"),
+    metricTile("状态", sentimentBandLabel(fearGreed.band), "内部情绪", marketAwarenessTone(fearGreed.band)),
   ].join("");
   setList(
     "research-fear-greed-contributors",
@@ -231,10 +231,10 @@ function renderVolumePrice(payload, errorMessage = null) {
   if (!volumePrice || errorMessage) {
     noteEl.textContent = errorMessage || "量价工具暂不可用";
     metricsEl.innerHTML = [
-      metricTile("Tape", "N/A", "volume-price unavailable", "blocked"),
-      metricTile("评分", "N/A", "waiting for observation", "empty"),
+      metricTile("量价状态", "暂无", "量价工具不可用", "blocked"),
+      metricTile("评分", "暂无", "等待观察", "empty"),
       metricTile("因子数", "0", "no contributors", "empty"),
-      metricTile("状态", "missing", "snapshot unavailable", "blocked"),
+      metricTile("状态", "缺失", "快照不可用", "blocked"),
     ].join("");
     setList("research-volume-price-contributors", [], "当前没有量价因子。");
     setList("research-volume-price-guidance", errorMessage ? [errorMessage] : [], "当前没有额外解释。");
@@ -243,10 +243,10 @@ function renderVolumePrice(payload, errorMessage = null) {
 
   noteEl.textContent = volumePrice.explanation || "量价工具已就绪";
   metricsEl.innerHTML = [
-    metricTile("Tape", priceVolumeStateLabel(volumePrice.state), volumePrice.state || "N/A", marketAwarenessTone(volumePrice.state)),
+    metricTile("量价状态", priceVolumeStateLabel(volumePrice.state), priceVolumeStateLabel(volumePrice.state), marketAwarenessTone(volumePrice.state)),
     metricTile("评分", fmt(volumePrice.score), "three-index aggregate", marketAwarenessTone(volumePrice.state)),
     metricTile("因子数", fmt((volumePrice.contributors || []).length), "tape drivers", (volumePrice.contributors || []).length ? "ok" : "warning"),
-    metricTile("指引", volumePrice.state || "N/A", "volume-price tool", marketAwarenessTone(volumePrice.state)),
+    metricTile("指引", priceVolumeStateLabel(volumePrice.state), "量价工具", marketAwarenessTone(volumePrice.state)),
   ].join("");
   setList(
     "research-volume-price-contributors",
@@ -271,10 +271,10 @@ function renderParticipation(payload, errorMessage = null) {
   if (!participation || errorMessage) {
     noteEl.textContent = errorMessage || "参与判断暂不可用";
     metricsEl.innerHTML = [
-      metricTile("决策", "N/A", "participation unavailable", "blocked"),
-      metricTile("概率", "N/A", "waiting for score", "empty"),
-      metricTile("赔率", "N/A", "waiting for score", "empty"),
-      metricTile("置信度", "N/A", "snapshot unavailable", "blocked"),
+      metricTile("决策", "暂无", "参与判断不可用", "blocked"),
+      metricTile("概率", "暂无", "等待评分", "empty"),
+      metricTile("赔率", "暂无", "等待评分", "empty"),
+      metricTile("置信度", "暂无", "快照不可用", "blocked"),
     ].join("");
     setList("research-participation-reasons", [], "当前没有可用参与理由。");
     setList("research-participation-blockers", errorMessage ? [errorMessage] : [], "当前没有额外阻塞。");
@@ -283,10 +283,10 @@ function renderParticipation(payload, errorMessage = null) {
 
   noteEl.textContent = "仅作参与建议，不进入执行门控";
   metricsEl.innerHTML = [
-    metricTile("决策", participationDecisionLabel(participation.decision), participation.decision || "N/A", marketAwarenessTone(participation.decision)),
+    metricTile("决策", participationDecisionLabel(participation.decision), participationDecisionLabel(participation.decision), marketAwarenessTone(participation.decision)),
     metricTile("概率", fmtPct(participation.probability), `raw ${fmt(participation.probability)}`, marketAwarenessTone(participation.decision)),
     metricTile("赔率", fmt(participation.odds), "risk-reward estimate", marketAwarenessTone(participation.decision)),
-    metricTile("置信度", participation.confidence || "N/A", "operator confidence", marketAwarenessTone(participation.confidence)),
+    metricTile("置信度", labelStatus(participation.confidence), "操作置信度", marketAwarenessTone(participation.confidence)),
   ].join("");
   setList("research-participation-reasons", participation.reasons || [], "当前没有可用参与理由。");
   setList(
@@ -326,7 +326,7 @@ function renderMarketAwareness(payload, errorMessage = null) {
   const guidanceRows = Array.isArray(snapshot?.strategy_guidance) ? snapshot.strategy_guidance : [];
   const participation = snapshot?.participation ?? null;
   const blockers = [
-    `数据状态: ${dataQuality.status || (snapshot ? "unknown" : "missing")}`,
+    `数据状态: ${labelStatus(dataQuality.status || (snapshot ? "unknown" : "missing"))}`,
     ...(dataQuality.degraded ? ["当前结果为降级输出，先把它当作节奏参考。"] : []),
     ...(dataQuality.fallback_driven ? ["部分证据来自 fallback 路径，置信度需要保守看待。"] : []),
     ...((dataQuality.blockers || []).map((item) => `阻塞: ${item}`)),
@@ -337,10 +337,10 @@ function renderMarketAwareness(payload, errorMessage = null) {
   if (!snapshot || errorMessage) {
     noteEl.textContent = errorMessage || "市场感知暂不可用";
     metricsEl.innerHTML = [
-      metricTile("Regime", "Unavailable", "market awareness missing", "blocked"),
-      metricTile("Confidence", "N/A", "waiting for snapshot", "empty"),
-      metricTile("Posture", "N/A", "no operator guidance", "empty"),
-      metricTile("Data", errorMessage ? "error" : "missing", errorMessage || "snapshot unavailable", "blocked"),
+      metricTile("市场状态", "不可用", "市场感知缺失", "blocked"),
+      metricTile("置信度", "暂无", "等待快照", "empty"),
+      metricTile("操作姿态", "暂无", "暂无操作指引", "empty"),
+      metricTile("数据", errorMessage ? "错误" : "缺失", errorMessage || "快照不可用", "blocked"),
     ].join("");
     badgesEl.innerHTML = '<span class="detail-empty">当前没有可用的市场感知摘要。</span>';
     setList("research-market-awareness-actions", [], errorMessage || "当前没有可用动作建议。");
@@ -354,15 +354,15 @@ function renderMarketAwareness(payload, errorMessage = null) {
 
   noteEl.textContent = `截至 ${snapshot.as_of}，仅作仓位与节奏建议，不会自动下单`;
   metricsEl.innerHTML = [
-    metricTile("Regime", snapshot.overall_regime || "N/A", `score ${fmt(snapshot.overall_score)}`, marketAwarenessTone(snapshot.overall_regime)),
-    metricTile("Confidence", snapshot.confidence || "N/A", `markets ${fmt(marketViews.length)}`, marketAwarenessTone(snapshot.confidence)),
-    metricTile("Posture", snapshot.risk_posture || "N/A", "operator pace", marketAwarenessTone(snapshot.risk_posture)),
-    metricTile("Data", dataQuality.status || "unknown", dataQuality.degraded ? "degraded snapshot" : "snapshot ready", marketAwarenessTone(dataQuality.status)),
+    metricTile("市场状态", labelStatus(snapshot.overall_regime), `评分 ${fmt(snapshot.overall_score)}`, marketAwarenessTone(snapshot.overall_regime)),
+    metricTile("置信度", labelStatus(snapshot.confidence), `市场数 ${fmt(marketViews.length)}`, marketAwarenessTone(snapshot.confidence)),
+    metricTile("操作姿态", labelStatus(snapshot.risk_posture), "操作节奏", marketAwarenessTone(snapshot.risk_posture)),
+    metricTile("数据", labelStatus(dataQuality.status || "unknown"), dataQuality.degraded ? "降级快照" : "快照就绪", marketAwarenessTone(dataQuality.status)),
   ].join("");
   badgesEl.innerHTML = [
-    `<span class="badge status-${marketAwarenessTone(snapshot.overall_regime)}">${escapeHtml(snapshot.overall_regime || "N/A")}</span>`,
-    `<span class="badge status-${marketAwarenessTone(snapshot.confidence)}">${escapeHtml(snapshot.confidence || "N/A")} confidence</span>`,
-    `<span class="badge status-${marketAwarenessTone(snapshot.risk_posture)}">${escapeHtml(snapshot.risk_posture || "N/A")}</span>`,
+    `<span class="badge status-${marketAwarenessTone(snapshot.overall_regime)}">${escapeHtml(labelStatus(snapshot.overall_regime))}</span>`,
+    `<span class="badge status-${marketAwarenessTone(snapshot.confidence)}">${escapeHtml(labelStatus(snapshot.confidence))}置信度</span>`,
+    `<span class="badge status-${marketAwarenessTone(snapshot.risk_posture)}">${escapeHtml(labelStatus(snapshot.risk_posture))}</span>`,
     participation ? `<span class="badge status-${marketAwarenessTone(participation.decision)}">${escapeHtml(participationDecisionLabel(participation.decision))}</span>` : "",
     participation ? `<span class="tag">P ${escapeHtml(fmt(participation.probability))}</span>` : "",
     participation ? `<span class="tag">O ${escapeHtml(fmt(participation.odds))}</span>` : "",
@@ -626,7 +626,7 @@ function renderFilterTabs() {
   if (note) {
     note.textContent = state.activeVerdict === "all"
       ? "当前显示全部候选"
-      : `当前只看 ${state.activeVerdict}`;
+      : `当前只看 ${labelVerdict(state.activeVerdict)}`;
   }
 }
 
@@ -872,20 +872,20 @@ function renderImpactEmpty(elements) {
   elements.accountDeltaTable.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
   elements.signalsTable.innerHTML = '<tr><td colspan="5" class="table-empty">请选择策略。</td></tr>';
   elements.gapTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
-  elements.gapMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">差异摘要</span><span class="metric-value">N/A</span></article>';
+  elements.gapMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">差异摘要</span><span class="metric-value">暂无</span></article>';
   elements.offTargetList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.actionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-  elements.executionMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">执行状态</span><span class="metric-value">N/A</span></article>';
+  elements.executionMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">执行状态</span><span class="metric-value">暂无</span></article>';
   elements.executionTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
   elements.blockersList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.progressList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-  elements.approvalMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">人工审批</span><span class="metric-value">N/A</span></article>';
+  elements.approvalMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">人工审批</span><span class="metric-value">暂无</span></article>';
   elements.approvalTable.innerHTML = '<tr><td colspan="6" class="table-empty">请选择策略。</td></tr>';
   elements.approvalPendingList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.approvalActionsList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.timelineSummaryList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.timelineList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
-  elements.readinessMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">推进状态</span><span class="metric-value">N/A</span></article>';
+  elements.readinessMetrics.innerHTML = '<article class="metric-tile"><span class="metric-label">推进状态</span><span class="metric-value">暂无</span></article>';
   elements.readinessList.innerHTML = '<li class="detail-empty">请选择策略。</li>';
   elements.readinessActions.innerHTML = '<li class="detail-empty">请选择策略。</li>';
 }
@@ -970,7 +970,7 @@ function buildApprovalSummary(context) {
 function renderImpactHeader(elements, context) {
   const grossTarget = context.signals.reduce((sum, item) => sum + Math.abs(Number(item.target_weight || 0)), 0);
   const approvalCount = context.signals.filter((item) => item.market === "CN").length;
-  const dominantMarket = Object.entries(context.marketExposure).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0] || "N/A";
+  const dominantMarket = Object.entries(context.marketExposure).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0] || "暂无";
   const marketWeightDeltas = context.markets.map((market) => {
     const currentWeight = context.accountSummary[market]?.nav && context.accountSummary.total?.nav
       ? Number(context.accountSummary[market].nav) / Number(context.accountSummary.total.nav)
@@ -980,19 +980,19 @@ function renderImpactHeader(elements, context) {
   elements.title.textContent = context.detail.strategy_id;
   elements.note.textContent = `当前聚焦 ${context.detail.strategy_id}，按今日信号预览账户影响`;
   elements.accountsList.innerHTML = context.markets.length ? context.markets.map((market) => `<li>${escapeHtml(context.accountMap[market] || market)}</li>`).join("") : '<li class="detail-empty">当前没有账户影响。</li>';
-  elements.summaryList.innerHTML = [`信号数: ${fmt(context.detail.signal_count)}`, `预估计划单数: ${fmt(context.signals.length)}`, `预估审批数: ${fmt(approvalCount)}`, `影响账户数: ${fmt(context.markets.length)}`, `目标总暴露: ${fmtPct(grossTarget)}`, `主影响账户: ${dominantMarket}`, `当前 verdict: ${context.detail.recommendation?.verdict || "N/A"}`, ...marketWeightDeltas.map((item) => `${item.market} 配置偏离: ${fmtPct(item.targetWeight - item.currentWeight)}`)].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.summaryList.innerHTML = [`信号数: ${fmt(context.detail.signal_count)}`, `预估计划单数: ${fmt(context.signals.length)}`, `预估审批数: ${fmt(approvalCount)}`, `影响账户数: ${fmt(context.markets.length)}`, `目标总暴露: ${fmtPct(grossTarget)}`, `主影响账户: ${labelMarket(dominantMarket)}`, `当前结论: ${labelVerdict(context.detail.recommendation?.verdict)}`, ...marketWeightDeltas.map((item) => `${labelMarket(item.market)} 配置偏离: ${fmtPct(item.targetWeight - item.currentWeight)}`)].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   elements.links.innerHTML = context.markets.length ? context.markets.map((market) => `<a class="button" href="/dashboard/accounts/${encodeURIComponent(market)}">${escapeHtml(context.accountMap[market] || market)}</a>`).join("") : '<span class="detail-empty">暂无账户跳转。</span>';
   elements.accountDeltaTable.innerHTML = marketWeightDeltas.length ? marketWeightDeltas.map((item) => `<tr><td><strong>${escapeHtml(context.accountMap[item.market] || item.market)}</strong></td><td>${escapeHtml(fmtPct(item.currentWeight))}</td><td>${escapeHtml(fmtPct(item.targetWeight))}</td><td class="${Math.abs(item.targetWeight - item.currentWeight) <= 0.03 ? "status-ok" : item.targetWeight > item.currentWeight ? "status-warning" : "status-blocked"}">${escapeHtml(fmtPct(item.targetWeight - item.currentWeight))}</td><td>${escapeHtml(fmt(context.signals.filter((signal) => signal.market === item.market).length))}</td></tr>`).join("") : '<tr><td colspan="5" class="table-empty">当前没有账户配置影响。</td></tr>';
-  elements.signalsTable.innerHTML = context.signals.length ? context.signals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.side)}</td><td>${escapeHtml(fmtPct(item.target_weight))}</td><td>${escapeHtml(item.reason)}</td></tr>`).join("") : '<tr><td colspan="5" class="table-empty">当前没有信号。</td></tr>';
+  elements.signalsTable.innerHTML = context.signals.length ? context.signals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(labelMarket(item.market))}</td><td>${escapeHtml(labelSide(item.side))}</td><td>${escapeHtml(fmtPct(item.target_weight))}</td><td>${escapeHtml(item.reason)}</td></tr>`).join("") : '<tr><td colspan="5" class="table-empty">当前没有信号。</td></tr>';
 }
 
 function renderImpactGap(elements, context, gapSummary) {
   elements.gapTable.innerHTML = gapSummary.mappedSignals.length ? gapSummary.mappedSignals.map((row) => {
     const gapLabel = row.gapStatus === "missing_plan" ? "未进计划" : row.gapStatus === "plan_no_position" ? "已进计划，未建仓" : row.gapStatus === "aligned" ? "接近目标" : "持仓未到位";
     const gapClass = gapLabel === "接近目标" ? "status-ok" : gapLabel === "已进计划，未建仓" ? "status-warning" : "status-blocked";
-    return `<tr><td><strong>${escapeHtml(row.item.symbol)}</strong></td><td>${escapeHtml(row.item.market)}</td><td>${escapeHtml(fmtPct(row.item.target_weight))}</td><td>${escapeHtml(row.planWeight == null ? "N/A" : fmtPct(row.planWeight))}</td><td>${escapeHtml(row.holdingWeight == null ? "N/A" : fmtPct(row.holdingWeight))}</td><td class="${gapClass}">${escapeHtml(gapLabel)}</td></tr>`;
+    return `<tr><td><strong>${escapeHtml(row.item.symbol)}</strong></td><td>${escapeHtml(labelMarket(row.item.market))}</td><td>${escapeHtml(fmtPct(row.item.target_weight))}</td><td>${escapeHtml(row.planWeight == null ? "暂无" : fmtPct(row.planWeight))}</td><td>${escapeHtml(row.holdingWeight == null ? "暂无" : fmtPct(row.holdingWeight))}</td><td class="${gapClass}">${escapeHtml(gapLabel)}</td></tr>`;
   }).join("") : '<tr><td colspan="6" class="table-empty">当前没有可对比的信号。</td></tr>';
-  elements.gapMetrics.innerHTML = [metricTile("已对齐", fmt(gapSummary.alignedCount), "signals aligned", gapSummary.alignedCount ? "ok" : "warning"), metricTile("未进计划", fmt(gapSummary.missingPlanCount), "research not in plan", gapSummary.missingPlanCount ? "blocked" : "ok"), metricTile("未建仓", fmt(gapSummary.noPositionCount), "planned but no position", gapSummary.noPositionCount ? "warning" : "ok"), metricTile("未到位", fmt(gapSummary.misalignedCount), "holding gap remains", gapSummary.misalignedCount ? "warning" : "ok")].join("");
+  elements.gapMetrics.innerHTML = [metricTile("已对齐", fmt(gapSummary.alignedCount), "信号已对齐", gapSummary.alignedCount ? "ok" : "warning"), metricTile("未进计划", fmt(gapSummary.missingPlanCount), "研究信号未进计划", gapSummary.missingPlanCount ? "blocked" : "ok"), metricTile("未建仓", fmt(gapSummary.noPositionCount), "已计划但未建仓", gapSummary.noPositionCount ? "warning" : "ok"), metricTile("未到位", fmt(gapSummary.misalignedCount), "持仓仍有偏离", gapSummary.misalignedCount ? "warning" : "ok")].join("");
   const offTargetHoldings = context.totalPositions.filter((position) => context.markets.includes(position.market) && !context.signals.some((item) => item.symbol === position.symbol));
   elements.offTargetList.innerHTML = offTargetHoldings.length ? offTargetHoldings.slice(0, 6).map((position) => `<li>${escapeHtml(position.symbol)}: 当前权重 ${escapeHtml(fmtPct(position.weight))}</li>`).join("") : '<li class="detail-empty">当前没有多余持仓。</li>';
   const actions = [];
@@ -1004,8 +1004,8 @@ function renderImpactGap(elements, context, gapSummary) {
 }
 
 function renderImpactExecution(elements, context, gapSummary, executionSummary) {
-  elements.executionMetrics.innerHTML = [metricTile("计划单", fmt(context.strategyPlans.length), "today plan items", context.strategyPlans.length ? "ok" : "warning"), metricTile("已出单", fmt(executionSummary.submittedCount), "recent order linked", executionSummary.submittedCount ? "ok" : "warning"), metricTile("已成交", fmt(executionSummary.filledCount), "filled orders", executionSummary.filledCount ? "ok" : "warning"), metricTile("待审批", fmt(executionSummary.pendingCount), "requires approval", executionSummary.pendingCount ? "warning" : "ok")].join("");
-  elements.executionTable.innerHTML = context.strategyExecutions.length ? context.strategyExecutions.map(({ planItem, order }) => `<tr><td><strong>${escapeHtml(planItem.symbol)}</strong><br /><span class="meta-text">${escapeHtml(planItem.market)}</span></td><td>${escapeHtml(planItem.side)}</td><td>${escapeHtml(fmt(planItem.quantity, 4))}</td><td>${escapeHtml(planItem.requires_approval ? "manual" : "auto")}</td><td class="${order?.status === "filled" ? "status-ok" : order ? "status-warning" : "status-blocked"}">${escapeHtml(order?.status || "not_submitted")}</td><td>${escapeHtml(order?.filled_quantity == null ? "N/A" : fmt(order.filled_quantity, 4))}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略今天没有计划单。</td></tr>';
+  elements.executionMetrics.innerHTML = [metricTile("计划单", fmt(context.strategyPlans.length), "今日计划条目", context.strategyPlans.length ? "ok" : "warning"), metricTile("已出单", fmt(executionSummary.submittedCount), "关联最近订单", executionSummary.submittedCount ? "ok" : "warning"), metricTile("已成交", fmt(executionSummary.filledCount), "成交订单", executionSummary.filledCount ? "ok" : "warning"), metricTile("待审批", fmt(executionSummary.pendingCount), "需要审批", executionSummary.pendingCount ? "warning" : "ok")].join("");
+  elements.executionTable.innerHTML = context.strategyExecutions.length ? context.strategyExecutions.map(({ planItem, order }) => `<tr><td><strong>${escapeHtml(planItem.symbol)}</strong><br /><span class="meta-text">${escapeHtml(labelMarket(planItem.market))}</span></td><td>${escapeHtml(labelSide(planItem.side))}</td><td>${escapeHtml(fmt(planItem.quantity, 4))}</td><td>${escapeHtml(planItem.requires_approval ? "人工" : "自动")}</td><td class="${order?.status === "filled" ? "status-ok" : order ? "status-warning" : "status-blocked"}">${escapeHtml(labelStatus(order?.status || "not_submitted"))}</td><td>${escapeHtml(order?.filled_quantity == null ? "暂无" : fmt(order.filled_quantity, 4))}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略今天没有计划单。</td></tr>';
   const blockers = [];
   if (gapSummary.missingPlanCount > 0) blockers.push(`${gapSummary.missingPlanCount} 个研究信号还没进今日计划。`);
   if (executionSummary.pendingCount > 0) blockers.push(`${executionSummary.pendingCount} 笔计划单需要人工审批。`);
@@ -1017,9 +1017,9 @@ function renderImpactExecution(elements, context, gapSummary, executionSummary) 
 }
 
 function renderImpactApproval(elements, context, approvalSummary) {
-  elements.approvalMetrics.innerHTML = [metricTile("待审批", fmt(context.strategyPendingApprovals.length), "pending manual decisions", context.strategyPendingApprovals.length ? "warning" : "ok"), metricTile("最近审批", fmt(context.strategyRecentApprovals.length), "latest approval records", context.strategyRecentApprovals.length ? "ok" : "empty"), metricTile("已批准", fmt(approvalSummary.approvedCount), "approved recently", approvalSummary.approvedCount ? "ok" : "empty"), metricTile("拒绝/过期", fmt(approvalSummary.rejectedCount), "rejected or expired", approvalSummary.rejectedCount ? "blocked" : "ok")].join("");
-  elements.approvalTable.innerHTML = context.strategyRecentApprovals.length ? context.strategyRecentApprovals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.side)}</td><td>${escapeHtml(fmt(item.quantity, 4))}</td><td class="${item.status === "approved" ? "status-ok" : item.status === "pending" ? "status-warning" : "status-blocked"}">${escapeHtml(item.status)}</td><td>${escapeHtml(item.decision_reason || item.reason || "N/A")}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略最近没有人工审批记录。</td></tr>';
-  elements.approvalPendingList.innerHTML = context.strategyPendingApprovals.length ? context.strategyPendingApprovals.map((item) => `<li>${escapeHtml(`${item.symbol} ${item.side} ${fmt(item.quantity, 4)}，待审批，理由：${item.reason || "N/A"}`)}</li>`).join("") : '<li class="detail-empty">当前策略没有待审批单。</li>';
+  elements.approvalMetrics.innerHTML = [metricTile("待审批", fmt(context.strategyPendingApprovals.length), "待人工决策", context.strategyPendingApprovals.length ? "warning" : "ok"), metricTile("最近审批", fmt(context.strategyRecentApprovals.length), "最近审批记录", context.strategyRecentApprovals.length ? "ok" : "empty"), metricTile("已批准", fmt(approvalSummary.approvedCount), "近期批准", approvalSummary.approvedCount ? "ok" : "empty"), metricTile("拒绝/过期", fmt(approvalSummary.rejectedCount), "拒绝或过期", approvalSummary.rejectedCount ? "blocked" : "ok")].join("");
+  elements.approvalTable.innerHTML = context.strategyRecentApprovals.length ? context.strategyRecentApprovals.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${escapeHtml(labelMarket(item.market))}</td><td>${escapeHtml(labelSide(item.side))}</td><td>${escapeHtml(fmt(item.quantity, 4))}</td><td class="${item.status === "approved" ? "status-ok" : item.status === "pending" ? "status-warning" : "status-blocked"}">${escapeHtml(labelStatus(item.status))}</td><td>${escapeHtml(item.decision_reason || item.reason || "暂无")}</td></tr>`).join("") : '<tr><td colspan="6" class="table-empty">当前策略最近没有人工审批记录。</td></tr>';
+  elements.approvalPendingList.innerHTML = context.strategyPendingApprovals.length ? context.strategyPendingApprovals.map((item) => `<li>${escapeHtml(`${item.symbol} ${labelSide(item.side)} ${fmt(item.quantity, 4)}，待审批，理由：${item.reason || "暂无"}`)}</li>`).join("") : '<li class="detail-empty">当前策略没有待审批单。</li>';
   elements.approvalActionsList.innerHTML = approvalSummary.recentApprovalActions.length ? approvalSummary.recentApprovalActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : '<li class="detail-empty">当前没有最近动作。</li>';
 }
 
@@ -1027,9 +1027,9 @@ function renderImpactTimeline(elements, context) {
   const stageWeight = { signal: 1, plan: 2, approval_pending: 3, approval: 4, order: 5, fill: 6 };
   const timelineEvents = [
     ...context.signals.map((item) => ({ at: null, stage: "signal", label: `${item.symbol} 生成研究信号`, detail: `${item.side} / 目标 ${fmtPct(item.target_weight)} / ${item.reason}` })),
-    ...context.strategyPlans.map((planItem) => ({ at: null, stage: "plan", label: `${planItem.symbol} 进入今日计划`, detail: `${planItem.side} ${fmt(planItem.quantity, 4)} / ${planItem.requires_approval ? "manual" : "auto"}` })),
-    ...context.strategyRecentApprovals.map((item) => ({ at: item.decided_at || item.created_at, stage: item.status === "pending" ? "approval_pending" : "approval", label: `${item.symbol} 审批 ${item.status}`, detail: item.decision_reason || item.reason || "manual approval flow" })),
-    ...context.strategyExecutions.filter((item) => item.order).map(({ planItem, order }) => ({ at: order.timestamp, stage: order.status === "filled" ? "fill" : "order", label: `${planItem.symbol} 订单 ${order.status}`, detail: `${planItem.side} / filled ${fmt(order.filled_quantity, 4)} / avg ${order.average_price == null ? "N/A" : fmt(order.average_price, 4)}` })),
+    ...context.strategyPlans.map((planItem) => ({ at: null, stage: "plan", label: `${planItem.symbol} 进入今日计划`, detail: `${labelSide(planItem.side)} ${fmt(planItem.quantity, 4)} / ${planItem.requires_approval ? "人工" : "自动"}` })),
+    ...context.strategyRecentApprovals.map((item) => ({ at: item.decided_at || item.created_at, stage: item.status === "pending" ? "approval_pending" : "approval", label: `${item.symbol} 审批 ${labelStatus(item.status)}`, detail: item.decision_reason || item.reason || "人工审批链路" })),
+    ...context.strategyExecutions.filter((item) => item.order).map(({ planItem, order }) => ({ at: order.timestamp, stage: order.status === "filled" ? "fill" : "order", label: `${planItem.symbol} 订单 ${labelStatus(order.status)}`, detail: `${labelSide(planItem.side)} / 已成交 ${fmt(order.filled_quantity, 4)} / 均价 ${order.average_price == null ? "暂无" : fmt(order.average_price, 4)}` })),
   ].sort((left, right) => {
     if (left.at && right.at) return new Date(right.at).getTime() - new Date(left.at).getTime();
     if (left.at) return -1;
@@ -1049,15 +1049,15 @@ function renderImpactReadiness(elements, context) {
   const capacityReady = (recommendation.capacity_tier || "inactive") !== "inactive";
   const executableToday = context.strategyPlans.length > 0 || context.signals.length > 0;
   const deployReady = (recommendation.verdict || "") === "deploy_candidate" && historyReady && validationReady && correlationReady;
-  elements.readinessMetrics.innerHTML = [metricTile("历史覆盖", historyReady ? "ready" : "blocked", `min ${fmtPct(historyCoverage.minimum_coverage_ratio)}`, historyReady ? "ok" : "blocked"), metricTile("验证稳定性", validationReady ? "ready" : "warning", `${recommendation.stability_bucket || "N/A"} / pass ${fmtPct(recommendation.validation_pass_rate)}`, validationReady ? "ok" : "warning"), metricTile("相关性门槛", correlationReady ? "ready" : "blocked", `max corr ${fmt(recommendation.max_selected_correlation)}`, correlationReady ? "ok" : "blocked"), metricTile("推进状态", deployReady ? "deploy" : (recommendation.verdict || "review"), recommendation.action || "N/A", deployReady ? "ok" : "warning")].join("");
-  elements.readinessList.innerHTML = [`当前 verdict: ${recommendation.verdict || "N/A"}`, `研究动作: ${recommendation.action || "N/A"}`, `容量层级: ${recommendation.capacity_tier || "N/A"}`, `今日可执行: ${executableToday ? "yes" : "no"}`, `历史覆盖最小值: ${fmtPct(historyCoverage.minimum_coverage_ratio)}`].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  elements.readinessMetrics.innerHTML = [metricTile("历史覆盖", historyReady ? "就绪" : "阻塞", `最低 ${fmtPct(historyCoverage.minimum_coverage_ratio)}`, historyReady ? "ok" : "blocked"), metricTile("验证稳定性", validationReady ? "就绪" : "预警", `${displayValue(recommendation.stability_bucket)} / 通过 ${fmtPct(recommendation.validation_pass_rate)}`, validationReady ? "ok" : "warning"), metricTile("相关性门槛", correlationReady ? "就绪" : "阻塞", `最大相关 ${fmt(recommendation.max_selected_correlation)}`, correlationReady ? "ok" : "blocked"), metricTile("推进状态", deployReady ? "可部署" : labelVerdict(recommendation.verdict || "review"), labelStatus(recommendation.action), deployReady ? "ok" : "warning")].join("");
+  elements.readinessList.innerHTML = [`当前结论: ${labelVerdict(recommendation.verdict)}`, `研究动作: ${labelStatus(recommendation.action)}`, `容量层级: ${displayValue(recommendation.capacity_tier)}`, `今日可执行: ${executableToday ? "是" : "否"}`, `历史覆盖最小值: ${fmtPct(historyCoverage.minimum_coverage_ratio)}`].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   const actions = [];
   if (!historyReady) actions.push("先补历史数据覆盖，再决定是否推进。");
   if (!validationReady) actions.push("先提升样本外验证和稳定性，再考虑 active。");
   if (!correlationReady) actions.push("先解决和已选策略的相关性，再谈推进。");
   if (!capacityReady) actions.push("当前容量不足，保持 research only。");
   if (!context.strategyPlans.length && context.signals.length) actions.push("今天有研究信号，但还没形成计划。");
-  if (deployReady) actions.push("当前已接近 deploy candidate，可继续跟踪计划与执行偏差。");
+  if (deployReady) actions.push("当前已接近可部署候选，可继续跟踪计划与执行偏差。");
   if (!actions.length) actions.push("当前没有新增推进动作。");
   elements.readinessActions.innerHTML = actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 }
@@ -1098,10 +1098,10 @@ function renderOverviewMetrics(payload) {
   const activeRows = payload.dashboard?.strategies?.rows ?? [];
   const hasActiveData = payload.dashboard != null;
   document.getElementById("research-overview-metrics").innerHTML = [
-    metricTile("执行策略", hasActiveData ? fmt(activeRows.length) : "…", hasActiveData ? `accepted ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}` : "waiting for dashboard", hasActiveData ? (activeRows.length ? "ok" : "warning") : "empty"),
-    metricTile("候选 deploy", fmt(payload.candidates?.deploy_candidate_count), "worth deeper study", payload.candidates?.deploy_candidate_count ? "ok" : "warning"),
-    metricTile("候选 paper", fmt(payload.candidates?.paper_only_count), "needs more evidence", payload.candidates?.paper_only_count ? "warning" : "ok"),
-    metricTile("候选 reject", fmt(payload.candidates?.rejected_count), "cut losers faster", payload.candidates?.rejected_count ? "blocked" : "ok"),
+    metricTile("执行策略", hasActiveData ? fmt(activeRows.length) : "…", hasActiveData ? `已通过 ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}` : "等待控制台数据", hasActiveData ? (activeRows.length ? "ok" : "warning") : "empty"),
+    metricTile("可部署候选", fmt(payload.candidates?.deploy_candidate_count), "值得深入研究", payload.candidates?.deploy_candidate_count ? "ok" : "warning"),
+    metricTile("纸面候选", fmt(payload.candidates?.paper_only_count), "需要更多证据", payload.candidates?.paper_only_count ? "warning" : "ok"),
+    metricTile("淘汰候选", fmt(payload.candidates?.rejected_count), "及时剔除弱项", payload.candidates?.rejected_count ? "blocked" : "ok"),
   ].join("");
 }
 
@@ -1117,17 +1117,17 @@ function renderResearch(payload) {
   renderMarketAwareness(payload);
 
   if (hydrateMode === "summary") {
-    setResearchUpdated(`Updated ${new Date().toLocaleString()} · 基础摘要已加载，实时增强中`);
+    setResearchUpdated(`更新于 ${new Date().toLocaleString()} · 基础摘要已加载，实时增强中`);
   } else if (enhancementErrors.length) {
-    setResearchUpdated(`Updated ${new Date().toLocaleString()} · 部分实时增强失败`);
+    setResearchUpdated(`更新于 ${new Date().toLocaleString()} · 部分实时增强失败`);
   } else {
-    setResearchUpdated(`Updated ${new Date().toLocaleString()}`);
+    setResearchUpdated(`更新于 ${new Date().toLocaleString()}`);
   }
   document.getElementById("research-overview-metrics").innerHTML = [
-    metricTile("执行策略", fmt(activeRows.length), `accepted ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}`, activeRows.length ? "ok" : "warning"),
-    metricTile("候选 deploy", fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count), "worth deeper study", (payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count) ? "ok" : "warning"),
-    metricTile("候选 paper", fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count), "needs more evidence", (payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count) ? "warning" : "ok"),
-    metricTile("候选 reject", fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count), "cut losers faster", (payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count) ? "blocked" : "ok"),
+    metricTile("执行策略", fmt(activeRows.length), `已通过 ${(payload.dashboard?.strategies?.accepted_strategy_ids ?? []).length}`, activeRows.length ? "ok" : "warning"),
+    metricTile("可部署候选", fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count), "值得深入研究", (payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count) ? "ok" : "warning"),
+    metricTile("纸面候选", fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count), "需要更多证据", (payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count) ? "warning" : "ok"),
+    metricTile("淘汰候选", fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count), "及时剔除弱项", (payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count) ? "blocked" : "ok"),
   ].join("");
 }
 
@@ -1144,7 +1144,7 @@ function renderTier2Candidates(payload) {
   const rejectRows = filteredRejectRows(payload.candidates?.reject_summary ?? []);
 
   renderFilterTabs();
-  document.getElementById("research-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  document.getElementById("research-updated").textContent = `更新于 ${new Date().toLocaleString()}`;
   renderOverviewMetrics(payload);
 
   // Top picks: prefer dashboard data, fall back to candidates rows
@@ -1154,16 +1154,16 @@ function renderTier2Candidates(payload) {
     ? topRows.map((row) => `
         <article class="detail-card">
           <h3><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></h3>
-          <p class="detail-paragraph">Verdict ${escapeHtml(row.verdict)} / Profit score ${escapeHtml(fmt(row.profitability_score))}</p>
+          <p class="detail-paragraph">结论 ${escapeHtml(labelVerdict(row.verdict))} / 盈利评分 ${escapeHtml(fmt(row.profitability_score))}</p>
           <div class="tag-row">
-            <span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(row.verdict)}</span>
+            <span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(labelVerdict(row.verdict))}</span>
             <span class="tag">Sharpe ${escapeHtml(fmt(row.sharpe))}</span>
             <span class="tag">CAGR ${escapeHtml(fmtPct(row.annualized_return))}</span>
             <button class="button" data-strategy-pick="${escapeHtml(row.strategy_id)}" type="button">查看影响</button>
           </div>
         </article>
       `).join("")
-    : '<article class="detail-card"><span class="detail-empty">当前没有 top picks。</span></article>';
+    : '<article class="detail-card"><span class="detail-empty">当前没有优先候选。</span></article>';
 
   renderVerdictGroups(payload.candidates?.verdict_groups ?? []);
 
@@ -1172,11 +1172,11 @@ function renderTier2Candidates(payload) {
     ? activeRows.map((row) => `
         <tr>
           <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></strong><br /><span class="meta-text">${escapeHtml(row.strategy_id)}</span></td>
-          <td><span class="badge status-${badgeTone(row.action)}">${escapeHtml(row.action)}</span></td>
+          <td><span class="badge status-${badgeTone(row.action)}">${escapeHtml(labelStatus(row.action))}</span></td>
           <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
           <td>${escapeHtml(fmt(row.sharpe))}</td>
           <td>${escapeHtml(fmtPct(row.max_drawdown))}</td>
-          <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}</td>
+          <td>${escapeHtml(`${displayValue(row.stability_bucket)} / 通过 ${fmtPct(row.validation_pass_rate)}`)}</td>
         </tr>
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前没有 active 研究策略。</td></tr>';
@@ -1185,9 +1185,9 @@ function renderTier2Candidates(payload) {
   setList(
     "research-buckets",
     [
-      `deploy_candidate: ${fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count)}`,
-      `paper_only: ${fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count)}`,
-      `reject: ${fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count)}`,
+      `可部署候选: ${fmt(payload.candidates?.deploy_candidate_count ?? payload.dashboard?.candidates?.deploy_candidate_count)}`,
+      `纸面跟踪: ${fmt(payload.candidates?.paper_only_count ?? payload.dashboard?.candidates?.paper_only_count)}`,
+      `淘汰: ${fmt(payload.candidates?.rejected_count ?? payload.dashboard?.candidates?.rejected_count)}`,
     ],
     "当前没有候选池分布。",
   );
@@ -1197,7 +1197,7 @@ function renderTier2Candidates(payload) {
     ? candidateRows.map((row) => `
         <tr>
           <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></strong><br /><button class="button" data-strategy-pick="${escapeHtml(row.strategy_id)}" type="button">查看影响</button></td>
-          <td><span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(row.verdict)}</span></td>
+          <td><span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(labelVerdict(row.verdict))}</span></td>
           <td>${escapeHtml(fmt(row.profitability_score))}</td>
           <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
           <td>${escapeHtml(fmt(row.sharpe))}</td>
@@ -1227,16 +1227,16 @@ function renderTier3Dashboard(payload) {
     ? topRows.map((row) => `
         <article class="detail-card">
           <h3><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></h3>
-          <p class="detail-paragraph">Verdict ${escapeHtml(row.verdict)} / Profit score ${escapeHtml(fmt(row.profitability_score))}</p>
+          <p class="detail-paragraph">结论 ${escapeHtml(labelVerdict(row.verdict))} / 盈利评分 ${escapeHtml(fmt(row.profitability_score))}</p>
           <div class="tag-row">
-            <span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(row.verdict)}</span>
+            <span class="badge status-${badgeTone(row.verdict)}">${escapeHtml(labelVerdict(row.verdict))}</span>
             <span class="tag">Sharpe ${escapeHtml(fmt(row.sharpe))}</span>
             <span class="tag">CAGR ${escapeHtml(fmtPct(row.annualized_return))}</span>
             <button class="button" data-strategy-pick="${escapeHtml(row.strategy_id)}" type="button">查看影响</button>
           </div>
         </article>
       `).join("")
-    : '<article class="detail-card"><span class="detail-empty">当前没有 top picks。</span></article>';
+    : '<article class="detail-card"><span class="detail-empty">当前没有优先候选。</span></article>';
 
   // Active strategies table (only available from dashboard)
   const activeTable = document.getElementById("research-active-table");

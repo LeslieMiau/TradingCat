@@ -355,7 +355,7 @@ def test_acceptance_evidence_job_handler(tmp_path):
         )
     )
     detail = app.scheduler_runtime.run_acceptance_evidence_job()
-    assert detail.startswith("Captured acceptance gates")
+    assert detail.startswith("已采集")
 
 
 def test_gate_readiness_blocks_promotion_when_streak_short(tmp_path):

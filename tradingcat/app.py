@@ -702,8 +702,9 @@ class TradingCatApplication:
             return reason
         if isinstance(reason, dict):
             reason_type = str(reason.get("type") or "gate")
+            reason_type_label = {"gate": "门禁", "readiness": "就绪检查", "rollout": "上线档位"}.get(reason_type, reason_type)
             detail = str(reason.get("detail") or "").strip()
-            return f"{reason_type}: {detail}" if detail else reason_type
+            return f"{reason_type_label}: {detail}" if detail else reason_type_label
         return str(reason)
 
     def generate_daily_trading_plan(self, as_of: date, account: str = "total") -> DailyTradingPlanNote:
@@ -713,29 +714,29 @@ class TradingCatApplication:
             market_awareness = self.research_queries.market_awareness(as_of)
             participation = market_awareness.get("participation", {}) if isinstance(market_awareness, dict) else {}
             participation_line = (
-                f"Participation {participation.get('decision', 'wait')} / "
-                f"p={float(participation.get('probability', 0.0)):.2f} / "
-                f"odds={float(participation.get('odds', 1.0)):.2f}."
+                f"参与判断 {participation.get('decision', 'wait')} / "
+                f"概率={float(participation.get('probability', 0.0)):.2f} / "
+                f"赔率={float(participation.get('odds', 1.0)):.2f}。"
             )
             posture_line = (
-                f"Market posture {market_awareness.get('overall_regime', 'unknown')} / "
+                f"市场姿态 {market_awareness.get('overall_regime', 'unknown')} / "
                 f"{market_awareness.get('risk_posture', 'hold_pace')} / "
-                f"{market_awareness.get('confidence', 'low')} confidence."
+                f"{market_awareness.get('confidence', 'low')} 置信度。"
             )
             status = "planned" if not gate["should_block"] else "blocked"
             headline = (
-                f"Prepared {preview['intent_count']} order intents across {preview['signal_count']} signals. "
+                f"已准备 {preview['intent_count']} 条订单意图，来自 {preview['signal_count']} 条信号。"
                 f"{posture_line} {participation_line}"
             )
             reasons = (
                 [self._plan_reason_text(reason) for reason in gate["reasons"]]
                 if gate["should_block"]
-                else ["Execution gate is open for the current preview."]
+                else ["当前预览的执行门禁已放行。"]
             )
             reasons.append(posture_line)
             reasons.append(participation_line)
             reasons.extend(
-                f"Market cue: {action.get('text')}"
+                f"市场提示: {action.get('text')}"
                 for action in list(market_awareness.get("actions", []))[:2]
                 if isinstance(action, dict) and action.get("text")
             )
@@ -761,7 +762,7 @@ class TradingCatApplication:
                 as_of=as_of,
                 account=account,
                 status="blocked",
-                headline="Execution preview blocked by current risk state.",
+                headline="当前风险状态阻塞了执行预览。",
                 reasons=[str(exc)],
             )
         return self.trading_journal.save_plan(note)
@@ -772,10 +773,10 @@ class TradingCatApplication:
         gate = self.execution_gate_summary(as_of)
         note = DailyTradingSummaryNote(
             as_of=as_of,
-            headline=f"Tracked {len(orders)} orders with {alerts['count']} recorded alerts.",
+            headline=f"本地执行状态中跟踪 {len(orders)} 笔订单，记录 {alerts['count']} 条告警。",
             highlights=[
-                f"{len(orders)} orders currently exist in local execution state.",
-                f"Execution gate ready={gate['ready']} policy_stage={gate['policy_stage']}.",
+                f"本地执行状态中当前有 {len(orders)} 笔订单。",
+                f"执行门禁就绪={gate['ready']}，策略档位={gate['policy_stage']}。",
             ],
             blockers=list(gate["reasons"])[:5],
             next_actions=list(gate["next_actions"])[:5],

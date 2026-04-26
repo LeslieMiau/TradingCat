@@ -53,12 +53,12 @@ function buildOperationsContext(payload) {
 }
 
 function renderOperationsOverview(context) {
-  document.getElementById("operations-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  document.getElementById("operations-updated").textContent = `更新于 ${new Date().toLocaleString()}`;
   document.getElementById("operations-overview-metrics").innerHTML = [
-    metricTile("计划状态", context.latestPlan.status ?? "N/A", context.latestPlan.headline ?? "", context.latestPlan.status === "planned" ? "ok" : context.latestPlan.status === "no_trade" ? "warning" : "blocked"),
-    metricTile("总结阻塞项", fmt((context.latestSummary.blockers ?? []).length), `Live ready ${fmt(context.live.ready_for_live)}`, (context.latestSummary.blockers ?? []).length ? "blocked" : "ok"),
-    metricTile("计划条目", fmt(context.planRows.length), `Signals ${fmt(context.dashboard.trading_plan?.signal_count)}`, context.planRows.length ? "ok" : "warning"),
-    metricTile("执行 Gate", context.gate.should_block ? "Blocked" : context.gate.ready ? "Ready" : "Warning", `Policy ${fmt(context.gate.policy_stage)}`, context.gate.should_block ? "blocked" : context.gate.ready ? "ok" : "warning"),
+    metricTile("计划状态", labelStatus(context.latestPlan.status), context.latestPlan.headline ?? "", context.latestPlan.status === "planned" ? "ok" : context.latestPlan.status === "no_trade" ? "warning" : "blocked"),
+    metricTile("总结阻塞项", fmt((context.latestSummary.blockers ?? []).length), `实盘就绪 ${fmt(context.live.ready_for_live)}`, (context.latestSummary.blockers ?? []).length ? "blocked" : "ok"),
+    metricTile("计划条目", fmt(context.planRows.length), `信号 ${fmt(context.dashboard.trading_plan?.signal_count)}`, context.planRows.length ? "ok" : "warning"),
+    metricTile("执行门禁", context.gate.should_block ? "已阻塞" : context.gate.ready ? "就绪" : "预警", `策略档位 ${fmt(context.gate.policy_stage)}`, context.gate.should_block ? "blocked" : context.gate.ready ? "ok" : "warning"),
   ].join("");
 }
 
@@ -78,11 +78,11 @@ function renderOperationsPlan(context) {
         <tr>
           <td>${escapeHtml(row.strategy_id)}</td>
           <td><strong>${escapeHtml(row.symbol)}</strong></td>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(row.side)}</td>
+          <td>${escapeHtml(labelMarket(row.market))}</td>
+          <td>${escapeHtml(labelSide(row.side))}</td>
           <td>${escapeHtml(fmt(row.quantity, 4))}</td>
-          <td>${escapeHtml(row.target_weight == null ? "N/A" : fmtPct(row.target_weight))}</td>
-          <td>${escapeHtml(row.requires_approval ? "manual" : "auto")}</td>
+          <td>${escapeHtml(row.target_weight == null ? "暂无" : fmtPct(row.target_weight))}</td>
+          <td>${escapeHtml(row.requires_approval ? "人工" : "自动")}</td>
           <td>${escapeHtml(row.reason ?? "")}</td>
         </tr>
       `).join("")
@@ -109,30 +109,30 @@ function renderOperationsQuality(context) {
         : "warning";
   const summary = (context.evidenceTimeline ?? {}).summary ?? {};
   document.getElementById("operations-quality-metrics").innerHTML = [
-    metricTile("Ready For Live", fmt(context.live.ready_for_live), `Incidents ${fmt(context.live.incident_count)}`, context.live.ready_for_live ? "ok" : "warning"),
-    metricTile("Rollout", fmt(context.rollout.current_recommendation), `Next ${fmt(context.rollout.next_stage ?? "N/A")}`, context.rollout.ready_for_rollout ? "ok" : "warning"),
-    metricTile("Pass Streak", streakLabel, `Target ${fmt(readiness.target_stage ?? "N/A")} · max ${fmt(readiness.max_pass_streak ?? 0)}`, streakStatus),
-    metricTile("Evidence (42d)", `${fmt(summary.pass_days ?? 0)} pass`, `Fail ${fmt(summary.fail_days ?? 0)} · miss ${fmt(summary.missing_days ?? 0)}`, (summary.fail_days ?? 0) === 0 ? "ok" : "warning"),
-    metricTile("异常率", fmtPct(context.quality.exception_rate || 0), `Risk hit ${fmtPct(context.quality.risk_hit_rate || 0)}`, Number(context.quality.exception_rate || 0) <= 0.05 ? "ok" : "blocked"),
-    metricTile("授权状态", context.quality.authorization_ok ? "AUTHORIZED" : "UNAUTHORIZED", `Filled ${fmt(context.quality.filled_samples || 0)}`, context.quality.authorization_ok ? "ok" : "blocked"),
+    metricTile("实盘就绪", fmt(context.live.ready_for_live), `事件 ${fmt(context.live.incident_count)}`, context.live.ready_for_live ? "ok" : "warning"),
+    metricTile("上线阶段", fmt(context.rollout.current_recommendation), `下一档 ${fmt(context.rollout.next_stage)}`, context.rollout.ready_for_rollout ? "ok" : "warning"),
+    metricTile("连续通过", streakLabel, `目标 ${fmt(readiness.target_stage)} · 最高 ${fmt(readiness.max_pass_streak ?? 0)}`, streakStatus),
+    metricTile("证据 42日", `${fmt(summary.pass_days ?? 0)} 天通过`, `失败 ${fmt(summary.fail_days ?? 0)} · 缺失 ${fmt(summary.missing_days ?? 0)}`, (summary.fail_days ?? 0) === 0 ? "ok" : "warning"),
+    metricTile("异常率", fmtPct(context.quality.exception_rate || 0), `风控命中 ${fmtPct(context.quality.risk_hit_rate || 0)}`, Number(context.quality.exception_rate || 0) <= 0.05 ? "ok" : "blocked"),
+    metricTile("授权状态", context.quality.authorization_ok ? "已授权" : "未授权", `成交样本 ${fmt(context.quality.filled_samples || 0)}`, context.quality.authorization_ok ? "ok" : "blocked"),
   ].join("");
   setList(
     "operations-live-blockers",
     [
       ...(context.live.blockers ?? []),
-      ...((context.rollout.blockers ?? []).map((item) => `Rollout blocker: ${item}`)),
-      ...((readiness.blockers ?? []).map((item) => `Gate blocker: ${item}`)),
+      ...((context.rollout.blockers ?? []).map((item) => `上线阶段阻塞: ${item}`)),
+      ...((readiness.blockers ?? []).map((item) => `门禁阻塞: ${item}`)),
     ],
     "当前没有上线阻塞项。",
   );
   setList(
     "operations-rollout-list",
     [
-      `current_recommendation: ${fmt(context.rollout.current_recommendation)}`,
-      `next_stage: ${fmt(context.rollout.next_stage)}`,
-      `ready_for_rollout: ${fmt(context.rollout.ready_for_rollout)}`,
-      `gate_eligible (${fmt(readiness.target_stage ?? "N/A")}): ${fmt(readiness.eligible)}`,
-      `pass_streak: ${streakLabel}`,
+      `当前建议档位: ${fmt(context.rollout.current_recommendation)}`,
+      `下一档: ${fmt(context.rollout.next_stage)}`,
+      `可推进上线: ${fmt(context.rollout.ready_for_rollout)}`,
+      `门禁合格 (${fmt(readiness.target_stage)}): ${fmt(readiness.eligible)}`,
+      `连续通过: ${streakLabel}`,
       ...((context.rollout.recommendations ?? []).slice(0, 4)),
     ],
     "当前没有阶段建议。",
@@ -143,9 +143,9 @@ function renderOperationsIncidents(context) {
   setList(
     "operations-incident-summary",
     [
-      `window_days: ${fmt(context.incidents.window_days)}`,
-      `event_count: ${fmt((context.incidents.events ?? []).length)}`,
-      `latest_category: ${fmt((context.incidents.events ?? [])[0]?.category)}`,
+      `窗口天数: ${fmt(context.incidents.window_days)}`,
+      `事件数量: ${fmt((context.incidents.events ?? []).length)}`,
+      `最新类别: ${fmt((context.incidents.events ?? [])[0]?.category)}`,
     ],
     "当前没有事件摘要。",
   );
@@ -161,27 +161,27 @@ function renderSmartOrders(context) {
   if (!table) return;
   table.innerHTML = context.smartOrders.length
     ? context.smartOrders.map(renderSmartOrderRow).join("")
-    : '<tr><td colspan="6" class="table-empty">没有活跃的 Smart Orders 监听规则。</td></tr>';
+    : '<tr><td colspan="6" class="table-empty">没有活跃的智能条件单监听规则。</td></tr>';
 }
 
 function renderTcaPanel(context) {
   document.getElementById("tca-metrics").innerHTML = [
-    metricTile("平均滑点", `${fmt(context.tca.avg_slippage_bps || 0, 2)} bps`, "Slippage Gap", (context.tca.avg_slippage_bps || 0) < 5 ? "ok" : "warning"),
-    metricTile("平均延迟", `${fmt(context.tca.avg_latency_sec || 0, 3)}s`, "Execution Speed", (context.tca.avg_latency_sec || 0) < 1.0 ? "ok" : "warning"),
-    metricTile("执行样本", fmt(context.tca.execution_cycle_count || 0), "Cycle Count", "ok"),
-    metricTile("异常率", fmtPct(context.tca.exception_rate || 0), "Error Rate", (context.tca.exception_rate || 0) < 0.05 ? "ok" : "blocked"),
+    metricTile("平均滑点", `${fmt(context.tca.avg_slippage_bps || 0, 2)} bps`, "滑点偏差", (context.tca.avg_slippage_bps || 0) < 5 ? "ok" : "warning"),
+    metricTile("平均延迟", `${fmt(context.tca.avg_latency_sec || 0, 3)}s`, "执行速度", (context.tca.avg_latency_sec || 0) < 1.0 ? "ok" : "warning"),
+    metricTile("执行样本", fmt(context.tca.execution_cycle_count || 0), "执行轮次", "ok"),
+    metricTile("异常率", fmtPct(context.tca.exception_rate || 0), "错误率", (context.tca.exception_rate || 0) < 0.05 ? "ok" : "blocked"),
   ].join("");
   const sentimentData = context.tca.sentiment_impact || {};
   document.getElementById("tca-sentiment-list").innerHTML = Object.keys(sentimentData).length
     ? Object.entries(sentimentData).map(([emotion, impact]) => `
         <div class="detail-item">
             <span class="detail-label">${emotion}</span>
-            <span class="detail-value ${impact > 5 ? 'text-danger' : ''}">${fmt(impact, 2)} bps slip</span>
+            <span class="detail-value ${impact > 5 ? 'text-danger' : ''}">${fmt(impact, 2)} bps 滑点</span>
         </div>
     `).join("")
     : '<div class="detail-empty">无情绪对滑点影响数据。</div>';
   document.getElementById("tca-recent-list").innerHTML = context.tca.latest_execution_event
-    ? `<li>Latest: <strong>${context.tca.latest_execution_event.action}</strong> at ${new Date(context.tca.latest_execution_event.created_at).toLocaleTimeString()}</li>`
+    ? `<li>最近：<strong>${context.tca.latest_execution_event.action}</strong>，${new Date(context.tca.latest_execution_event.created_at).toLocaleTimeString()}</li>`
     : '<li class="detail-empty">暂无近期执行记录。</li>';
 }
 
@@ -191,9 +191,10 @@ function renderRiskPanel(context) {
   document.getElementById("risk-half-dd").value = context.risk.half_risk_drawdown || 0;
   document.getElementById("risk-no-dd").value = context.risk.no_new_risk_drawdown || 0;
   const ksBadge = document.getElementById("kill-switch-status");
-  ksBadge.textContent = context.killSwitch.enabled ? "ACTIVE (HALTED)" : "INACTIVE (OK)";
+  ksBadge.textContent = context.killSwitch.enabled ? "已激活（已暂停）" : "未激活（正常）";
+  ksBadge.dataset.enabled = context.killSwitch.enabled ? "true" : "false";
   ksBadge.className = `status-badge ${context.killSwitch.enabled ? "blocked" : "ok"}`;
-  document.getElementById("kill-switch-reason").textContent = `最后操作原因: ${context.killSwitch.latest?.reason || "N/A"}`;
+  document.getElementById("kill-switch-reason").textContent = `最后操作原因：${context.killSwitch.latest?.reason || "暂无"}`;
 }
 
 function renderFillsTable(context) {
@@ -202,15 +203,15 @@ function renderFillsTable(context) {
     ? samples.map((row) => `
         <tr>
           <td><strong>${escapeHtml(row.symbol)}</strong></td>
-          <td>${escapeHtml(row.market)}</td>
+          <td>${escapeHtml(labelMarket(row.market))}</td>
           <td>${escapeHtml(fmt(row.reference_price, 2))}</td>
           <td>${escapeHtml(fmt(row.fill_price, 2))}</td>
           <td style="font-family:var(--font-mono)">${fillSlippageHtml(row.recorded_slippage)}</td>
           <td>${fillTagHtml(row.emotional_tag)}</td>
           <td>
-            ${row.within_threshold 
-              ? `<span style="color:var(--ok)">OK</span>` 
-              : `<span style="color:var(--block)">超限 (Breach)</span>`}
+            ${row.within_threshold
+              ? `<span style="color:var(--ok)">正常</span>`
+              : `<span style="color:var(--block)">超限</span>`}
           </td>
         </tr>
       `).join("")
@@ -239,10 +240,10 @@ function renderSmartOrderRow(row) {
     <tr>
       <td><span class="meta-text" title="${row.smart_order_id}">${row.smart_order_id.substring(0, 8)}</span></td>
       <td><strong>${escapeHtml(row.symbol)}</strong></td>
-      <td><span style="color:var(${sideVar})">${row.side}</span> / ${row.quantity}</td>
+      <td><span style="color:var(${sideVar})">${labelSide(row.side)}</span> / ${row.quantity}</td>
       <td style="font-family:var(--font-mono); font-size:11px">${escapeHtml(conditionsAst)}</td>
       <td>${timeText}</td>
-      <td><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></td>
+      <td><span class="badge ${statusClass}">${escapeHtml(labelStatus(row.status))}</span></td>
     </tr>
   `;
 }
@@ -280,7 +281,7 @@ async function refreshOperations() {
     const payload = await loadPayloads();
     renderOperations(payload);
   } catch (error) {
-    document.getElementById("operations-overview-metrics").innerHTML = metricTile("Operations Error", "Unavailable", error.message, "blocked");
+    document.getElementById("operations-overview-metrics").innerHTML = metricTile("运营错误", "不可用", error.message, "blocked");
   }
 }
 
@@ -294,8 +295,8 @@ async function initOperations() {
     if (container) {
       container.innerHTML = `
         <article class="metric-tile blocked">
-          <div class="metric-label">Operations Error</div>
-          <div class="metric-value">Unavailable</div>
+          <div class="metric-label">运营错误</div>
+          <div class="metric-value">不可用</div>
           <div class="metric-meta">${error.message}</div>
         </article>
       `;
@@ -303,7 +304,7 @@ async function initOperations() {
   }
 }
 
-// Risk Management Handlers
+// 风控操作处理
 async function handleRiskUpdate(e) {
     e.preventDefault();
     const payload = {
@@ -326,7 +327,7 @@ async function handleRiskUpdate(e) {
 }
 
 async function handleKillSwitchToggle() {
-    const ks = document.getElementById("kill-switch-status").textContent.includes("ACTIVE");
+    const ks = document.getElementById("kill-switch-status").dataset.enabled === "true";
     const reason = prompt(`确定要${ks ? '取消' : '开启'}紧急关停吗？请输入原因:`);
     if (reason === null) return;
     
@@ -393,7 +394,7 @@ document.getElementById("add-smart-order-btn")?.addEventListener("click", async 
     body: JSON.stringify(mockOrder)
   });
   if (res.ok) {
-    showToast("成功注入一条测试 Smart Order", "success");
+    showToast("成功注入一条测试智能条件单", "success");
     await refreshOperations();
   } else {
     showToast(`注入失败: ${res.error}`, "error");

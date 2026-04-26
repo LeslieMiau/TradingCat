@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% set active_page = "research" %}
 
-{% block page_title %}TradingCat Research{% endblock %}
+{% block page_title %}TradingCat 研究控制台{% endblock %}
 
 {% block shell %}
 <header class="hero hero-compact">
         <div class="hero-copy">
-          <p class="eyebrow">TradingCat Research Console</p>
+          <p class="eyebrow">TradingCat 研究控制台</p>
           <h1>研究总览与策略筛选</h1>
         </div>
         <div class="hero-actions">
           <button id="refresh-research" class="button button-primary button-sm" type="button">刷新研究数据</button>
-          <a class="button button-sm" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+          <a class="button button-sm" href="/docs" target="_blank" rel="noreferrer">API 文档</a>
         </div>
       </header>
 
-      <!-- Tab Navigation -->
+      <!-- 研究页签 -->
       <div class="research-tabs" style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border-color)">
         <button class="research-tab is-active" data-tab="strategy" type="button" style="padding:10px 20px;font-family:var(--font-mono);font-size:12px;letter-spacing:0.5px;text-transform:uppercase;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--text-color);cursor:pointer">策略研报</button>
         <button class="research-tab" data-tab="quant" type="button" style="padding:10px 20px;font-family:var(--font-mono);font-size:12px;letter-spacing:0.5px;text-transform:uppercase;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-dim);cursor:pointer">量化研报</button>
@@ -32,14 +32,14 @@
             <article class="metric-tile loading"><span>加载中...</span></article>
           </div>
           <div class="panel-header">
-            <h2>Verdict 筛选</h2>
+            <h2>结论筛选</h2>
             <span id="research-filter-note" class="meta-text">当前显示全部候选</span>
           </div>
           <div id="research-filter-tabs" class="tabs">
             <button class="tab is-active" data-verdict="all" type="button">全部</button>
-            <button class="tab" data-verdict="deploy_candidate" type="button">deploy</button>
-            <button class="tab" data-verdict="paper_only" type="button">paper</button>
-            <button class="tab" data-verdict="reject" type="button">reject</button>
+            <button class="tab" data-verdict="deploy_candidate" type="button">可部署</button>
+            <button class="tab" data-verdict="paper_only" type="button">纸面跟踪</button>
+            <button class="tab" data-verdict="reject" type="button">淘汰</button>
           </div>
         </section>
 
@@ -237,7 +237,7 @@
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Top Picks</h2>
+            <h2>优先候选</h2>
             <span class="meta-text">当前最值得继续研究的候选</span>
           </div>
           <div id="research-top-cards" class="strategy-card-grid">
@@ -527,8 +527,8 @@
               <thead>
                 <tr>
                   <th>策略</th>
-                  <th>Verdict</th>
-                  <th>Profit Score</th>
+                  <th>结论</th>
+                  <th>盈利评分</th>
                   <th>年化收益</th>
                   <th>夏普</th>
                   <th>最大回撤</th>

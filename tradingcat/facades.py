@@ -83,8 +83,8 @@ class DashboardFacade:
         return DailyTradingPlanNote(
             as_of=evaluation_date,
             status="no_trade",
-            headline="No archived trading plan is available for this date yet.",
-            reasons=["Generate or archive a daily trading plan to populate this panel."],
+            headline="当前日期还没有归档交易计划。",
+            reasons=["生成或归档一份每日交易计划后，这个面板会展示计划内容。"],
             metrics={"source": "dashboard_fallback"},
             items=[],
         )
@@ -93,9 +93,9 @@ class DashboardFacade:
         note = self._app.trading_journal.latest_summary(as_of=evaluation_date)
         return note or DailyTradingSummaryNote(
             as_of=evaluation_date,
-            headline="No archived daily summary is available for this date yet.",
-            highlights=["Generate a daily summary after review to populate this panel."],
-            next_actions=["Run the summary/archive flow after the daily review closes."],
+            headline="当前日期还没有归档交易总结。",
+            highlights=["完成复盘后生成每日总结，这个面板会展示总结内容。"],
+            next_actions=["日终复盘结束后运行总结归档流程。"],
             metrics={"source": "dashboard_fallback"},
         )
 

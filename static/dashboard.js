@@ -24,13 +24,13 @@ function renderSection(label, fn) {
 }
 
 function renderError() {
-  const message = state.error ?? "Unknown dashboard error";
+  const message = state.error ?? "未知控制台错误";
   const errorCell = (cols) => `<tr><td colspan="${cols}" class="table-empty">${escapeHtml(message)}</td></tr>`;
-  const errorMetric = (label) => metricTile(label, "Unavailable", message, "blocked");
+  const errorMetric = (label) => metricTile(label, "不可用", message, "blocked");
   const el = (id) => document.getElementById(id);
 
-  if (el("overview-cards")) el("overview-cards").innerHTML = errorMetric("Dashboard Error");
-  if (el("plan-metrics")) el("plan-metrics").innerHTML = errorMetric("Trading Plan");
+  if (el("overview-cards")) el("overview-cards").innerHTML = errorMetric("控制台错误");
+  if (el("plan-metrics")) el("plan-metrics").innerHTML = errorMetric("交易计划");
   if (el("plan-table")) el("plan-table").innerHTML = errorCell(8);
   if (el("queue-approvals-list")) setList("queue-approvals-list", [], message);
   if (el("queue-orders-list")) setList("queue-orders-list", [], message);
@@ -201,7 +201,7 @@ registerCommand("美股账户", "切换到美股视图", () => { state.activeAcc
 registerCommand("日报", "打开日报页面", () => { window.location.href = "/dashboard/journal"; }, "导航");
 registerCommand("研究", "打开研究页面", () => { window.location.href = "/dashboard/research"; }, "导航");
 registerCommand("运营", "打开运营页面", () => { window.location.href = "/dashboard/operations"; }, "导航");
-registerCommand("极速下单", "打开 Quick Trade 面板 (Ctrl+B)", () => showQuickTradeModal(), "交易");
+registerCommand("极速下单", "打开快速下单面板 (Ctrl+B)", () => showQuickTradeModal(), "交易");
 registerCommand("一键撤单", "撤销所有挂单 (Ctrl+X)", () => {
   if (confirm("确定要撤销所有未完成订单吗?")) {
     apiFetch(API.ordersCancelOpen, { method: "POST" }).then((r) => {
@@ -209,10 +209,10 @@ registerCommand("一键撤单", "撤销所有挂单 (Ctrl+X)", () => {
     });
   }
 }, "交易");
-registerCommand("Kill Switch", "触发全局紧急关停 (Shift+X)", () => {
-  if (confirm("警告：这会触发 Kill Switch！确定吗？")) {
+registerCommand("紧急关停", "触发全局紧急关停 (Shift+X)", () => {
+  if (confirm("警告：这会触发全局紧急关停！确定吗？")) {
     apiFetch(API.killSwitch, { method: "POST" }).then((r) => {
-      showToast(r.ok ? "Kill Switch 已激活" : r.error || "触发失败", r.ok ? "error" : "error", 5000);
+      showToast(r.ok ? "紧急关停已激活" : r.error || "触发失败", r.ok ? "error" : "error", 5000);
     });
   }
 }, "风控");

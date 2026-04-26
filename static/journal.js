@@ -12,14 +12,14 @@ const journalState = {
 function labelSide(value) {
   if (value === "buy") return "买入";
   if (value === "sell") return "卖出";
-  return value == null ? "N/A" : String(value);
+  return displayValue(value);
 }
 
 function labelPlanStatus(value) {
   if (value === "planned") return "有计划";
   if (value === "no_trade") return "无交易";
   if (value === "blocked") return "已阻塞";
-  return value == null ? "N/A" : String(value);
+  return displayValue(value);
 }
 
 function labelAccount(value) {
@@ -27,7 +27,7 @@ function labelAccount(value) {
   if (value === "CN") return "A股";
   if (value === "HK") return "港股";
   if (value === "US") return "美股";
-  return value == null ? "N/A" : String(value);
+  return displayValue(value);
 }
 
 async function loadJournal() {
@@ -63,10 +63,10 @@ function renderTabs() {
 
 function renderJournal() {
   renderTabs();
-  document.getElementById("journal-updated").textContent = `Updated ${new Date().toLocaleString()}`;
+  document.getElementById("journal-updated").textContent = `更新于 ${new Date().toLocaleString()}`;
   if (journalState.error) {
     const message = journalState.error;
-    document.getElementById("journal-metrics").innerHTML = metricTile("日报状态", "Unavailable", message, "blocked");
+    document.getElementById("journal-metrics").innerHTML = metricTile("日报状态", "不可用", message, "blocked");
     document.getElementById("journal-latest-plan-headline").textContent = message;
     document.getElementById("journal-latest-summary-headline").textContent = message;
     setList("journal-latest-plan-body", [], message);
@@ -95,7 +95,7 @@ function renderJournal() {
   const latestPlanBody = [];
   (latestPlan?.reasons ?? []).forEach((item) => latestPlanBody.push(`原因：${item}`));
   (latestPlan?.items ?? []).slice(0, 6).forEach((item) => {
-    latestPlanBody.push(`${item.symbol} / ${labelSide(item.side)} / 目标权重 ${item.target_weight == null ? "N/A" : fmtPct(item.target_weight)} / ${item.reason ?? "暂无原因说明"}`);
+    latestPlanBody.push(`${item.symbol} / ${labelSide(item.side)} / 目标权重 ${item.target_weight == null ? "暂无" : fmtPct(item.target_weight)} / ${item.reason ?? "暂无原因说明"}`);
   });
   if (!latestPlanBody.length && latestPlan?.status === "no_trade") {
     latestPlanBody.push("今天没有交易计划。");
@@ -115,7 +115,7 @@ function renderJournal() {
       status: planItem.status,
       intentCount: planItem.counts?.intent_count ?? 0,
       blockerCount: (summaryItem?.blockers ?? []).length,
-      nextAction: (summaryItem?.next_actions ?? [])[0] ?? "N/A",
+      nextAction: (summaryItem?.next_actions ?? [])[0] ?? "暂无",
     };
   });
   document.getElementById("journal-timeline-table").innerHTML = timelineRows.length
@@ -147,7 +147,7 @@ function renderJournal() {
   (selectedPlan?.reasons ?? []).forEach((item) => selectedPlanBody.push(`原因：${item}`));
   (selectedPlan?.items ?? []).forEach((item) => {
     const side = item.side === "buy" ? "买入" : item.side === "sell" ? "卖出" : "未知";
-    selectedPlanBody.push(`${item.symbol} / ${labelSide(item.side)} / 数量 ${fmt(item.quantity ?? 0, 4)} / 目标权重 ${item.target_weight == null ? "N/A" : fmtPct(item.target_weight)} / ${item.reason ?? "暂无原因说明"}`);
+    selectedPlanBody.push(`${item.symbol} / ${labelSide(item.side)} / 数量 ${fmt(item.quantity ?? 0, 4)} / 目标权重 ${item.target_weight == null ? "暂无" : fmtPct(item.target_weight)} / ${item.reason ?? "暂无原因说明"}`);
   });
   setList("journal-plan-preview-body", selectedPlanBody, "当前没有计划详情内容。");
 
@@ -156,9 +156,9 @@ function renderJournal() {
         <tr data-summary-index="${index}" class="${index === journalState.selectedSummaryIndex ? "is-selected" : ""}">
           <td>${escapeHtml(String(item.as_of ?? ""))}</td>
           <td>${escapeHtml(item.headline ?? "")}</td>
-          <td>${escapeHtml((item.highlights ?? [])[0] ?? "N/A")}</td>
-          <td>${escapeHtml((item.blockers ?? [])[0] ?? "N/A")}</td>
-          <td>${escapeHtml((item.next_actions ?? [])[0] ?? "N/A")}</td>
+          <td>${escapeHtml((item.highlights ?? [])[0] ?? "暂无")}</td>
+          <td>${escapeHtml((item.blockers ?? [])[0] ?? "暂无")}</td>
+          <td>${escapeHtml((item.next_actions ?? [])[0] ?? "暂无")}</td>
         </tr>
       `).join("")
     : '<tr><td colspan="5" class="table-empty">当前没有总结归档记录。</td></tr>';

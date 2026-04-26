@@ -3,7 +3,7 @@ async function loadAccountPage() {
   const result = await apiFetch(API.dashboardSummary);
   if (!result.ok) {
     document.getElementById("account-title").textContent = "账户加载失败";
-    document.getElementById("account-subtitle").textContent = result.error || "Unavailable";
+    document.getElementById("account-subtitle").textContent = result.error || "不可用";
     return;
   }
   const payload = result.data ?? {};
@@ -14,23 +14,23 @@ async function loadAccountPage() {
     return;
   }
   document.getElementById("account-title").textContent = account.label;
-  document.getElementById("account-subtitle").textContent = `NAV ${money(account.nav)} / 持仓 ${fmt(account.position_count)} / 现金 ${money(account.cash)}`;
-  document.getElementById("account-updated").textContent = `As of ${payload.as_of}`;
+  document.getElementById("account-subtitle").textContent = `净值 ${money(account.nav)} / 持仓 ${fmt(account.position_count)} / 现金 ${money(account.cash)}`;
+  document.getElementById("account-updated").textContent = `截至 ${payload.as_of}`;
   document.getElementById("account-curve-title").textContent = `${account.label}净值曲线`;
   document.getElementById("account-metrics").innerHTML = [
-    metricTile("NAV", money(account.nav), `现金 ${money(account.cash)}`, "ok"),
+    metricTile("净值", money(account.nav), `现金 ${money(account.cash)}`, "ok"),
     metricTile("持仓市值", money(account.position_value), `持仓数 ${fmt(account.position_count)}`, "ok"),
-    metricTile("现金占比", fmtPct(account.cash_weight), "Liquidity", "warning"),
+    metricTile("现金占比", fmtPct(account.cash_weight), "流动性", "warning"),
     metricTile("总收益", fmtPct(account.total_return), `回撤 ${fmtPct(account.drawdown)}`, (account.total_return ?? 0) >= 0 ? "ok" : "blocked"),
     metricTile("日盈亏", money(account.daily_pnl), `周盈亏 ${money(account.weekly_pnl)}`, (account.daily_pnl ?? 0) >= 0 ? "ok" : "blocked"),
-    metricTile("市场", account.account, "Account", "empty"),
+    metricTile("市场", labelMarket(account.account), "账户", "empty"),
   ].join("");
   renderCurve("account-nav-curve", account.nav_curve || []);
 
   const allocation = account.allocation_mix || {};
   document.getElementById("account-allocation-bars").innerHTML = `
     <div class="stack-row">
-      <label>Cash / Equity / Option</label>
+      <label>现金 / 股票 / 期权</label>
       <div class="stack-track">
         <span class="stack-segment cash" style="width:${(allocation.cash ?? 0) * 100}%"></span>
         <span class="stack-segment equity" style="width:${(allocation.equity ?? 0) * 100}%"></span>
@@ -53,9 +53,9 @@ async function loadAccountPage() {
   const accountPlanItems = account.plan_items || [];
   document.getElementById("account-plan-list").innerHTML = [
     `计划条数: ${fmt(accountPlanItems.length)}`,
-    `Gate ready: ${gate.ready}`,
-    `Gate blocked: ${gate.should_block}`,
-    `Policy stage: ${fmt(gate.policy_stage)}`,
+    `门禁就绪: ${fmt(gate.ready)}`,
+    `门禁阻塞: ${fmt(gate.should_block)}`,
+    `策略档位: ${fmt(gate.policy_stage)}`,
   ].map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 
   const positionsBody = document.getElementById("account-positions-table");
@@ -63,8 +63,8 @@ async function loadAccountPage() {
     ? account.positions.map((row) => `
         <tr>
           <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
-          <td>${escapeHtml(row.market)}</td>
-          <td>${escapeHtml(row.asset_class)}</td>
+          <td>${escapeHtml(labelMarket(row.market))}</td>
+          <td>${escapeHtml(labelAssetClass(row.asset_class))}</td>
           <td>${escapeHtml(fmt(row.quantity, 4))}</td>
           <td>${escapeHtml(money(row.average_cost))}</td>
           <td>${escapeHtml(money(row.market_value))}</td>
@@ -80,12 +80,12 @@ async function loadAccountPage() {
     ? accountPlanItems.map((row) => `
         <tr>
           <td>${escapeHtml(row.strategy_id)}</td>
-          <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.market)}</span></td>
-          <td>${escapeHtml(row.side)}</td>
+          <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(labelMarket(row.market))}</span></td>
+          <td>${escapeHtml(labelSide(row.side))}</td>
           <td>${escapeHtml(fmt(row.quantity, 4))}</td>
-          <td>${escapeHtml(row.target_weight == null ? "N/A" : fmtPct(row.target_weight))}</td>
-          <td>${escapeHtml(row.reference_price == null ? "N/A" : money(row.reference_price))}</td>
-          <td>${escapeHtml(row.requires_approval ? "manual" : "auto")}</td>
+          <td>${escapeHtml(row.target_weight == null ? "暂无" : fmtPct(row.target_weight))}</td>
+          <td>${escapeHtml(row.reference_price == null ? "暂无" : money(row.reference_price))}</td>
+          <td>${escapeHtml(row.requires_approval ? "人工" : "自动")}</td>
           <td>${escapeHtml(row.reason ?? "")}</td>
         </tr>
       `).join("")
@@ -105,10 +105,10 @@ async function loadAccountPage() {
   const filledCount = executionRows.filter((row) => row.order_status === "filled").length;
   const pendingApprovalCount = executionRows.filter((row) => row.approval_status === "pending").length;
   document.getElementById("account-execution-metrics").innerHTML = [
-    metricTile("计划单", fmt(executionRows.length), "today plan items", executionRows.length ? "ok" : "warning"),
-    metricTile("已出单", fmt(submittedCount), "recent orders", submittedCount ? "ok" : "warning"),
-    metricTile("已成交", fmt(filledCount), "filled orders", filledCount ? "ok" : "warning"),
-    metricTile("待审批", fmt(pendingApprovalCount), "manual review", pendingApprovalCount ? "warning" : "ok"),
+    metricTile("计划单", fmt(executionRows.length), "今日计划条目", executionRows.length ? "ok" : "warning"),
+    metricTile("已出单", fmt(submittedCount), "最近订单", submittedCount ? "ok" : "warning"),
+    metricTile("已成交", fmt(filledCount), "成交订单", filledCount ? "ok" : "warning"),
+    metricTile("待审批", fmt(pendingApprovalCount), "人工复核", pendingApprovalCount ? "warning" : "ok"),
   ].join("");
   document.getElementById("account-execution-table").innerHTML = executionRows.length
     ? executionRows.map((row) => `
@@ -116,9 +116,9 @@ async function loadAccountPage() {
           <td>${escapeHtml(row.strategy_id)}</td>
           <td><strong>${escapeHtml(row.symbol)}</strong></td>
           <td>${escapeHtml(fmt(row.quantity, 4))}</td>
-          <td class="status-${statusTone(row.order_status)}">${escapeHtml(row.order_status)}</td>
-          <td>${escapeHtml(row.filled_quantity == null ? "N/A" : fmt(row.filled_quantity, 4))}</td>
-          <td class="status-${statusTone(row.approval_status)}">${escapeHtml(row.approval_status)}</td>
+          <td class="status-${statusTone(row.order_status)}">${escapeHtml(labelStatus(row.order_status))}</td>
+          <td>${escapeHtml(row.filled_quantity == null ? "暂无" : fmt(row.filled_quantity, 4))}</td>
+          <td class="status-${statusTone(row.approval_status)}">${escapeHtml(labelStatus(row.approval_status))}</td>
         </tr>
       `).join("")
     : '<tr><td colspan="6" class="table-empty">当前账户没有执行链路数据。</td></tr>';

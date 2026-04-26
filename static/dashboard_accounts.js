@@ -29,15 +29,15 @@
       metricTile("持仓市值", money(account.position_value || 0), `持仓数 ${fmt(account.positions?.length || 0)}`, "ok"),
       metricTile("现金占比", fmtPct(account.cash_weight || account.cash_ratio || 0), `现金 ${money(account.cash || 0)}`, "warning"),
       metricTile("总收益", `${fmtPct(account.total_return ?? 0)} ${trendIcon(account.total_return ?? 0)}`, `回撤 ${fmtPct(account.drawdown ?? 0)}`, (account.total_return ?? 0) >= 0 ? "ok" : "blocked"),
-      metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? 0)} ${trendIcon(account.daily_pnl ?? 0)} / ${money(account.weekly_pnl ?? 0)}`, "PnL", (account.daily_pnl ?? 0) >= 0 ? "ok" : "blocked"),
-      metricTile("运行状态", live.ready_for_live ? "Live Ready" : (gate.should_block ? "Blocked" : "Warning"), `Gate ${gate.policy_stage ?? "N/A"} / Live ${live.ready_for_live ? "READY" : "WAIT"}`, tone),
+      metricTile("日 / 周盈亏", `${money(account.daily_pnl ?? 0)} ${trendIcon(account.daily_pnl ?? 0)} / ${money(account.weekly_pnl ?? 0)}`, "盈亏", (account.daily_pnl ?? 0) >= 0 ? "ok" : "blocked"),
+      metricTile("运行状态", live.ready_for_live ? "实盘就绪" : (gate.should_block ? "已阻塞" : "预警"), `门禁 ${displayValue(gate.policy_stage)} / 实盘 ${live.ready_for_live ? "就绪" : "等待"}`, tone),
     ];
     overviewCards.innerHTML = cards.join("");
 
     const toplineUpdated = document.getElementById("topline-updated");
     if (toplineUpdated) {
       const now = new Date();
-      toplineUpdated.innerHTML = `Updated ${now.toLocaleString()} ${freshnessIndicator(now)}`;
+      toplineUpdated.innerHTML = `更新于 ${now.toLocaleString()} ${freshnessIndicator(now)}`;
     }
 
     const curveTitle = document.getElementById("curve-title");
@@ -71,8 +71,8 @@
           (row) => `
             <tr>
               <td data-label="资产"><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.name ?? "")}</span></td>
-              <td data-label="市场">${escapeHtml(row.market)}</td>
-              <td data-label="类别">${escapeHtml(row.asset_class)}</td>
+          <td data-label="市场">${escapeHtml(labelMarket(row.market))}</td>
+          <td data-label="类别">${escapeHtml(labelAssetClass(row.asset_class))}</td>
               <td data-label="数量">${escapeHtml(fmt(row.quantity, 4))}</td>
               <td data-label="均价">${escapeHtml(money(row.average_cost))}</td>
               <td data-label="市值">${escapeHtml(money(row.market_value))}</td>
@@ -90,7 +90,7 @@
       const allocation = account.allocation_mix ?? {};
       allocationBars.innerHTML = `
         <div class="stack-row">
-          <label>Cash / Equity / Option</label>
+          <label>现金 / 股票 / 期权</label>
           <div class="stack-track">
             <span class="stack-segment cash" style="width:${(allocation.cash ?? 0) * 100}%"></span>
             <span class="stack-segment equity" style="width:${(allocation.equity ?? 0) * 100}%"></span>
@@ -104,7 +104,7 @@
       setList(
         "account-bullets",
         [
-          `账户: ${account.label ?? "N/A"}`,
+          `账户: ${displayValue(account.label)}`,
           `NAV: ${money(account.nav)}`,
           `现金: ${money(account.cash)}`,
           `持仓市值: ${money(account.position_value)}`,
@@ -138,7 +138,7 @@
               <td class="${(item.total_return ?? 0) >= 0 ? "status-ok" : "status-blocked"}">${escapeHtml(fmtPct(item.total_return))}</td>
               <td>${escapeHtml(fmt((item.plan_items || []).length))}</td>
               <td>${escapeHtml(fmt(item.position_count))}</td>
-              <td><span class="badge status-${badgeTone(status === "blocked" ? "blocked" : status === "live_ready" ? "ok" : status === "planned" ? "warning" : "empty")}">${escapeHtml(status)}</span></td>
+              <td><span class="badge status-${badgeTone(status === "blocked" ? "blocked" : status === "live_ready" ? "ok" : status === "planned" ? "warning" : "empty")}">${escapeHtml(labelStatus(status))}</span></td>
             </tr>
           `).join("")
         : '<tr><td colspan="7" class="table-empty">当前没有账户对照数据。</td></tr>';
@@ -189,10 +189,10 @@
 
       if (cashUsageMetrics) {
         cashUsageMetrics.innerHTML = [
-          metricTile("总计划金额", money(usageRows.find((row) => row.key === "total")?.planNotional ?? 0), "gross notional today", usageRows.length ? "ok" : "warning"),
-          metricTile("最高使用率", fmtPct(Math.max(...usageRows.map((row) => Number(row.cashUsage || 0)), 0)), "max cash draw by account", usageRows.length ? "warning" : "empty"),
-          metricTile("触达账户", fmt(usageRows.filter((row) => row.planCount > 0 && row.key !== "total").length), "accounts with plan today", usageRows.length ? "ok" : "warning"),
-          metricTile("总计划单", fmt(planItems.length), "planned intents", planItems.length ? "ok" : "warning"),
+          metricTile("总计划金额", money(usageRows.find((row) => row.key === "total")?.planNotional ?? 0), "今日预估名义金额", usageRows.length ? "ok" : "warning"),
+          metricTile("最高使用率", fmtPct(Math.max(...usageRows.map((row) => Number(row.cashUsage || 0)), 0)), "单账户最高现金占用", usageRows.length ? "warning" : "empty"),
+          metricTile("触达账户", fmt(usageRows.filter((row) => row.planCount > 0 && row.key !== "total").length), "今日有计划的账户", usageRows.length ? "ok" : "warning"),
+          metricTile("总计划单", fmt(planItems.length), "计划意图数", planItems.length ? "ok" : "warning"),
         ].join("");
       }
 
@@ -203,7 +203,7 @@
                 <td><strong>${escapeHtml(row.label)}</strong></td>
                 <td>${escapeHtml(money(row.cash))}</td>
                 <td>${escapeHtml(money(row.planNotional))}</td>
-                <td>${escapeHtml(row.cashUsage != null ? fmtPct(row.cashUsage) : "N/A")}</td>
+                <td>${escapeHtml(row.cashUsage != null ? fmtPct(row.cashUsage) : "暂无")}</td>
                 <td>${escapeHtml(fmt(row.planCount))}</td>
               </tr>
             `).join("")

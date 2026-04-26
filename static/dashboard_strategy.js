@@ -6,14 +6,14 @@
   function labelSide(value) {
     if (value === "buy") return "买入";
     if (value === "sell") return "卖出";
-    return value == null ? "N/A" : String(value);
+    return displayValue(value);
   }
 
   function labelPlanStatus(value) {
     if (value === "planned") return "有计划";
     if (value === "no_trade") return "无交易";
     if (value === "blocked") return "已阻塞";
-    return value == null ? "N/A" : String(value);
+    return displayValue(value);
   }
 
   function renderStrategies(state) {
@@ -34,9 +34,9 @@
         metricTile("组合年化", fmtPct(metrics.annualized_return), `通过 ${fmt(strategies.portfolio_passed)}`, strategies.portfolio_passed ? "ok" : "warning"),
         metricTile("组合夏普", fmt(metrics.sharpe), `策略数 ${fmt(metrics.strategy_count)}`, "ok"),
         metricTile("组合最大回撤", fmtPct(metrics.max_drawdown), `Calmar ${fmt(metrics.calmar)}`, "warning"),
-        metricTile("通过策略", fmt((strategies.accepted_strategy_ids ?? []).length), `Accepted ${(strategies.accepted_strategy_ids ?? []).join(", ") || "None"}`, (strategies.accepted_strategy_ids ?? []).length ? "ok" : "warning"),
-        metricTile("数据阻塞", fmt(strategies.blocked_by_data_count), "blocked_by_data", strategies.blocked_by_data_count ? "blocked" : "ok"),
-        metricTile("仅纸面", fmt(strategies.paper_only_count), "paper_only", strategies.paper_only_count ? "warning" : "ok"),
+        metricTile("通过策略", fmt((strategies.accepted_strategy_ids ?? []).length), `已通过 ${(strategies.accepted_strategy_ids ?? []).join(", ") || "暂无"}`, (strategies.accepted_strategy_ids ?? []).length ? "ok" : "warning"),
+        metricTile("数据阻塞", fmt(strategies.blocked_by_data_count), "因数据不足阻塞", strategies.blocked_by_data_count ? "blocked" : "ok"),
+        metricTile("仅纸面", fmt(strategies.paper_only_count), "仅纸面跟踪", strategies.paper_only_count ? "warning" : "ok"),
       ].join("");
     }
 
@@ -50,7 +50,7 @@
                   <h3><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></h3>
                   <p class="detail-paragraph">${escapeHtml(row.thesis)}</p>
                   <div class="tag-row">
-                    <span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(row.display_status ?? row.action)}</span>
+                    <span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(labelStatus(row.display_status ?? row.action))}</span>
                     <span class="tag">${escapeHtml(row.cadence)}</span>
                     <span class="tag">${escapeHtml(row.capacity_tier)}</span>
                   </div>
@@ -75,12 +75,12 @@
               (row) => `
                 <tr>
                   <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.name)}</a></strong><br /><span class="meta-text">${escapeHtml(row.strategy_id)}</span></td>
-                  <td><span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(row.display_status ?? row.action)}</span></td>
+                  <td><span class="badge status-${badgeTone(row.display_status === "blocked_by_data" ? "blocked" : row.display_status === "paper_only" ? "warning" : row.action)}">${escapeHtml(labelStatus(row.display_status ?? row.action))}</span></td>
                   <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
                   <td>${escapeHtml(fmt(row.sharpe))}</td>
                   <td>${escapeHtml(fmtPct(row.max_drawdown))}</td>
                   <td>${escapeHtml(fmt(row.calmar))}</td>
-                  <td>${escapeHtml(`${row.stability_bucket} / pass ${fmtPct(row.validation_pass_rate)}`)}<br /><span class="meta-text">${escapeHtml(row.status_reason ?? "")}</span></td>
+                  <td>${escapeHtml(`${displayValue(row.stability_bucket)} / 通过 ${fmtPct(row.validation_pass_rate)}`)}<br /><span class="meta-text">${escapeHtml(row.status_reason ?? "")}</span></td>
                 </tr>
               `,
             )
@@ -94,14 +94,14 @@
     }
     const execTop = rows.filter((row) => row.action === "active" || row.action === "deploy").slice(0, 5);
     if (document.getElementById("strategy-exec-top-list")) {
-      setList("strategy-exec-top-list", execTop.map((row) => `${row.name}: ${row.action} / 年化 ${fmtPct(row.annualized_return)}`), "暂无执行中策略。");
+      setList("strategy-exec-top-list", execTop.map((row) => `${row.name}: ${labelStatus(row.action)} / 年化 ${fmtPct(row.annualized_return)}`), "暂无执行中策略。");
     }
     if (document.getElementById("account-strategy-matrix-list")) {
       setList(
         "account-strategy-matrix-list",
         ["total", "CN", "HK", "US"].map((key) => {
           const count = rows.filter((row) => (row.markets ?? []).includes(key) || key === "total").length;
-          return `${key}: ${fmt(count)} 条策略`;
+          return `${labelMarket(key)}: ${fmt(count)} 条策略`;
         }),
         "暂无账户-策略矩阵。",
       );
@@ -128,7 +128,7 @@
             <tr>
               <td><a href="/dashboard/strategies/${encodeURIComponent(strategyId)}">${escapeHtml(strategyId)}</a></td>
               <td>${escapeHtml(money(notional))}</td>
-              <td>${escapeHtml(totalFund ? fmtPct(notional / totalFund) : "N/A")}</td>
+              <td>${escapeHtml(totalFund ? fmtPct(notional / totalFund) : "暂无")}</td>
               <td>${escapeHtml(fmt(planItems.filter((item) => item.strategy_id === strategyId).length))}</td>
             </tr>
           `).join("")
@@ -177,10 +177,10 @@
     const rows = [...grouped.values()].sort((left, right) => right.notional - left.notional);
     if (metricsEl) {
       metricsEl.innerHTML = [
-        metricTile("涉及策略", fmt(rows.length), "strategies in today's plan", rows.length ? "ok" : "warning"),
-        metricTile("总计划单", fmt(items.length), "planned intents", items.length ? "ok" : "warning"),
-        metricTile("预估总金额", money(rows.reduce((sum, row) => sum + row.notional, 0)), "estimated gross notional", rows.length ? "ok" : "empty"),
-        metricTile("待审批策略", fmt(rows.filter((row) => row.approvalCount > 0).length), "strategies needing manual step", approvals.length ? "warning" : "ok"),
+        metricTile("涉及策略", fmt(rows.length), "今日计划涉及策略", rows.length ? "ok" : "warning"),
+        metricTile("总计划单", fmt(items.length), "计划意图数", items.length ? "ok" : "warning"),
+        metricTile("预估总金额", money(rows.reduce((sum, row) => sum + row.notional, 0)), "预估总名义金额", rows.length ? "ok" : "empty"),
+        metricTile("待审批策略", fmt(rows.filter((row) => row.approvalCount > 0).length), "需要人工处理的策略", approvals.length ? "warning" : "ok"),
       ].join("");
     }
 
@@ -192,7 +192,7 @@
               <td>${escapeHtml(fmt(row.itemCount))}</td>
               <td>${escapeHtml(money(row.notional))}</td>
               <td>${escapeHtml(fmt(row.approvalCount))}</td>
-              <td>${escapeHtml([...row.strategies].slice(0, 3).join(", ") || "N/A")}</td>
+              <td>${escapeHtml([...row.strategies].slice(0, 3).map(labelMarket).join(", ") || "暂无")}</td>
             </tr>
           `).join("")
         : '<tr><td colspan="5" class="table-empty">今天还没有按策略拆分的计划。</td></tr>';
@@ -244,7 +244,7 @@
             <td>${escapeHtml(fmt(row.itemCount))}</td>
             <td>${escapeHtml(money(row.notional))}</td>
             <td>${escapeHtml(fmt(row.approvalCount))}</td>
-            <td>${escapeHtml([...row.strategies].slice(0, 3).join(", ") || "N/A")}</td>
+            <td>${escapeHtml([...row.strategies].slice(0, 3).join(", ") || "暂无")}</td>
           </tr>
         `).join("")
       : '<tr><td colspan="5" class="table-empty">今天还没有按市场拆分的计划。</td></tr>';
@@ -260,12 +260,12 @@
     table.innerHTML = budgetRows.length
       ? budgetRows.map((row) => `
           <tr>
-            <td>${escapeHtml(row.market)}</td>
-            <td>${escapeHtml(row.actualWeight == null ? "N/A" : fmtPct(row.actualWeight))}</td>
+            <td>${escapeHtml(labelMarket(row.market))}</td>
+            <td>${escapeHtml(row.actualWeight == null ? "暂无" : fmtPct(row.actualWeight))}</td>
             <td>${escapeHtml(fmtPct(row.targetWeight))}</td>
             <td class="${Math.abs(Number(row.delta || 0)) <= 0.02 ? "status-ok" : Number(row.delta || 0) > 0 ? "status-warning" : "status-blocked"}">
-              ${escapeHtml(row.delta == null ? "N/A" : fmtPct(row.delta))}
-              <span class="badge status-${badgeTone(row.action === "aligned" ? "ok" : row.action === "overweight" ? "warning" : row.action === "underweight" ? "blocked" : "empty")}">${escapeHtml(row.action)}</span>
+              ${escapeHtml(row.delta == null ? "暂无" : fmtPct(row.delta))}
+              <span class="badge status-${badgeTone(row.action === "aligned" ? "ok" : row.action === "overweight" ? "warning" : row.action === "underweight" ? "blocked" : "empty")}">${escapeHtml(labelStatus(row.action))}</span>
             </td>
           </tr>
         `).join("")
@@ -288,10 +288,10 @@
       : null;
     if (metricsEl) {
       metricsEl.innerHTML = [
-        metricTile("可继续研究", fmt(candidates.deploy_candidate_count), "deploy_candidate", candidates.deploy_candidate_count ? "ok" : "warning"),
-        metricTile("仅纸面跟踪", fmt(candidates.paper_only_count), "paper_only", candidates.paper_only_count ? "warning" : "ok"),
-        metricTile("应淘汰", fmt(candidates.rejected_count), "reject", candidates.rejected_count ? "blocked" : "ok"),
-        metricTile("下一步", fmt((candidates.next_actions ?? []).length), (candidates.next_actions ?? [])[0] ?? "No action", "warning"),
+        metricTile("可继续研究", fmt(candidates.deploy_candidate_count), "可部署候选", candidates.deploy_candidate_count ? "ok" : "warning"),
+        metricTile("仅纸面跟踪", fmt(candidates.paper_only_count), "纸面跟踪", candidates.paper_only_count ? "warning" : "ok"),
+        metricTile("应淘汰", fmt(candidates.rejected_count), "淘汰", candidates.rejected_count ? "blocked" : "ok"),
+        metricTile("下一步", fmt((candidates.next_actions ?? []).length), (candidates.next_actions ?? [])[0] ?? "暂无动作", "warning"),
       ].join("");
     }
 
@@ -300,7 +300,7 @@
     if (document.getElementById("candidate-top-list")) {
       setList(
         "candidate-top-list",
-        tops.map((row) => `${row.strategy_id}: ${row.verdict} / score ${fmt(row.profitability_score)}`),
+        tops.map((row) => `${row.strategy_id}: ${labelVerdict(row.verdict)} / 评分 ${fmt(row.profitability_score)}`),
         "当前没有候选策略。",
       );
     }
@@ -313,7 +313,7 @@
         ? rows.map((row) => `
             <tr>
               <td><strong><a href="/dashboard/strategies/${encodeURIComponent(row.strategy_id)}">${escapeHtml(row.strategy_id)}</a></strong></td>
-              <td><span class="badge status-${badgeTone(row.verdict === "deploy_candidate" ? "ok" : row.verdict === "paper_only" ? "warning" : "blocked")}">${escapeHtml(row.verdict)}</span></td>
+              <td><span class="badge status-${badgeTone(row.verdict === "deploy_candidate" ? "ok" : row.verdict === "paper_only" ? "warning" : "blocked")}">${escapeHtml(labelVerdict(row.verdict))}</span></td>
               <td>${escapeHtml(fmt(row.profitability_score))}</td>
               <td>${escapeHtml(fmtPct(row.annualized_return))}</td>
               <td>${escapeHtml(fmt(row.sharpe))}</td>
@@ -325,8 +325,8 @@
     }
 
     const verdictBuckets = new Map([
-      ["deploy_candidate", { label: "deploy", rows: [] }],
-      ["paper_only", { label: "paper", rows: [] }],
+      ["deploy_candidate", { label: "deploy_candidate", rows: [] }],
+      ["paper_only", { label: "paper_only", rows: [] }],
       ["reject", { label: "reject", rows: [] }],
     ]);
     rows.forEach((row) => {
@@ -355,22 +355,22 @@
 
     if (groupMetrics) {
       groupMetrics.innerHTML = [
-        metricTile("Deploy 组", fmt(groupRows.find((row) => row.label === "deploy")?.count ?? 0), "worth funding research", (groupRows.find((row) => row.label === "deploy")?.count ?? 0) ? "ok" : "warning"),
-        metricTile("Paper 组", fmt(groupRows.find((row) => row.label === "paper")?.count ?? 0), "monitor before funding", (groupRows.find((row) => row.label === "paper")?.count ?? 0) ? "warning" : "ok"),
-        metricTile("Reject 组", fmt(groupRows.find((row) => row.label === "reject")?.count ?? 0), "drop quickly", (groupRows.find((row) => row.label === "reject")?.count ?? 0) ? "blocked" : "ok"),
-        metricTile("总候选", fmt(rows.length), "candidate universe", rows.length ? "ok" : "warning"),
+        metricTile("可部署组", fmt(groupRows.find((row) => row.label === "deploy_candidate")?.count ?? 0), "值得继续投入研究", (groupRows.find((row) => row.label === "deploy_candidate")?.count ?? 0) ? "ok" : "warning"),
+        metricTile("纸面组", fmt(groupRows.find((row) => row.label === "paper_only")?.count ?? 0), "先观察再投入", (groupRows.find((row) => row.label === "paper_only")?.count ?? 0) ? "warning" : "ok"),
+        metricTile("淘汰组", fmt(groupRows.find((row) => row.label === "reject")?.count ?? 0), "快速剔除", (groupRows.find((row) => row.label === "reject")?.count ?? 0) ? "blocked" : "ok"),
+        metricTile("总候选", fmt(rows.length), "候选策略池", rows.length ? "ok" : "warning"),
       ].join("");
     }
     if (groupsTable) {
       groupsTable.innerHTML = groupRows.length
         ? groupRows.map((row) => `
             <tr>
-              <td><span class="badge status-${badgeTone(row.label === "deploy" ? "ok" : row.label === "paper" ? "warning" : row.label === "reject" ? "blocked" : "empty")}">${escapeHtml(row.label)}</span></td>
+              <td><span class="badge status-${badgeTone(row.label === "deploy_candidate" ? "ok" : row.label === "paper_only" ? "warning" : row.label === "reject" ? "blocked" : "empty")}">${escapeHtml(labelVerdict(row.label))}</span></td>
               <td>${escapeHtml(fmt(row.count))}</td>
-              <td>${escapeHtml(row.avgProfitability == null ? "N/A" : fmt(row.avgProfitability))}</td>
-              <td>${escapeHtml(row.avgAnnualizedReturn == null ? "N/A" : fmtPct(row.avgAnnualizedReturn))}</td>
-              <td>${escapeHtml(row.avgSharpe == null ? "N/A" : fmt(row.avgSharpe))}</td>
-              <td>${escapeHtml(row.avgMaxDrawdown == null ? "N/A" : fmtPct(row.avgMaxDrawdown))}</td>
+              <td>${escapeHtml(row.avgProfitability == null ? "暂无" : fmt(row.avgProfitability))}</td>
+              <td>${escapeHtml(row.avgAnnualizedReturn == null ? "暂无" : fmtPct(row.avgAnnualizedReturn))}</td>
+              <td>${escapeHtml(row.avgSharpe == null ? "暂无" : fmt(row.avgSharpe))}</td>
+              <td>${escapeHtml(row.avgMaxDrawdown == null ? "暂无" : fmtPct(row.avgMaxDrawdown))}</td>
             </tr>
           `).join("")
         : '<tr><td colspan="6" class="table-empty">当前没有研究分组数据。</td></tr>';
@@ -392,10 +392,10 @@
     const marketAwareness = tradingPlan.market_awareness ?? {};
     const rows = account.plan_items ?? [];
     metricsEl.innerHTML = [
-      metricTile("Signals", fmt(tradingPlan.signal_count), `Intents ${fmt(tradingPlan.intent_count)}`, "ok"),
-      metricTile("自动 / 手工", `${fmt(tradingPlan.automated_count)} / ${fmt(tradingPlan.manual_count)}`, "Auto / Manual", tradingPlan.manual_count ? "warning" : "ok"),
+      metricTile("信号", fmt(tradingPlan.signal_count), `意图 ${fmt(tradingPlan.intent_count)}`, "ok"),
+      metricTile("自动 / 手工", `${fmt(tradingPlan.automated_count)} / ${fmt(tradingPlan.manual_count)}`, "自动 / 手工", tradingPlan.manual_count ? "warning" : "ok"),
       metricTile("计划状态", labelPlanStatus(plan.status), plan.headline ?? "暂无标题", badgeTone(plan.status)),
-      metricTile("执行闸门", gate.should_block ? "已阻塞" : gate.ready ? "已就绪" : "预警", `Policy ${fmt(gate.policy_stage)}`, gate.should_block ? "blocked" : gate.ready ? "ok" : "warning"),
+      metricTile("执行门禁", gate.should_block ? "已阻塞" : gate.ready ? "已就绪" : "预警", `策略档位 ${fmt(gate.policy_stage)}`, gate.should_block ? "blocked" : gate.ready ? "ok" : "warning"),
     ].join("");
     headlineEl.textContent = plan.headline ?? "暂无计划说明。";
     if (document.getElementById("journal-plan-reasons")) {
@@ -405,12 +405,12 @@
       setList(
         "plan-side-notes",
         [
-          `当前账户: ${account.label ?? "N/A"}`,
+          `当前账户: ${displayValue(account.label)}`,
           `今日计划数: ${fmt(rows.length)}`,
           `待审批: ${fmt(Array.isArray(tradingPlan.pending_approvals) ? tradingPlan.pending_approvals.length : tradingPlan.pending_approvals ?? 0)}`,
-          `Gate ready: ${fmt(gate.ready)}`,
-          `市场姿态: ${marketAwareness.overall_regime ?? "N/A"}`,
-          `操作节奏: ${marketAwareness.risk_posture ?? "N/A"}`,
+          `门禁就绪: ${fmt(gate.ready)}`,
+          `市场姿态: ${displayValue(marketAwareness.overall_regime)}`,
+          `操作节奏: ${displayValue(marketAwareness.risk_posture)}`,
           `信号数: ${fmt(plan.counts?.signal_count)}`,
           `自动 / 手工: ${fmt(plan.counts?.automated_count)} / ${fmt(plan.counts?.manual_count)}`,
         ],
@@ -421,7 +421,7 @@
     const planBody = [];
     if (marketAwareness.overall_regime) {
       planBody.push(
-        `市场感知：${marketAwareness.overall_regime} / ${marketAwareness.risk_posture ?? "N/A"} / ${marketAwareness.confidence ?? "N/A"}。`,
+        `市场感知：${marketAwareness.overall_regime} / ${displayValue(marketAwareness.risk_posture)} / ${displayValue(marketAwareness.confidence)}。`,
       );
       (marketAwareness.actions ?? []).slice(0, 2).forEach((item) => {
         if (item?.text) {
@@ -432,8 +432,8 @@
     (plan.reasons ?? []).forEach((item) => planBody.push(`原因：${item}`));
     (plan.items ?? []).slice(0, 5).forEach((item) => {
       const side = item.side === "buy" ? "买入" : item.side === "sell" ? "卖出" : "未知";
-      const target = item.target_weight == null ? "N/A" : fmtPct(item.target_weight);
-      const qty = item.quantity == null ? "N/A" : fmt(item.quantity, 4);
+      const target = item.target_weight == null ? "暂无" : fmtPct(item.target_weight);
+      const qty = item.quantity == null ? "暂无" : fmt(item.quantity, 4);
       const reason = item.reason ?? "暂无原因说明";
       planBody.push(`${item.symbol}，${side} ${qty}，目标权重 ${target}，原因：${reason}`);
     });
@@ -461,9 +461,9 @@
               <td><strong>${escapeHtml(row.symbol)}</strong><br /><span class="meta-text">${escapeHtml(row.market)}</span></td>
               <td>${escapeHtml(labelSide(row.side))}</td>
               <td>${escapeHtml(fmt(row.quantity, 4))}</td>
-              <td>${escapeHtml(row.target_weight == null ? "N/A" : fmtPct(row.target_weight))}</td>
-              <td>${escapeHtml(row.reference_price == null ? "N/A" : money(row.reference_price))}</td>
-              <td><span class="badge status-${row.requires_approval ? "warning" : "ok"}">${row.requires_approval ? "manual" : "auto"}</span></td>
+              <td>${escapeHtml(row.target_weight == null ? "暂无" : fmtPct(row.target_weight))}</td>
+              <td>${escapeHtml(row.reference_price == null ? "暂无" : money(row.reference_price))}</td>
+              <td><span class="badge status-${row.requires_approval ? "warning" : "ok"}">${row.requires_approval ? "人工" : "自动"}</span></td>
               <td>${escapeHtml(row.reason ?? "")}</td>
             </tr>
           `,
@@ -488,17 +488,17 @@
     const fills = recentOrders.filter((item) => item.status === "filled").length;
 
     const ratio = (value, base) => {
-      if (!base) return "N/A";
+      if (!base) return "暂无";
       return fmtPct(value / base);
     };
 
     if (metricsEl) {
       metricsEl.innerHTML = [
-        metricTile("信号", fmt(signals), "research signals", signals ? "ok" : "warning"),
-        metricTile("计划", fmt(intents), `from signals ${ratio(intents, signals)}`, intents ? "ok" : "warning"),
-        metricTile("待审批", fmt(approvals), `from plans ${ratio(approvals, intents)}`, approvals ? "warning" : "ok"),
-        metricTile("出单", fmt(orders), `from plans ${ratio(orders, intents)}`, orders ? "ok" : "warning"),
-        metricTile("成交", fmt(fills), `from orders ${ratio(fills, orders)}`, fills ? "ok" : "warning"),
+        metricTile("信号", fmt(signals), "研究信号", signals ? "ok" : "warning"),
+        metricTile("计划", fmt(intents), `信号转化率 ${ratio(intents, signals)}`, intents ? "ok" : "warning"),
+        metricTile("待审批", fmt(approvals), `计划占比 ${ratio(approvals, intents)}`, approvals ? "warning" : "ok"),
+        metricTile("出单", fmt(orders), `计划转化率 ${ratio(orders, intents)}`, orders ? "ok" : "warning"),
+        metricTile("成交", fmt(fills), `订单成交率 ${ratio(fills, orders)}`, fills ? "ok" : "warning"),
       ].join("");
     }
 

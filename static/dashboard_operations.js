@@ -15,7 +15,8 @@
 
   function gateReasonText(reason) {
     const normalized = formatGateReason(reason);
-    return normalized.detail ? `${normalized.type}: ${normalized.detail}` : normalized.type;
+    const typeLabel = normalized.type === "gate" ? "门禁" : labelStatus(normalized.type);
+    return normalized.detail ? `${typeLabel}: ${normalized.detail}` : typeLabel;
   }
 
   function renderExecutionBlockers(state) {
@@ -62,18 +63,18 @@
 
     if (metricsEl) {
       metricsEl.innerHTML = [
-        metricTile("Gate 卡点", fmt(rows[0].count), "execution gate reasons", rows[0].tone),
-        metricTile("审批卡点", fmt(rows[1].count), "pending approvals", rows[1].tone),
-        metricTile("订单处理中", fmt(rows[2].count), "working broker orders", rows[2].tone),
-        metricTile("拒单", fmt(rows[3].count), "rejected broker orders", rows[3].tone),
+        metricTile("门禁卡点", fmt(rows[0].count), "执行门禁原因", rows[0].tone),
+        metricTile("审批卡点", fmt(rows[1].count), "待审批单", rows[1].tone),
+        metricTile("订单处理中", fmt(rows[2].count), "券商处理中订单", rows[2].tone),
+        metricTile("拒单", fmt(rows[3].count), "券商拒单", rows[3].tone),
       ].join("");
     }
     if (table) {
       table.innerHTML = rows.map((row) => `
           <tr>
-            <td>${escapeHtml(row.type)}</td>
+            <td>${escapeHtml(labelStatus(row.type))}</td>
             <td>${escapeHtml(fmt(row.count))}</td>
-            <td><span class="badge status-${badgeTone(row.tone)}">${escapeHtml(row.tone)}</span></td>
+            <td><span class="badge status-${badgeTone(row.tone)}">${escapeHtml(labelStatus(row.tone))}</span></td>
             <td>${escapeHtml(row.note)}</td>
           </tr>
         `).join("");
@@ -95,7 +96,7 @@
     if (document.getElementById("queue-orders-list")) {
       setList(
         "queue-orders-list",
-        recentOrders.slice(0, 6).map((item) => `${item.broker_order_id} / ${item.status} / filled ${fmt(item.filled_quantity, 4)}`),
+        recentOrders.slice(0, 6).map((item) => `${item.broker_order_id} / ${labelStatus(item.status)} / 已成交 ${fmt(item.filled_quantity, 4)}`),
         "当前没有最近订单。",
       );
     }
@@ -105,7 +106,7 @@
         recentOrders
           .filter((item) => item.status === "filled")
           .slice(0, 6)
-          .map((item) => `${item.broker_order_id} / filled ${fmt(item.filled_quantity, 4)} / avg ${item.average_price == null ? "N/A" : money(item.average_price)}`),
+          .map((item) => `${item.broker_order_id} / 已成交 ${fmt(item.filled_quantity, 4)} / 均价 ${item.average_price == null ? "暂无" : money(item.average_price)}`),
         "当前没有最近成交单。",
       );
     }
@@ -126,8 +127,8 @@
         <tr>
           <td class="meta-text">${new Date(row.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
           <td class="tabular-nums"><strong>${escapeHtml(row.symbol)}</strong></td>
-          <td><span class="badge ${row.type === "BLOCK" ? "status-ok" : "status-warning"}">${escapeHtml(row.type)}</span></td>
-          <td><span class="badge ${row.sentiment === "BULLISH" ? "status-ok" : "status-blocked"}">${escapeHtml(row.sentiment)}</span></td>
+          <td><span class="badge ${row.type === "BLOCK" ? "status-ok" : "status-warning"}">${escapeHtml(labelStatus(row.type))}</span></td>
+          <td><span class="badge ${row.sentiment === "BULLISH" ? "status-ok" : "status-blocked"}">${escapeHtml(labelStatus(row.sentiment))}</span></td>
           <td class="tabular-nums">${escapeHtml(money(row.premium))}</td>
           <td><span class="meta-text">${escapeHtml(row.status)}</span></td>
         </tr>
@@ -153,7 +154,7 @@
             <td class="meta-text">${escapeHtml(dateStr)}</td>
             <td>${escapeHtml(row.country)}</td>
             <td><strong>${escapeHtml(row.event)}</strong></td>
-            <td><span class="badge ${impactTone}">● ${escapeHtml(row.impact)}</span></td>
+            <td><span class="badge ${impactTone}">● ${escapeHtml(labelStatus(row.impact))}</span></td>
             <td class="meta-text">${escapeHtml(row.previous || "-")} / ${escapeHtml(row.forecast || "-")}</td>
           </tr>
         `;

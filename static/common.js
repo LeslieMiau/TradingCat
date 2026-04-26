@@ -12,31 +12,152 @@ function escapeHtml(value) {
 }
 
 function fmt(value, digits = 2) {
-  if (value == null) return "N/A";
+  if (value == null) return "暂无";
   if (typeof value === "number") {
     return Number.isInteger(value)
       ? value.toLocaleString()
       : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
   }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "boolean") return value ? "是" : "否";
   return String(value);
 }
 
 function fmtPct(value) {
-  if (value == null) return "N/A";
+  if (value == null) return "暂无";
   return `${(Number(value) * 100).toFixed(2)}%`;
 }
 
 function money(value) {
-  if (value == null) return "N/A";
+  if (value == null) return "暂无";
   return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtTime(value) {
-  if (!value) return "N/A";
+  if (!value) return "暂无";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleString();
+}
+
+function displayValue(value, fallback = "暂无") {
+  if (value == null || value === "" || value === "N/A") return fallback;
+  return String(value);
+}
+
+function labelSide(value) {
+  const labels = {
+    buy: "买入",
+    sell: "卖出",
+    BUY: "买入",
+    SELL: "卖出",
+  };
+  return labels[value] || displayValue(value);
+}
+
+function labelMarket(value) {
+  const labels = {
+    total: "总账户",
+    CN: "A股",
+    HK: "港股",
+    US: "美股",
+    unknown: "未知市场",
+  };
+  return labels[value] || displayValue(value);
+}
+
+function labelAssetClass(value) {
+  const labels = {
+    stock: "股票",
+    etf: "ETF",
+    option: "期权",
+    cash: "现金",
+  };
+  return labels[value] || displayValue(value);
+}
+
+function labelStatus(value) {
+  const labels = {
+    ok: "正常",
+    ready: "就绪",
+    warning: "预警",
+    blocked: "已阻塞",
+    planned: "有计划",
+    no_trade: "无交易",
+    active: "活跃",
+    idle: "空闲",
+    live_ready: "实盘就绪",
+    pending: "待处理",
+    submitted: "已提交",
+    working: "处理中",
+    filled: "已成交",
+    cancelled: "已撤销",
+    rejected: "已拒绝",
+    expired: "已过期",
+    approved: "已批准",
+    aligned: "已对齐",
+    not_submitted: "未提交",
+    missing: "缺失",
+    manual: "人工",
+    auto: "自动",
+    gate: "门禁",
+    approval: "审批",
+    working_order: "处理中订单",
+    rejected_order: "拒单",
+    external_fill: "外部成交",
+    deploy_candidate: "可部署候选",
+    paper_only: "纸面跟踪",
+    reject: "淘汰",
+    keep: "保留",
+    drop: "淘汰",
+    overweight: "超配",
+    underweight: "低配",
+    High: "高",
+    Medium: "中",
+    Low: "低",
+    BULLISH: "偏多",
+    BEARISH: "偏空",
+    BLOCK: "大单",
+    SWEEP: "扫单",
+    READY: "就绪",
+    WAIT: "等待",
+    AUTHORIZED: "已授权",
+    UNAUTHORIZED: "未授权",
+    TRIGGERED: "已触发",
+    PENDING: "等待触发",
+    bullish: "偏多",
+    build_risk: "可加风险",
+    supportive: "支撑",
+    high: "高",
+    complete: "完整",
+    participate: "参与",
+    constructive: "偏积极",
+    greed: "贪婪",
+    neutral: "中性",
+    caution: "谨慎",
+    hold_pace: "控制节奏",
+    mixed: "分化",
+    medium: "中",
+    degraded: "降级",
+    hedged: "对冲",
+    selective: "择机",
+    wait: "等待",
+    risk_off: "风险收缩",
+    pause_new_adds: "暂停加仓",
+    reduce_risk: "降风险",
+    low: "低",
+    fallback: "回退",
+    defensive: "防御",
+    avoid: "回避",
+    fear: "恐慌",
+    unknown: "未知",
+    missing: "缺失",
+    error: "错误",
+  };
+  return labels[value] || displayValue(value);
+}
+
+function labelVerdict(value) {
+  return labelStatus(value);
 }
 
 function badgeTone(kind) {

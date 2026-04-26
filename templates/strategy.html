@@ -1,24 +1,24 @@
 {% extends "base.html" %}
 {% set active_page = "strategy" %}
 
-{% block page_title %}TradingCat Strategy{% endblock %}
+{% block page_title %}TradingCat 策略详情{% endblock %}
 
 {% block shell %}
 <header class="hero hero-compact">
         <div class="hero-copy">
-          <p class="eyebrow">TradingCat Strategy Review</p>
+          <p class="eyebrow">TradingCat 策略复盘</p>
           <h1 id="strategy-title">策略详情</h1>
         </div>
         <div class="hero-actions">
           <a class="button button-primary button-sm" href="/dashboard">返回总览</a>
-          <a class="button button-sm" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+          <a class="button button-sm" href="/docs" target="_blank" rel="noreferrer">API 文档</a>
         </div>
       </header>
 
       <main class="dashboard-grid">
         <section class="panel panel-highlight">
           <div class="panel-header">
-            <h2>收益与 Verdict</h2>
+            <h2>收益与策略结论</h2>
             <span id="detail-updated" class="meta-text">加载中</span>
           </div>
           <div class="hero-grid">
@@ -241,7 +241,7 @@
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Walk-forward 与假设</h2>
+            <h2>滚动验证与假设</h2>
           </div>
           <div class="summary-grid">
             <article class="detail-card">
@@ -261,7 +261,7 @@
 
         <section class="panel">
           <div class="panel-header">
-            <h2>月度表现与 Verdict 理由</h2>
+            <h2>月度表现与结论理由</h2>
             <span class="meta-text">更快判断该策略是否值得继续</span>
           </div>
           <div class="summary-grid">
@@ -270,7 +270,7 @@
               <div id="monthly-heatmap" class="heatmap-grid"></div>
             </article>
             <article class="detail-card">
-              <h3>Verdict 理由</h3>
+              <h3>结论理由</h3>
               <ul id="verdict-reasons" class="detail-list">
                 <li class="detail-empty">加载中...</li>
               </ul>
