@@ -91,14 +91,16 @@ class YFinanceMarketDataAdapter:
             try:
                 info = yf.Ticker(ticker).fast_info
                 price = info["lastPrice"]
-                if price is None or (isinstance(price, float) and math.isnan(price)):
-                    logger.warning("YFinance returned NaN/None price for %s, using 0.0", ticker)
-                    quotes[instrument.symbol] = 0.0
-                else:
-                    quotes[instrument.symbol] = float(price)
             except Exception:
                 logger.warning("YFinance fetch_quotes failed for %s", ticker, exc_info=True)
-                quotes[instrument.symbol] = 0.0
+                continue
+            if price is None or (isinstance(price, float) and math.isnan(price)):
+                logger.warning("YFinance returned NaN/None price for %s; omitting symbol", ticker)
+                continue
+            try:
+                quotes[instrument.symbol] = float(price)
+            except (TypeError, ValueError):
+                logger.warning("YFinance returned non-numeric price %r for %s; omitting symbol", price, ticker)
         return quotes
 
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:
