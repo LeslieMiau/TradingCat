@@ -247,6 +247,7 @@ class ApplicationRuntime:
             event_bus=event_bus,
             sector_detector=SectorDivergenceDetector(sector_map=sector_map),
             flow_series_provider=flow_provider,
+            news_provider=lambda: news_observation.observe(),
         )
         return cls(
             market_data_adapter=market_data_adapter,

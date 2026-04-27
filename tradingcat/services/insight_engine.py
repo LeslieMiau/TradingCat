@@ -1,6 +1,6 @@
 """Insight Engine — orchestrates detectors, persists insights, publishes events.
 
-Responsibilities (Round 1):
+Responsibilities (v1):
 1. Pull the watchlist (enabled + tradable instruments + portfolio holdings).
 2. Resolve a per-market benchmark from MarketAwareness baskets.
 3. Fetch enough bar history for each detector's required lookback.
@@ -8,8 +8,7 @@ Responsibilities (Round 1):
 5. Publish an ``EventType.INSIGHT`` event so consumers (alerts UI, future
    notifiers) can react without re-querying the store.
 
-Round 2 / 3 will plug in ``SectorDivergenceDetector`` and ``FlowAnomalyDetector``
-behind the same orchestration.
+v2 adds ``NewsDrivenDetector`` for news-to-insight conversion.
 """
 from __future__ import annotations
 
@@ -28,6 +27,7 @@ from tradingcat.repositories.insight_store import InsightStore
 from tradingcat.services.insight_detectors import (
     CorrelationBreakDetector,
     FlowAnomalyDetector,
+    NewsDrivenDetector,
     SectorDivergenceDetector,
 )
 from tradingcat.services.market_awareness import MarketAwarenessService
@@ -58,7 +58,9 @@ class InsightEngine:
         correlation_detector: CorrelationBreakDetector | None = None,
         sector_detector: SectorDivergenceDetector | None = None,
         flow_detector: FlowAnomalyDetector | None = None,
+        news_detector: NewsDrivenDetector | None = None,
         flow_series_provider=None,
+        news_provider=None,
         portfolio_symbols_provider=None,
     ) -> None:
         self._store = store
@@ -68,9 +70,13 @@ class InsightEngine:
         self._correlation_detector = correlation_detector or CorrelationBreakDetector()
         self._sector_detector = sector_detector or SectorDivergenceDetector()
         self._flow_detector = flow_detector or FlowAnomalyDetector()
+        self._news_detector = news_detector or NewsDrivenDetector()
         # Optional callable returning {Market: list[float]} flow series; if
         # missing, flow detector silently produces nothing (degraded mode).
         self._flow_series_provider = flow_series_provider
+        # Optional callable returning MarketAwarenessNewsObservation; if missing,
+        # news detector silently produces nothing (degraded mode).
+        self._news_provider = news_provider
         # Optional callable returning current portfolio symbols. Engine treats
         # them as part of the watchlist even if not in the persisted catalog.
         self._portfolio_symbols_provider = portfolio_symbols_provider
@@ -131,6 +137,14 @@ class InsightEngine:
                 as_of=evaluation_date,
                 watchlist=watchlist,
                 flow_series_by_market=self._resolve_flow_series(),
+                now=triggered_at,
+            )
+        )
+        candidate_insights.extend(
+            self._news_detector.detect(
+                as_of=evaluation_date,
+                watchlist=watchlist,
+                news_observation=self._resolve_news_observation(),
                 now=triggered_at,
             )
         )
@@ -218,6 +232,15 @@ class InsightEngine:
             out[market] = [float(v) for v in series if v is not None]
         return out
 
+    def _resolve_news_observation(self) -> object | None:
+        if self._news_provider is None:
+            return None
+        try:
+            return self._news_provider()
+        except Exception as exc:  # noqa: BLE001 — defensive; never crash run()
+            logger.warning("insight_engine: news provider failed: %s", exc)
+            return None
+
     def _resolve_benchmarks(self) -> dict[Market, str]:
         baskets = self._market_awareness.benchmark_baskets()
         resolved: dict[Market, str] = {}
@@ -237,6 +260,7 @@ class InsightEngine:
         lookback = max(
             self._correlation_detector.required_lookback_days(),
             self._sector_detector.required_lookback_days(),
+            self._news_detector.required_lookback_days(),
         )
         # Calendar days × 1.6 buffers weekends/holidays so we still see ~lookback
         # trading days after gaps.

@@ -856,6 +856,7 @@ class InsightKind(str, Enum):
     CORRELATION_BREAK = "correlation_break"
     SECTOR_DIVERGENCE = "sector_divergence"
     FLOW_ANOMALY = "flow_anomaly"
+    NEWS_DRIVEN = "news_driven"
 
 
 class InsightSeverity(str, Enum):

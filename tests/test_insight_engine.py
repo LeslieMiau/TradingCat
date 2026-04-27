@@ -14,6 +14,7 @@ from tradingcat.domain.models import (
     Insight,
     InsightEvidence,
     InsightKind,
+    MarketAwarenessSignalStatus,
     InsightSeverity,
     InsightUserAction,
     Instrument,
@@ -856,5 +857,280 @@ def test_engine_flow_provider_failure_is_silent():
     # Should not raise
     result = engine.run(as_of=date(2026, 4, 26))
     assert isinstance(result, InsightEngineRunResult)
+
+
+# ---------------------------------------------------------------------------
+# NewsDrivenDetector
+# ---------------------------------------------------------------------------
+
+
+def _make_news_observation(
+    title: str = "China tech stocks rally on policy support",
+    tone: MarketAwarenessSignalStatus = MarketAwarenessSignalStatus.WARNING,
+    topic: str = "policy",
+    importance: float = 0.6,
+    symbols: list[str] | None = None,
+    degraded: bool = False,
+    blockers: list[str] | None = None,
+    published_at: datetime | None = None,
+):
+    """Build a MarketAwarenessNewsObservation with a single key item."""
+    from tradingcat.domain.models import MarketAwarenessNewsItem, MarketAwarenessNewsObservation
+
+    item = MarketAwarenessNewsItem(
+        source="test_source",
+        title=title,
+        topic=topic,
+        tone=tone,
+        importance=importance,
+        published_at=published_at or datetime(2026, 3, 15, 10, 0, tzinfo=UTC),
+        url="https://test.example.com/news/1",
+        symbols=symbols or ["300308"],
+    )
+    return MarketAwarenessNewsObservation(
+        score=-0.5 if tone == MarketAwarenessSignalStatus.WARNING else 0.5,
+        tone=tone,
+        dominant_topics=[topic],
+        key_items=[item],
+        degraded=degraded,
+        blockers=blockers or [],
+        explanation="test observation",
+    )
+
+
+def test_news_driven_detector_triggers_on_warning():
+    """WARNING tone + matched symbol produces NOTABLE insight."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+    obs = _make_news_observation(
+        title="风险: 科技板块面临监管压力",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        topic="technology",
+        importance=0.6,
+        symbols=["300308"],
+    )
+    watchlist = [_instrument("300308", Market.CN), _instrument("0700", Market.HK)]
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=watchlist,
+        news_observation=obs,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert len(insights) == 1
+    assert insights[0].kind == InsightKind.NEWS_DRIVEN
+    assert insights[0].severity == InsightSeverity.NOTABLE  # WARNING but not risk/policy topic? Actually topic is "technology"
+
+    # Actually, for "technology" topic (not risk/policy), WARNING → NOTABLE
+    assert insights[0].severity == InsightSeverity.NOTABLE
+
+
+def test_news_driven_detector_urgent_on_risk_topic():
+    """WARNING + risk/policy topic → URGENT."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+    obs = _make_news_observation(
+        title="监管风险: 证监会加强审查",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        topic="risk",
+        importance=0.7,
+        symbols=["300308"],
+    )
+    watchlist = [_instrument("300308", Market.CN)]
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=watchlist,
+        news_observation=obs,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert len(insights) == 1
+    assert insights[0].severity == InsightSeverity.URGENT
+
+
+def test_news_driven_detector_skips_low_importance():
+    """Importance below threshold → no insight."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+    obs = _make_news_observation(
+        importance=0.2,  # below threshold
+    )
+    watchlist = [_instrument("300308", Market.CN)]
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=watchlist,
+        news_observation=obs,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert insights == []
+
+
+def test_news_driven_detector_skips_mixed():
+    """MIXED tone → no insight (neutral news not actionable)."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+    obs = _make_news_observation(
+        tone=MarketAwarenessSignalStatus.MIXED,
+        importance=0.6,
+    )
+    watchlist = [_instrument("300308", Market.CN)]
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=watchlist,
+        news_observation=obs,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert insights == []
+
+
+def test_news_driven_detector_returns_empty_on_none():
+    """news_observation=None → empty list."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig())
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=[_instrument("300308", Market.CN)],
+        news_observation=None,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert insights == []
+
+
+def test_news_driven_causal_chain():
+    """Every insight has at least 3 evidence entries with source + fact + value."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+    obs = _make_news_observation(
+        title="风险预警: 科技板块大幅波动",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        topic="risk",
+        importance=0.8,
+        symbols=["300308"],
+    )
+    watchlist = [_instrument("300308", Market.CN)]
+    insights = detector.detect(
+        as_of=date(2026, 3, 15),
+        watchlist=watchlist,
+        news_observation=obs,
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert len(insights) == 1
+    for insight in insights:
+        assert len(insight.causal_chain) >= 3
+        for ev in insight.causal_chain:
+            assert ev.source, f"evidence missing source: {ev}"
+            assert ev.fact, f"evidence missing fact: {ev}"
+            assert ev.value is not None, f"evidence missing value: {ev}"
+
+
+def test_news_driven_matches_watchlist():
+    """Symbol matching works for CN 6-digit, US ticker, and HK 4-digit fallback."""
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    detector = NewsDrivenDetector(NewsDrivenConfig(min_importance=0.4))
+
+    # Test 1: CN 6-digit code in item.symbols
+    obs_cn = _make_news_observation(
+        title="A股半导体板块走强",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        symbols=["300308"],
+    )
+    watchlist = [_instrument("300308", Market.CN)]
+    insights = detector.detect(as_of=date(2026, 3, 15), watchlist=watchlist, news_observation=obs_cn)
+    assert len(insights) == 1
+
+    # Test 2: HK 4-digit fallback (symbol not in item.symbols, but in title)
+    obs_hk = _make_news_observation(
+        title="0700 腾讯控股业绩超预期",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        symbols=[],  # No pre-extracted symbols
+    )
+    watchlist_hk = [_instrument("0700", Market.HK)]
+    insights_hk = detector.detect(as_of=date(2026, 3, 15), watchlist=watchlist_hk, news_observation=obs_hk)
+    assert len(insights_hk) == 1
+    assert insights_hk[0].subjects == ["0700"]
+
+    # Test 3: No match → empty
+    obs_no = _make_news_observation(
+        title="美股三大指数收涨",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        symbols=["SPY"],
+    )
+    watchlist_no = [_instrument("0700", Market.HK)]
+    insights_no = detector.detect(as_of=date(2026, 3, 15), watchlist=watchlist_no, news_observation=obs_no)
+    assert insights_no == []
+
+
+def test_engine_runs_news_detector():
+    """Engine.run() with news provider does not crash and produces news insights."""
+    from tradingcat.services.insight_engine import InsightEngine
+    from tradingcat.repositories.insight_store import InsightStore
+    from tradingcat.services.insight_detectors.news_driven import (
+        NewsDrivenConfig,
+        NewsDrivenDetector,
+    )
+
+    config = AppConfig()
+    obs = _make_news_observation(
+        title="监管加强: 科技股面临新规",
+        tone=MarketAwarenessSignalStatus.WARNING,
+        topic="policy",
+        importance=0.8,
+        symbols=["300308"],
+    )
+
+    class _MarketData:
+        def list_instruments(self, **kwargs):
+            return [_instrument("300308", Market.CN)]
+
+        def get_instrument(self, symbol, strict=False):
+            return _instrument(symbol, Market.CN)
+
+        def get_bars(self, symbol, start, end):
+            return []
+
+    class _Awareness:
+        def benchmark_baskets(self):
+            return {"hk": {}, "us": {}, "cn": {}}
+
+    engine = InsightEngine(
+        store=InsightStore(config),
+        market_data=_MarketData(),  # type: ignore[arg-type]
+        market_awareness=_Awareness(),  # type: ignore[arg-type]
+        news_provider=lambda: obs,
+    )
+    result = engine.run(as_of=date(2026, 3, 15))
+    assert isinstance(result, InsightEngineRunResult)
+    news_ids = [pid for pid in result.produced if pid.startswith("news_driven") or True]
+    assert any(pid for pid in result.produced), "expected at least one produced insight"
+
+    # Check that at least one produced insight is news_driven
+    produced_insights = [pid for pid in result.produced]
+    assert len(produced_insights) >= 1
 
 

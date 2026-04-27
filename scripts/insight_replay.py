@@ -98,6 +98,12 @@ def main(argv: list[str] | None = None) -> int:
         default=400,
         help="safety cap on trading days walked (default 400)",
     )
+    parser.add_argument(
+        "--news",
+        action="store_true",
+        default=False,
+        help="include news-driven insights (requires live news feed; default: skip)",
+    )
     args = parser.parse_args(argv)
     if args.start > args.end:
         parser.error("--start must be <= --end")
@@ -109,6 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     app.startup()
     try:
         engine = app.insight_engine
+        if not args.news:
+            # Historical replay cannot provide period-correct news; disable.
+            object.__setattr__(engine, "_news_provider", None)
         summary = _ReplaySummary()
         with output_path.open("w", encoding="utf-8") as fp:
             for evaluation_date in _iter_trading_days(args.start, args.end):
