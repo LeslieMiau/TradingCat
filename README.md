@@ -168,6 +168,42 @@ curl "http://127.0.0.1:8000/data/instruments?enabled_only=true&tradable_only=tru
 - 如果要保留标的但排除出默认个人交易池，可设置 `liquidity_bucket=low` 或 `enabled=false`。
 - 修改股票池后，针对受影响标的运行 `POST /data/history/sync`，再用 `GET /data/history/coverage` 检查覆盖率。
 
+## 洞察引擎 (InsightEngine v1)
+
+把持仓 / 关注列表 / 市场感知 / 资金流和资讯观察压缩成可追溯的少量洞察,而不是又一个 K 线 / 排行榜面板。每条洞察必须能回答三个问题:**是什么 / 为什么我应该看 / 什么时候再看一眼**。
+
+三类 detector(全部 EOD 跑批,不依赖盘中行情):
+
+- `correlation_break` — 标的与 benchmark 的 30 日滚动相关性 ≥ 0.5,但当日返回差值 z-score ≥ 2.0
+- `sector_divergence` — 同板块成员 ≥ 2,板块当日 ≥ 2%,标的位于板块内极端百分位且 60 日 beta ≥ 0.7
+- `flow_anomaly` — 整市场北向 / 南向资金 5 日净流的 z-score ≥ 2.5,subjects 限定为该市场的持仓 / 关注 (v1 简化:per-sector / per-stock 留给付费数据源 v2)
+
+输出:`/dashboard/insights` 的洞察 feed。每条卡片显示 severity + headline + subjects + 置信度 + triggered_at,展开看完整因果链(每段证据带 source / fact / value / observed_at)。提供 dismiss / acknowledge,持久化在 InsightStore(DuckDB 启用时落库,否则内存)。
+
+板块映射:默认覆盖项目 sample_instruments 池;可放 `data/sector_map.json` 覆盖/扩展(`{"symbol_to_sector": {...}, "sector_benchmarks": {...}}`)。
+
+EventBus 桥接:`InsightAlertBridge` 订阅 `EventType.INSIGHT`,把 urgent 洞察 record 到 `AlertService`,在已有的 `/alerts` 面板可见,无需主动打开洞察 tab。
+
+### 主要 HTTP 接口
+
+- `GET /insights` — list(支持 `?include_dismissed=true`、`?kind=correlation_break|sector_divergence|flow_anomaly`)
+- `GET /insights/{id}` — 详情
+- `POST /insights/{id}/dismiss` — 否决,可附 reason
+- `POST /insights/{id}/ack` — 已读,可附 note
+- `POST /insights/run` — 手动触发引擎(仅刷新洞察,不触发交易/审批/对账)
+
+### 历史回放与精确率验证
+
+`scripts/insight_replay.py` 在指定日期范围内逐日跑 detector,产出 jsonl,每行一个 candidate,带 `manual_judgement` 空字段供人工标注:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/insight_replay.py \
+    --start 2025-10-01 --end 2025-12-31 \
+    --output data/reports/insight_replay/2025q4.jsonl
+```
+
+跑完后人工抽 50 条,把 `manual_judgement` 填 `true / false / edge`,据此评估精确率(目标 ≥ 70%)和假阳性密度(目标 ≤ 3 条/天)。引擎在 `dry_run=True` 模式下跑,不污染线上 store / 不发事件。
+
 ## 已吸收的研究能力
 
 仓库包含从 `hsliuping/TradingAgents-CN` 第 01-15 轮吸收而来的研究层能力：A 股数据适配器（AKShare / BaoStock / Tushare）、中文资讯源（东方财富 / 财联社 / Finnhub / Alpha Vantage）、中国市场硬风控规则（涨跌停 / T+1 / ST）、技术特征、股票池筛选器，以及带预算门禁的 LLM 研究建议层。

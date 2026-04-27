@@ -270,3 +270,41 @@ class InsightEngine:
             )
         except Exception as exc:  # noqa: BLE001 — bus failure shouldn't break engine
             logger.warning("insight_engine: event publish failed: %s", exc)
+
+
+class SentimentHistoryFlowProvider:
+    """Adapt MarketSentimentHistoryRepository into a flow_series_provider.
+
+    Returns the most recent value-only series for cn_northbound (Market.CN)
+    and hk_southbound (Market.HK), suitable for FlowAnomalyDetector.
+    Skips markets where history is missing — detector then degrades silently.
+    """
+
+    _INDICATOR_BY_MARKET = {
+        Market.CN: "cn_northbound",
+        Market.HK: "hk_southbound",
+    }
+
+    def __init__(self, sentiment_history, *, days: int = 90) -> None:
+        self._sh = sentiment_history
+        self._days = days
+
+    def __call__(self) -> dict[Market, list[float]]:
+        out: dict[Market, list[float]] = {}
+        for market, indicator in self._INDICATOR_BY_MARKET.items():
+            try:
+                rows = self._sh.load_history(
+                    market=market.value,
+                    indicator_key=indicator,
+                    days=self._days,
+                )
+            except Exception as exc:  # noqa: BLE001 — defensive
+                logger.warning(
+                    "flow provider: load_history failed for %s/%s: %s",
+                    market.value, indicator, exc,
+                )
+                continue
+            values = [float(row["value"]) for row in rows if row.get("value") is not None]
+            if values:
+                out[market] = values
+        return out

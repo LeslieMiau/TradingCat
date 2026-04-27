@@ -1,8 +1,28 @@
-"""Map instrument symbols to coarse-grained sectors and sector benchmarks."""
+"""Map instrument symbols to coarse-grained sectors and sector benchmarks.
+
+The default mapping covers the project's sample_instruments() pool. Larger
+or per-user mappings can be loaded from ``data/sector_map.json`` via
+``SectorMap.from_json_file`` — when present, that file's entries override
+or extend the defaults without code changes. The file format is:
+
+    {
+      "symbol_to_sector": {"0700": "technology", "QQQ": "technology", ...},
+      "sector_benchmarks": {"technology": "QQQ", "energy": "XLE", ...}
+    }
+
+Both keys are optional; missing keys fall back to the built-in dicts.
+"""
 
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
+
 from tradingcat.domain.models import Instrument
+
+
+logger = logging.getLogger(__name__)
 
 
 # Default symbol → sector mapping for sample_instruments() and common ETFs/stocks.
@@ -95,3 +115,30 @@ class SectorMap:
             if sector is not None:
                 groups.setdefault(sector, []).append(inst)
         return groups
+
+    @classmethod
+    def from_json_file(cls, path: Path | str) -> "SectorMap":
+        """Build a SectorMap from a JSON file, falling back to defaults.
+
+        Missing file → default mapping. Malformed file → default mapping
+        with a warning logged. Partial file (only one of the two keys) →
+        merge that key with the default for the missing one.
+        """
+        path = Path(path)
+        symbol_map = dict(DEFAULT_SYMBOL_TO_SECTOR)
+        bench_map = dict(DEFAULT_SECTOR_BENCHMARKS)
+        if not path.exists():
+            return cls(symbol_to_sector=symbol_map, sector_benchmarks=bench_map)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 — defensive
+            logger.warning("sector_map: failed to parse %s (%s); using defaults", path, exc)
+            return cls(symbol_to_sector=symbol_map, sector_benchmarks=bench_map)
+        if isinstance(payload, dict):
+            user_symbols = payload.get("symbol_to_sector")
+            if isinstance(user_symbols, dict):
+                symbol_map.update({str(k): str(v) for k, v in user_symbols.items()})
+            user_benchmarks = payload.get("sector_benchmarks")
+            if isinstance(user_benchmarks, dict):
+                bench_map.update({str(k): str(v) for k, v in user_benchmarks.items()})
+        return cls(symbol_to_sector=symbol_map, sector_benchmarks=bench_map)

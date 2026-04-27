@@ -127,6 +127,7 @@ class ApplicationRuntime:
         execution_state_repository: ExecutionStateRepository,
         approvals: ApprovalService,
         market_calendar: MarketCalendarService,
+        event_bus=None,
     ) -> "ApplicationRuntime":
         market_data_adapter = adapter_factory.create_market_data_adapter()
         live_broker = adapter_factory.create_live_broker_adapter()
@@ -233,10 +234,19 @@ class ApplicationRuntime:
         )
         auto_research = AutoResearchPipeline(data_dir=str(config.data_dir))
         insight_store = InsightStore(config)
+        from tradingcat.services.insight_detectors import SectorDivergenceDetector
+        from tradingcat.services.insight_detectors.sector_map import SectorMap
+        from tradingcat.services.insight_engine import SentimentHistoryFlowProvider
+
+        sector_map = SectorMap.from_json_file(config.data_dir / "sector_map.json")
+        flow_provider = SentimentHistoryFlowProvider(sentiment_history)
         insight_engine = InsightEngine(
             store=insight_store,
             market_data=market_history,
             market_awareness=market_awareness,
+            event_bus=event_bus,
+            sector_detector=SectorDivergenceDetector(sector_map=sector_map),
+            flow_series_provider=flow_provider,
         )
         return cls(
             market_data_adapter=market_data_adapter,
@@ -326,4 +336,5 @@ class ApplicationRuntimeManager:
             execution_state_repository=self._app.execution_state_repository,
             approvals=self._app.approvals,
             market_calendar=self._app.market_calendar,
+            event_bus=getattr(self._app, "event_bus", None),
         )
