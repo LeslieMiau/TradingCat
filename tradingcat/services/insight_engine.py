@@ -27,6 +27,7 @@ from tradingcat.domain.models import (
 from tradingcat.repositories.insight_store import InsightStore
 from tradingcat.services.insight_detectors import (
     CorrelationBreakDetector,
+    FlowAnomalyDetector,
     SectorDivergenceDetector,
 )
 from tradingcat.services.market_awareness import MarketAwarenessService
@@ -43,6 +44,7 @@ class InsightEngineRunResult:
     produced: list[str]
     suppressed_duplicates: int
     expired: int
+    candidates: list[Insight] | None = None  # populated only in dry_run mode
 
 
 class InsightEngine:
@@ -55,6 +57,8 @@ class InsightEngine:
         event_bus: EventBus | None = None,
         correlation_detector: CorrelationBreakDetector | None = None,
         sector_detector: SectorDivergenceDetector | None = None,
+        flow_detector: FlowAnomalyDetector | None = None,
+        flow_series_provider=None,
         portfolio_symbols_provider=None,
     ) -> None:
         self._store = store
@@ -63,6 +67,10 @@ class InsightEngine:
         self._event_bus = event_bus
         self._correlation_detector = correlation_detector or CorrelationBreakDetector()
         self._sector_detector = sector_detector or SectorDivergenceDetector()
+        self._flow_detector = flow_detector or FlowAnomalyDetector()
+        # Optional callable returning {Market: list[float]} flow series; if
+        # missing, flow detector silently produces nothing (degraded mode).
+        self._flow_series_provider = flow_series_provider
         # Optional callable returning current portfolio symbols. Engine treats
         # them as part of the watchlist even if not in the persisted catalog.
         self._portfolio_symbols_provider = portfolio_symbols_provider
@@ -74,11 +82,20 @@ class InsightEngine:
     def list_active(self, **kwargs) -> list[Insight]:
         return self._store.list(**kwargs)
 
-    def run(self, *, as_of: date | None = None, now: datetime | None = None) -> InsightEngineRunResult:
+    def run(
+        self,
+        *,
+        as_of: date | None = None,
+        now: datetime | None = None,
+        dry_run: bool = False,
+    ) -> InsightEngineRunResult:
+        """Run all detectors. With ``dry_run=True``, candidates are returned
+        without touching the store or publishing events — used by the replay
+        script for backtest-style precision analysis."""
         evaluation_date = as_of or date.today()
         triggered_at = now or datetime.now(timezone.utc)
 
-        expired = self._store.expire_stale(now=triggered_at)
+        expired = 0 if dry_run else self._store.expire_stale(now=triggered_at)
 
         watchlist = self._collect_watchlist()
         if not watchlist:
@@ -109,9 +126,26 @@ class InsightEngine:
                 now=triggered_at,
             )
         )
+        candidate_insights.extend(
+            self._flow_detector.detect(
+                as_of=evaluation_date,
+                watchlist=watchlist,
+                flow_series_by_market=self._resolve_flow_series(),
+                now=triggered_at,
+            )
+        )
 
         produced: list[str] = []
         suppressed = 0
+        if dry_run:
+            return InsightEngineRunResult(
+                as_of=evaluation_date,
+                produced=[insight.id for insight in candidate_insights],
+                suppressed_duplicates=0,
+                expired=expired,
+                candidates=list(candidate_insights),
+            )
+
         for insight in candidate_insights:
             existing = self._store.get(insight.id)
             if existing is not None and existing.user_action.value != "pending":
@@ -162,6 +196,26 @@ class InsightEngine:
                     continue
                 seen.add(key)
                 out.append(instrument)
+        return out
+
+    def _resolve_flow_series(self) -> dict[Market, list[float]]:
+        if self._flow_series_provider is None:
+            return {}
+        try:
+            payload = self._flow_series_provider() or {}
+        except Exception as exc:  # noqa: BLE001 — defensive; never crash run()
+            logger.warning("insight_engine: flow series provider failed: %s", exc)
+            return {}
+        out: dict[Market, list[float]] = {}
+        for key, series in payload.items():
+            if isinstance(key, Market):
+                market = key
+            else:
+                try:
+                    market = Market(str(key))
+                except ValueError:
+                    continue
+            out[market] = [float(v) for v in series if v is not None]
         return out
 
     def _resolve_benchmarks(self) -> dict[Market, str]:

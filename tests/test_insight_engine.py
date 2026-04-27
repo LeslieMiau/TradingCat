@@ -658,3 +658,203 @@ def test_engine_runs_both_detectors():
     assert len(result.produced) >= 1
 
 
+# ---------------------------------------------------------------------------
+# FlowAnomalyDetector
+# ---------------------------------------------------------------------------
+
+
+def _flow_series(mu: float, sigma: float, n: int, today: float) -> list[float]:
+    """Synthetic series whose past N entries have approx (mu, sigma), then today."""
+    import math
+
+    if n < 2:
+        return [today]
+    # Two values that hit exact mu, sigma when combined with the remaining.
+    half = n // 2
+    rest = [mu] * (n - 2 * half)
+    high = [mu + sigma] * half
+    low = [mu - sigma] * half
+    series = high + low + rest
+    series.append(today)
+    return series
+
+
+def test_flow_anomaly_skips_when_history_too_short():
+    from tradingcat.services.insight_detectors.flow_anomaly import (
+        FlowAnomalyConfig,
+        FlowAnomalyDetector,
+    )
+
+    detector = FlowAnomalyDetector(FlowAnomalyConfig(min_history_days=30))
+    insights = detector.detect(
+        as_of=date(2026, 4, 26),
+        watchlist=[_instrument("0700", Market.HK)],
+        flow_series_by_market={Market.HK: [1.0, 2.0, 3.0]},
+    )
+    assert insights == []
+
+
+def test_flow_anomaly_skips_when_no_holdings_in_market():
+    from tradingcat.services.insight_detectors.flow_anomaly import FlowAnomalyDetector
+
+    series = _flow_series(mu=0.0, sigma=1.0, n=60, today=10.0)
+    detector = FlowAnomalyDetector()
+    # Watchlist only has US — no HK or CN holdings
+    insights = detector.detect(
+        as_of=date(2026, 4, 26),
+        watchlist=[_instrument("SPY", Market.US)],
+        flow_series_by_market={Market.HK: series, Market.CN: series},
+    )
+    assert insights == []
+
+
+def test_flow_anomaly_triggers_notable_at_z_25():
+    from tradingcat.services.insight_detectors.flow_anomaly import (
+        FlowAnomalyConfig,
+        FlowAnomalyDetector,
+    )
+
+    detector = FlowAnomalyDetector(FlowAnomalyConfig(z_notable=2.0, z_urgent=3.0))
+    series = _flow_series(mu=0.0, sigma=1.0, n=40, today=2.6)
+    insights = detector.detect(
+        as_of=date(2026, 4, 26),
+        watchlist=[_instrument("0700", Market.HK)],
+        flow_series_by_market={Market.HK: series},
+    )
+    assert len(insights) == 1
+    insight = insights[0]
+    assert insight.kind == InsightKind.FLOW_ANOMALY
+    assert insight.severity == InsightSeverity.NOTABLE
+    assert "0700" in insight.subjects
+    assert "HK" in insight.subjects
+
+
+def test_flow_anomaly_triggers_urgent_at_z_3():
+    from tradingcat.services.insight_detectors.flow_anomaly import (
+        FlowAnomalyConfig,
+        FlowAnomalyDetector,
+    )
+
+    detector = FlowAnomalyDetector(FlowAnomalyConfig(z_notable=2.0, z_urgent=3.0))
+    series = _flow_series(mu=0.0, sigma=1.0, n=40, today=4.0)
+    insights = detector.detect(
+        as_of=date(2026, 4, 26),
+        watchlist=[_instrument("000001.SS", Market.CN)],
+        flow_series_by_market={Market.CN: series},
+    )
+    assert len(insights) == 1
+    assert insights[0].severity == InsightSeverity.URGENT
+
+
+def test_flow_anomaly_causal_chain_complete():
+    from tradingcat.services.insight_detectors.flow_anomaly import FlowAnomalyDetector
+
+    detector = FlowAnomalyDetector()
+    series = _flow_series(mu=0.0, sigma=1.0, n=40, today=3.5)
+    insights = detector.detect(
+        as_of=date(2026, 4, 26),
+        watchlist=[_instrument("0700", Market.HK)],
+        flow_series_by_market={Market.HK: series},
+    )
+    assert len(insights) == 1
+    chain = insights[0].causal_chain
+    # 3 evidence: series ctx + zscore + scope-disclaimer
+    assert len(chain) == 3
+    sources = [ev.source for ev in chain]
+    assert any("sentiment_history" in s for s in sources)
+    assert any("zscore" in s for s in sources)
+    assert any("scope" in s for s in sources)
+
+
+def test_flow_anomaly_id_is_stable():
+    from tradingcat.services.insight_detectors.flow_anomaly import (
+        FlowAnomalyDetector,
+        _stable_id,
+    )
+
+    a = _stable_id(Market.HK, "hk_southbound_net_5d_bn", date(2026, 4, 26))
+    b = _stable_id(Market.HK, "hk_southbound_net_5d_bn", date(2026, 4, 26))
+    c = _stable_id(Market.HK, "hk_southbound_net_5d_bn", date(2026, 4, 27))
+    assert a == b
+    assert a != c
+    _ = FlowAnomalyDetector  # silence unused import
+
+
+def test_engine_invokes_flow_detector_via_provider():
+    """Engine.run() should call flow_series_provider and surface flow insights."""
+    from tradingcat.services.insight_engine import InsightEngine
+
+    config = AppConfig()
+    series = _flow_series(mu=0.0, sigma=1.0, n=40, today=4.0)
+    bars_by_symbol: dict[str, list[Bar]] = {}
+
+    class _MarketData:
+        def list_instruments(self, **kwargs):
+            return [_instrument("0700", Market.HK)]
+
+        def get_instrument(self, symbol, strict=False):
+            return _instrument(symbol, Market.HK)
+
+        def get_bars(self, symbol, start, end):
+            return bars_by_symbol.get(symbol, [])
+
+    class _Awareness:
+        def benchmark_baskets(self):
+            return {"hk": {"benchmark_symbol": "0700"}, "us": {}, "cn": {}}
+
+    provider_calls = {"count": 0}
+
+    def provider():
+        provider_calls["count"] += 1
+        return {Market.HK: series}
+
+    engine = InsightEngine(
+        store=InsightStore(config),
+        market_data=_MarketData(),  # type: ignore[arg-type]
+        market_awareness=_Awareness(),  # type: ignore[arg-type]
+        flow_series_provider=provider,
+    )
+    result = engine.run(as_of=date(2026, 4, 26))
+    assert provider_calls["count"] == 1
+    flow_insights = [
+        i for i in (engine.list_active()) if i.kind == InsightKind.FLOW_ANOMALY
+    ]
+    assert len(flow_insights) == 1
+    assert "0700" in flow_insights[0].subjects
+    assert result.produced  # non-empty
+
+
+def test_engine_flow_provider_failure_is_silent():
+    """Provider raising an exception should not crash engine.run()."""
+    from tradingcat.services.insight_engine import InsightEngine
+
+    config = AppConfig()
+
+    class _MarketData:
+        def list_instruments(self, **kwargs):
+            return [_instrument("0700", Market.HK)]
+
+        def get_instrument(self, symbol, strict=False):
+            return _instrument(symbol, Market.HK)
+
+        def get_bars(self, symbol, start, end):
+            return []
+
+    class _Awareness:
+        def benchmark_baskets(self):
+            return {"hk": {"benchmark_symbol": "0700"}, "us": {}, "cn": {}}
+
+    def failing_provider():
+        raise RuntimeError("flow source down")
+
+    engine = InsightEngine(
+        store=InsightStore(config),
+        market_data=_MarketData(),  # type: ignore[arg-type]
+        market_awareness=_Awareness(),  # type: ignore[arg-type]
+        flow_series_provider=failing_provider,
+    )
+    # Should not raise
+    result = engine.run(as_of=date(2026, 4, 26))
+    assert isinstance(result, InsightEngineRunResult)
+
+
