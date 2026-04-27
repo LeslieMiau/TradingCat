@@ -82,4 +82,10 @@ const API = {
   quantAutoResearchRun: "/research/auto-research/run",
   quantAutoResearchLatest: "/research/auto-research/latest",
   quantAttribution: (start, end) => `/research/attribution?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+
+  /* ── Insights ── */
+  insightsList: "/insights",
+  insightsRun: "/insights/run",
+  insightDismiss: (id) => `/insights/${encodeURIComponent(id)}/dismiss`,
+  insightAck: (id) => `/insights/${encodeURIComponent(id)}/ack`,
 };

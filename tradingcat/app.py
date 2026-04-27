@@ -115,6 +115,12 @@ class TradingCatApplication:
             cooldown_seconds=self.config.notifier.dispatch_cooldown_seconds,
         )
         self.alerts = AlertService(AlertRepository(self.config), dispatcher=dispatcher)
+        # Process-wide event bus shared by InsightEngine, IntradayRiskMonitor,
+        # and any future intraday consumer. Created early so runtime can
+        # subscribe during build.
+        from tradingcat.services.realtime import EventBus
+
+        self.event_bus = EventBus()
         self.scheduler_run_history = SchedulerRunHistory(SchedulerRunRecordRepository(self.config))
         self.scheduler = SchedulerService(
             self.market_calendar,
@@ -234,6 +240,16 @@ class TradingCatApplication:
         self.runtime_manager.initialize()
         self.scheduler_runtime.register_jobs()
 
+        # Bridge urgent insights to AlertService — runs after runtime so
+        # insight_store and event_bus are both ready.
+        from tradingcat.services.insight_alert_bridge import InsightAlertBridge
+
+        self.insight_alert_bridge = InsightAlertBridge(
+            event_bus=self.event_bus,
+            insight_store=self.insight_store,
+            alerts=self.alerts,
+        )
+
     def _require_runtime(self) -> ApplicationRuntime:
         if self.runtime is None:
             raise RuntimeError("Application runtime has not been initialized")
@@ -338,6 +354,14 @@ class TradingCatApplication:
     @property
     def auto_research(self):
         return self._require_runtime().auto_research
+
+    @property
+    def insight_store(self):
+        return self._require_runtime().insight_store
+
+    @property
+    def insight_engine(self):
+        return self._require_runtime().insight_engine
 
     @property
     def research_strategies(self) -> list[object]:

@@ -9,6 +9,7 @@ from . import (
     compliance,
     dashboard,
     execution,
+    insights,
     journal,
     kill_switch,
     market_data,
@@ -45,4 +46,5 @@ ROUTERS = [
     advisory.router,
     reports.router,
     preflight.router,
+    insights.router,
 ]

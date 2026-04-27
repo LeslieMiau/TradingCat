@@ -48,3 +48,8 @@ def dashboard_journal_page(request: Request):
 @router.get("/operations", response_class=HTMLResponse)
 def dashboard_operations_page(request: Request):
     return render_template(request, "operations.html")
+
+
+@router.get("/insights", response_class=HTMLResponse)
+def dashboard_insights_page(request: Request):
+    return render_template(request, "insights.html")

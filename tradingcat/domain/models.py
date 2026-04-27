@@ -847,6 +847,52 @@ class StrategyAllocationRecord(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Insight Engine
+# ---------------------------------------------------------------------------
+
+
+class InsightKind(str, Enum):
+    CORRELATION_BREAK = "correlation_break"
+    SECTOR_DIVERGENCE = "sector_divergence"
+    FLOW_ANOMALY = "flow_anomaly"
+    NEWS_DRIVEN = "news_driven"
+
+
+class InsightSeverity(str, Enum):
+    INFO = "info"
+    NOTABLE = "notable"
+    URGENT = "urgent"
+
+
+class InsightUserAction(str, Enum):
+    PENDING = "pending"
+    DISMISSED = "dismissed"
+    ACKNOWLEDGED = "acknowledged"
+    ACTED = "acted"
+
+
+class InsightEvidence(BaseModel):
+    source: str
+    fact: str
+    value: dict[str, object] = Field(default_factory=dict)
+    observed_at: datetime
+
+
+class Insight(BaseModel):
+    id: str
+    kind: InsightKind
+    severity: InsightSeverity
+    headline: str
+    subjects: list[str] = Field(default_factory=list)
+    causal_chain: list[InsightEvidence] = Field(default_factory=list)
+    confidence: float = 0.0
+    triggered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime
+    user_action: InsightUserAction = InsightUserAction.PENDING
+    dismissed_reason: str | None = None
+
+
 # Resolve the forward reference from MarketAwarenessSnapshot.market_sentiment.
 # Imported here (not at top-of-file) to avoid a circular import since
 # tradingcat.domain.sentiment depends on Market defined in this module.

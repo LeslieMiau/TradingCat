@@ -18,6 +18,7 @@ class EventType(Enum):
     RISK_ALERT = auto()
     TRADE = auto()
     CONNECTION_STATUS = auto()
+    INSIGHT = auto()
 
 
 @dataclass
