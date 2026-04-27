@@ -25,7 +25,10 @@ from tradingcat.domain.models import (
     Market,
 )
 from tradingcat.repositories.insight_store import InsightStore
-from tradingcat.services.insight_detectors import CorrelationBreakDetector
+from tradingcat.services.insight_detectors import (
+    CorrelationBreakDetector,
+    SectorDivergenceDetector,
+)
 from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.realtime import Event, EventBus, EventType
@@ -51,6 +54,7 @@ class InsightEngine:
         market_awareness: MarketAwarenessService,
         event_bus: EventBus | None = None,
         correlation_detector: CorrelationBreakDetector | None = None,
+        sector_detector: SectorDivergenceDetector | None = None,
         portfolio_symbols_provider=None,
     ) -> None:
         self._store = store
@@ -58,6 +62,7 @@ class InsightEngine:
         self._market_awareness = market_awareness
         self._event_bus = event_bus
         self._correlation_detector = correlation_detector or CorrelationBreakDetector()
+        self._sector_detector = sector_detector or SectorDivergenceDetector()
         # Optional callable returning current portfolio symbols. Engine treats
         # them as part of the watchlist even if not in the persisted catalog.
         self._portfolio_symbols_provider = portfolio_symbols_provider
@@ -88,6 +93,15 @@ class InsightEngine:
         candidate_insights: list[Insight] = []
         candidate_insights.extend(
             self._correlation_detector.detect(
+                as_of=evaluation_date,
+                watchlist=watchlist,
+                bars_by_symbol=bars_by_symbol,
+                benchmark_by_market=benchmarks,
+                now=triggered_at,
+            )
+        )
+        candidate_insights.extend(
+            self._sector_detector.detect(
                 as_of=evaluation_date,
                 watchlist=watchlist,
                 bars_by_symbol=bars_by_symbol,
@@ -166,7 +180,10 @@ class InsightEngine:
         benchmarks: dict[Market, str],
         as_of: date,
     ) -> dict[str, list[Bar]]:
-        lookback = self._correlation_detector.required_lookback_days()
+        lookback = max(
+            self._correlation_detector.required_lookback_days(),
+            self._sector_detector.required_lookback_days(),
+        )
         # Calendar days × 1.6 buffers weekends/holidays so we still see ~lookback
         # trading days after gaps.
         start = as_of - timedelta(days=int(lookback * 1.6) + 5)

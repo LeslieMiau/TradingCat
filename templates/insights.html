@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set active_page = "insights" %}
+
+{% block page_title %}盘中洞察 — TradingCat{% endblock %}
+
+{% block shell %}
+<header class="hero hero-compact">
+  <div class="hero-copy">
+    <p class="eyebrow">TradingCat InsightEngine</p>
+    <h1>盘中洞察</h1>
+  </div>
+  <div class="hero-actions">
+    <button id="refresh-insights" class="button button-primary button-sm" type="button">刷新</button>
+    <button id="run-insights" class="button button-sm" type="button">运行引擎</button>
+  </div>
+</header>
+
+<main>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="tabs" id="insight-tabs">
+        <button class="tab is-active" data-filter="all" type="button">全部</button>
+        <button class="tab" data-filter="urgent" type="button">紧急</button>
+        <button class="tab" data-filter="notable" type="button">未处理</button>
+      </div>
+      <span id="insight-count" class="meta-text">加载中</span>
+    </div>
+    <div id="insights-panel">
+      <p class="detail-empty" style="text-align:center;padding:3rem 0;">加载洞察中...</p>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/common.js"></script>
+  <script src="/static/api.js"></script>
+  <script src="/static/components.js"></script>
+  <script src="/static/hotkeys.js"></script>
+  <script src="/static/dashboard_insights.js?v=2"></script>
+{% endblock %}

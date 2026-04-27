@@ -435,3 +435,226 @@ def test_engine_run_empty_watchlist_yields_empty():
     assert result.suppressed_duplicates == 0
 
 
+# ---------------------------------------------------------------------------
+# Sector Map
+# ---------------------------------------------------------------------------
+
+
+def test_sector_map_basic():
+    """SectorMap returns correct sector and benchmark lookups."""
+    from tradingcat.services.insight_detectors.sector_map import SectorMap
+
+    sm = SectorMap()
+    assert sm.get_sector("0700") == "technology"
+    assert sm.get_sector("SPY") == "broad_market"
+    assert sm.get_sector("QQQ") == "technology"
+    assert sm.get_sector("UNKNOWN") is None
+    assert sm.get_sector_benchmark("technology") == "QQQ"
+    assert sm.get_sector_benchmark("broad_market") == "SPY"
+    assert sm.get_sector_benchmark("nonexistent") is None
+
+
+def test_sector_map_group_by_sector():
+    """Instruments are grouped by their sector, unknowns omitted."""
+    from tradingcat.services.insight_detectors.sector_map import SectorMap
+
+    sm = SectorMap()
+    watchlist = [
+        _instrument("0700", Market.HK),
+        _instrument("9988", Market.HK),
+        _instrument("SPY", Market.US),
+        _instrument("UNKNOWN", Market.US),
+    ]
+    groups = sm.group_by_sector(watchlist)
+    assert "technology" in groups
+    assert "broad_market" in groups
+    assert len(groups["technology"]) == 2
+    assert len(groups["broad_market"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Sector Divergence Detector
+# ---------------------------------------------------------------------------
+
+
+def _make_sector_detector(
+    deviation_window: int = 60,
+    min_sector_move_pct: float = 2.0,
+    percentile_notable: float = 20.0,
+    percentile_urgent: float = 10.0,
+    min_beta: float = 0.5,
+) -> SectorDivergenceDetector:
+    from tradingcat.services.insight_detectors.sector_divergence import (
+        SectorDivergenceConfig,
+        SectorDivergenceDetector,
+    )
+    return SectorDivergenceDetector(
+        SectorDivergenceConfig(
+            deviation_window=deviation_window,
+            min_sector_move_pct=min_sector_move_pct,
+            percentile_notable=percentile_notable,
+            percentile_urgent=percentile_urgent,
+            min_beta=min_beta,
+        )
+    )
+
+
+def test_sector_divergence_detector_triggers():
+    """Instrument at extreme percentile within sector emits insight."""
+    detector = _make_sector_detector()
+    as_of = date(2026, 3, 15)
+
+    # 6 technology symbols: 5 move together, 0700 diverges upward
+    tech_symbols = ["0700", "9988", "300308", "603986", "QQQ", "XLK"]
+    base_closes = _closes(100.0, 0.2, 66)
+    bars_by_symbol: dict[str, list[Bar]] = {}
+    for sym in tech_symbols:
+        if sym == "0700":
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.07, 4)]
+        else:
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.035, 4)]
+        bars_by_symbol[sym] = _bars(closes)
+
+    watchlist = [_instrument(sym, Market.US if sym in ("QQQ", "XLK") else Market.HK if sym in ("0700", "9988") else Market.CN) for sym in tech_symbols]
+    insights = detector.detect(
+        as_of=as_of,
+        watchlist=watchlist,
+        bars_by_symbol=bars_by_symbol,
+        benchmark_by_market={},
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert len(insights) == 1
+    assert "0700" in insights[0].headline
+
+
+def test_sector_divergence_detector_skips_small_sector_move():
+    """No insight when sector return is below min_sector_move_pct."""
+    detector = _make_sector_detector(min_sector_move_pct=2.0)
+    as_of = date(2026, 3, 15)
+
+    tech_symbols = ["0700", "9988"]
+    base_closes = _closes(100.0, 0.01, 66)  # tiny drift → sector moves < 2%
+    bars_by_symbol = {sym: _bars(base_closes) for sym in tech_symbols}
+    watchlist = [_instrument(sym, Market.HK) for sym in tech_symbols]
+
+    insights = detector.detect(
+        as_of=as_of,
+        watchlist=watchlist,
+        bars_by_symbol=bars_by_symbol,
+        benchmark_by_market={},
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert insights == []
+
+
+def test_sector_divergence_detector_skips_single_instrument_sector():
+    """No insight when sector has fewer than 2 instruments."""
+    detector = _make_sector_detector()
+    as_of = date(2026, 3, 15)
+
+    closes = _closes(100.0, 0.2, 66)
+    bars_by_symbol = {"0700": _bars(closes)}
+    watchlist = [_instrument("0700", Market.HK)]
+
+    insights = detector.detect(
+        as_of=as_of,
+        watchlist=watchlist,
+        bars_by_symbol=bars_by_symbol,
+        benchmark_by_market={},
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert insights == []
+
+
+def test_sector_divergence_causal_chain():
+    """Every insight has 3+ evidence entries with source + fact + value."""
+    detector = _make_sector_detector()
+    as_of = date(2026, 3, 15)
+
+    tech_symbols = ["0700", "9988", "300308", "603986", "QQQ", "XLK"]
+    base_closes = _closes(100.0, 0.2, 66)
+    bars_by_symbol: dict[str, list[Bar]] = {}
+    for sym in tech_symbols:
+        if sym == "0700":
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.07, 4)]
+        else:
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.035, 4)]
+        bars_by_symbol[sym] = _bars(closes)
+
+    watchlist = [_instrument(sym, Market.US if sym in ("QQQ", "XLK") else Market.HK if sym in ("0700", "9988") else Market.CN) for sym in tech_symbols]
+    insights = detector.detect(
+        as_of=as_of,
+        watchlist=watchlist,
+        bars_by_symbol=bars_by_symbol,
+        benchmark_by_market={},
+        now=datetime(2026, 3, 15, 20, 0, tzinfo=UTC),
+    )
+    assert len(insights) >= 1
+    for insight in insights:
+        assert len(insight.causal_chain) >= 3
+        for ev in insight.causal_chain:
+            assert ev.source, f"evidence missing source: {ev}"
+            assert ev.fact, f"evidence missing fact: {ev}"
+            assert ev.value is not None, f"evidence missing value: {ev}"
+
+
+# ---------------------------------------------------------------------------
+# Engine orchestration with both detectors
+# ---------------------------------------------------------------------------
+
+
+def test_engine_runs_both_detectors():
+    """Engine.run() with both detectors wired does not crash and produces sector insights."""
+    from tradingcat.services.insight_engine import InsightEngine
+    from tradingcat.repositories.insight_store import InsightStore
+    from tradingcat.services.insight_detectors.sector_map import SectorMap
+
+    config = AppConfig()
+
+    tech_symbols = ["0700", "9988", "300308", "603986", "QQQ", "XLK"]
+    base_closes = _closes(100.0, 0.2, 96)
+    bars_by_symbol: dict[str, list[Bar]] = {}
+    for sym in tech_symbols:
+        closes: list[float]
+        if sym == "0700":
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.07, 4)]
+        else:
+            closes = base_closes[:-1] + [round(base_closes[-1] * 1.035, 4)]
+        bars_by_symbol[sym] = _bars(closes)
+
+    class _RichMarketData:
+        def list_instruments(self, **kwargs):
+            return [
+                _instrument("0700", Market.HK),
+                _instrument("9988", Market.HK),
+                _instrument("300308", Market.CN),
+                _instrument("603986", Market.CN),
+                _instrument("QQQ", Market.US),
+                _instrument("XLK", Market.US),
+            ]
+
+        def get_instrument(self, symbol, strict=False):
+            return _instrument(symbol)
+
+        def get_bars(self, symbol, start, end):
+            return bars_by_symbol.get(symbol, [])
+
+    class _MockAwareness:
+        def benchmark_baskets(self):
+            return {
+                "hk": {"benchmark_symbol": "0700"},
+                "cn": {"benchmark_symbol": "510300"},
+                "us": {"benchmark_symbol": "SPY"},
+            }
+
+    engine = InsightEngine(
+        store=InsightStore(config),
+        market_data=_RichMarketData(),  # type: ignore[arg-type]
+        market_awareness=_MockAwareness(),  # type: ignore[arg-type]
+    )
+    result = engine.run(as_of=date(2026, 3, 15))
+    assert isinstance(result, InsightEngineRunResult)
+    # Sector divergence should produce at least 1 insight
+    assert len(result.produced) >= 1
+
+

@@ -9,6 +9,9 @@ Round 1 ships ``correlation_break``. ``sector_divergence`` (Round 2) and
 from tradingcat.services.insight_detectors.correlation_break import (
     CorrelationBreakDetector,
 )
+from tradingcat.services.insight_detectors.sector_divergence import (
+    SectorDivergenceDetector,
+)
 
 
-__all__ = ["CorrelationBreakDetector"]
+__all__ = ["CorrelationBreakDetector", "SectorDivergenceDetector"]
