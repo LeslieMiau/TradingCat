@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import math
 from datetime import UTC, date, datetime, timedelta
@@ -44,6 +45,24 @@ def _to_yahoo_ticker(instrument: Instrument) -> str:
     return instrument.symbol
 
 
+def _fetch_price(ticker: str) -> float | None:
+    """Fetch a single ticker price. Meant to run in a thread pool."""
+    try:
+        info = yf.Ticker(ticker).fast_info
+        price = info["lastPrice"]
+    except Exception:
+        logger.warning("YFinance _fetch_price failed for %s", ticker, exc_info=True)
+        return None
+    if price is None or (isinstance(price, float) and math.isnan(price)):
+        logger.warning("YFinance returned NaN/None price for %s; omitting symbol", ticker)
+        return None
+    try:
+        return float(price)
+    except (TypeError, ValueError):
+        logger.warning("YFinance returned non-numeric price %r for %s; omitting symbol", price, ticker)
+        return None
+
+
 class YFinanceMarketDataAdapter:
     """Fetches real market data from Yahoo Finance."""
 
@@ -84,23 +103,28 @@ class YFinanceMarketDataAdapter:
             )
         return bars
 
+    _QUOTE_TIMEOUT_SECONDS = 15
+
     def fetch_quotes(self, instruments: list[Instrument]) -> dict[str, float]:
         quotes: dict[str, float] = {}
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(instruments) or 1)
+        futures: list[tuple[str, concurrent.futures.Future]] = []
         for instrument in instruments:
             ticker = _to_yahoo_ticker(instrument)
+            futures.append((instrument.symbol, pool.submit(_fetch_price, ticker)))
+
+        for symbol, future in futures:
             try:
-                info = yf.Ticker(ticker).fast_info
-                price = info["lastPrice"]
+                price = future.result(timeout=self._QUOTE_TIMEOUT_SECONDS)
+                if price is not None:
+                    quotes[symbol] = price
+            except concurrent.futures.TimeoutError:
+                logger.warning("YFinance fetch_quotes timed out for %s after %ds", symbol, self._QUOTE_TIMEOUT_SECONDS)
             except Exception:
-                logger.warning("YFinance fetch_quotes failed for %s", ticker, exc_info=True)
-                continue
-            if price is None or (isinstance(price, float) and math.isnan(price)):
-                logger.warning("YFinance returned NaN/None price for %s; omitting symbol", ticker)
-                continue
-            try:
-                quotes[instrument.symbol] = float(price)
-            except (TypeError, ValueError):
-                logger.warning("YFinance returned non-numeric price %r for %s; omitting symbol", price, ticker)
+                logger.warning("YFinance fetch_quotes failed for %s", symbol, exc_info=True)
+            finally:
+                future.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
         return quotes
 
     def fetch_option_chain(self, underlying: str, as_of: date, *, market: Market | None = None) -> list[OptionContract]:

@@ -263,9 +263,15 @@ function skeletonList(count = 3) {
 async function apiFetch(url, options = {}, retries = 2) {
   const defaults = { headers: { Accept: "application/json" } };
   const merged = { ...defaults, ...options, headers: { ...defaults.headers, ...(options.headers || {}) } };
+  const timeoutMs = options.timeout ?? 30000;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, merged);
+      const response = await fetch(url, {
+        ...merged,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs),
+      });
       if (response.ok) {
         const data = await response.json();
         return { ok: true, data, error: null };

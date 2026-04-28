@@ -14,3 +14,18 @@ data/
 PLAN.json
 PROGRESS.md
 .harness/
+
+# 开发配置/计划文件（不应提交到远程）
+.codex/
+AGENTS.md
+PLAN.md
+.handoff/
+handoff-*.md
+scripts/codex_harness/
+scripts/absorb_dogfood.py
+scripts/stage_a_fault_injection.py
+init.sh
+
+# Harness 评审/流程文档
+docs/*-harness-*.md
+docs/ABSORB_CAPABILITIES.md

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date as date_cls
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from tradingcat.domain.models import InsightKind, InsightUserAction
 from tradingcat.routes.common import get_app_state
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/insights")
@@ -89,3 +93,36 @@ def run_insight_engine(request: Request, payload: InsightRunPayload | None = Non
         "suppressed_duplicates": result.suppressed_duplicates,
         "expired": result.expired,
     }
+
+
+@router.get("/{insight_id}/detail")
+def get_insight_detail(request: Request, insight_id: str):
+    """Return insight with an AI-generated trading recommendation (lazy)."""
+    app = get_app_state(request)
+    insight = app.insight_store.get(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    serialized = insight.model_dump(mode="json")
+    # Lazy-generate recommendation if missing
+    if insight.recommendation is None and app.ai_researcher.enabled:
+        try:
+            rec_analysis = app.ai_researcher.analyze_insight_trading_action(insight_data=serialized)
+            meta = getattr(rec_analysis, "metadata", {}) or {}
+            if isinstance(meta, dict) and meta.get("action"):
+                from tradingcat.domain.models import TradingRecommendation
+                rec = TradingRecommendation(
+                    action=meta.get("action", "hold"),
+                    symbol=meta.get("symbol") or (insight.subjects[0] if insight.subjects else None),
+                    entry_price=meta.get("entry_price"),
+                    target_price=meta.get("target_price"),
+                    stop_loss=meta.get("stop_loss"),
+                    confidence=float(meta.get("confidence", 0.5)) if not isinstance(meta.get("confidence"), str) else 0.5,
+                    rationale=meta.get("rationale", meta.get("content", "")),
+                    time_horizon=meta.get("time_horizon", "short_term"),
+                    risk_level=meta.get("risk_level", "medium"),
+                )
+                serialized["recommendation"] = rec.model_dump(mode="json")
+                serialized["_recommendation_text"] = rec_analysis.content
+        except Exception as exc:
+            logger.warning("get_insight_detail: lazy recommendation failed for %s: %s", insight_id, exc)
+    return serialized

@@ -56,9 +56,19 @@ class AIResearcher:
         prompts = {
             AIFeature.BRIEFING: (
                 "You are an experienced quantitative investment analyst. "
-                "Write a concise pre-market briefing in Chinese (with English ticker symbols). "
-                "Cover: key market movements, macro events, sector rotation signals, and trading implications. "
-                "Be specific with numbers and levels. Keep under 300 words."
+                "Write a pre-market briefing in Chinese (with English ticker symbols). "
+                "Output valid JSON with the following fields:\n"
+                "- regime: market regime assessment (bullish/neutral/caution/risk_off) with supporting_evidence string\n"
+                "- risk_posture: string assessment\n"
+                "- confidence: string (high/medium/low)\n"
+                "- support_resistance: array of {asset, support_levels: [float], resistance_levels: [float]}\n"
+                "- sector_rotation: array of {sector, observation, direction (strengthening/weakening/neutral)}\n"
+                "- recommendations: array of REQUIRED trading recommendations, each with:\n"
+                "    action (buy/sell/hold/watch/avoid), symbol, entry_price, target_price, stop_loss,\n"
+                "    confidence (0-1), rationale, time_horizon (intraday/short_term/medium_term), risk_level (low/medium/high)\n"
+                "- content: full analysis text in Chinese with specific numbers and levels\n"
+                "You MUST include at least 3 specific trading recommendations with quantified entry/target/stop prices. "
+                "All observations must cite supporting data. Be specific — avoid vague phrases like 'may fluctuate'."
             ),
             AIFeature.ANOMALY: (
                 "You are a trade surveillance analyst. "
@@ -73,9 +83,16 @@ class AIResearcher:
                 "Keep under 300 words. Be actionable."
             ),
             AIFeature.JOURNAL: (
-                "You are a portfolio manager writing a daily/weekly summary in Chinese. "
-                "Summarize: portfolio performance, key decisions, risk status, and outlook. "
-                "Use bullet points for readability. Keep under 400 words."
+                "You are a portfolio manager writing a post-market review in Chinese. "
+                "Output valid JSON with the following fields:\n"
+                "- content: full review text in Chinese with bullet points\n"
+                "- trade_scores: array of {symbol, score (0-10), entry_quality (0-10), exit_quality (0-10),\n"
+                "    sizing_quality (0-10), notes}\n"
+                "- lessons_learned: array of {category (execution/planning/risk_management), lesson, impact}\n"
+                "- adjustments: array of {adjustment, reason, target_outcome}\n"
+                "You MUST include: plan vs actual deviation analysis, per-symbol trade quality scoring, "
+                "categorized lessons, and at least 3 specific adjustments for the next session. "
+                "Be specific with numbers — avoid vague phrases."
             ),
         }
         return prompts.get(feature, prompts[AIFeature.BRIEFING])
@@ -186,6 +203,44 @@ class AIResearcher:
             content=parsed.get("content", raw or "Journal unavailable"),
             summary=parsed.get("summary", "Trading journal"),
             confidence=parsed.get("confidence", "medium"),
+            metadata={
+                "trade_scores": parsed.get("trade_scores", []),
+                "lessons_learned": parsed.get("lessons_learned", []),
+                "adjustments": parsed.get("adjustments", []),
+            },
+        )
+
+    def analyze_insight_trading_action(self, insight_data: dict[str, Any] | None = None) -> AIAnalysis:
+        """Generate a specific trading recommendation for a single insight."""
+        system = (
+            "You are a quantitative risk analyst. Given the following market insight, "
+            "provide a specific trading recommendation in Chinese. "
+            "Output valid JSON with these fields:\n"
+            "- action: one of buy/sell/hold/watch/avoid\n"
+            "- symbol: the subject ticker\n"
+            "- entry_price: float or null\n"
+            "- target_price: float or null\n"
+            "- stop_loss: float or null\n"
+            "- confidence: 0.0-1.0\n"
+            "- rationale: string explaining the reasoning\n"
+            "- time_horizon: intraday/short_term/medium_term\n"
+            "- risk_level: low/medium/high\n"
+            "- content: full analysis text in Chinese\n"
+            "Be specific with prices and levels. If exact prices are unavailable, estimate from context."
+        )
+        user = json.dumps({
+            "request": "insight_trading_action",
+            "date": str(date.today()),
+            "insight": insight_data or {},
+        }, ensure_ascii=False, default=str)
+        raw = self._call_api(system, user, max_tokens=1024)
+        parsed = self._parse_json(raw)
+        return AIAnalysis(
+            feature=AIFeature.ANOMALY,  # reuse anomaly category for insights
+            content=parsed.get("content", raw or "Recommendation unavailable"),
+            summary=parsed.get("action", "Trading recommendation"),
+            confidence=parsed.get("confidence", "medium"),
+            metadata=parsed,
         )
 
     # ---- persistence ----

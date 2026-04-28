@@ -72,22 +72,24 @@ async function loadSummary() {
   state.error = null;
   renderDashboard();
 
-  const [incidentsResult, rebalanceResult, alphaResult, macroResult, cycleResult] = await Promise.all([
-    apiFetch(API.opsIncidentsReplay(7)),
+  const [incidentsResult, rebalanceResult, alphaResult, macroResult, cycleResult] = await Promise.allSettled([
+    apiFetch(API.opsIncidentsReplay(7), { timeout: 20000 }),
     apiFetch(API.portfolioRebalancePlan, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
+      timeout: 20000,
     }),
-    apiFetch(API.researchAlphaRadar(15)),
-    apiFetch(API.researchMacroCalendar(7)),
-    apiFetch(API.schedulerCycleStatus),
+    apiFetch(API.researchAlphaRadar(15), { timeout: 20000 }),
+    apiFetch(API.researchMacroCalendar(7), { timeout: 20000 }),
+    apiFetch(API.schedulerCycleStatus, { timeout: 20000 }),
   ]);
-  state.incidents = incidentsResult.ok ? incidentsResult.data : null;
-  state.rebalance = rebalanceResult.ok ? rebalanceResult.data : null;
-  state.alphaRadar = alphaResult.ok ? alphaResult.data : null;
-  state.macroCalendar = macroResult.ok ? macroResult.data : null;
-  state.cycleStatus = cycleResult.ok ? cycleResult.data : null;
+  const extract = (r) => (r.status === "fulfilled" && r.value.ok ? r.value.data : null);
+  state.incidents = extract(incidentsResult);
+  state.rebalance = extract(rebalanceResult);
+  state.alphaRadar = extract(alphaResult);
+  state.macroCalendar = extract(macroResult);
+  state.cycleStatus = extract(cycleResult);
 
   renderDashboard();
 }
@@ -106,20 +108,33 @@ async function loadDashboard() {
     button.textContent = "加载中...";
   }
 
-  await loadSummary();
-  if (state.error) {
-    renderError();
-    showToast(state.error, "error");
-  } else {
-    showToast("数据已刷新", "success", 2000);
-  }
+  const safetyTimer = setTimeout(() => {
+    dashboardLoading = false;
+    if (button) {
+      button.classList.remove("button--loading");
+      button.disabled = false;
+      button.textContent = "刷新数据";
+    }
+  }, 60000);
 
-  if (button) {
-    button.classList.remove("button--loading");
-    button.disabled = false;
-    button.textContent = "刷新数据";
+  try {
+    await loadSummary();
+    clearTimeout(safetyTimer);
+    if (state.error) {
+      renderError();
+      showToast(state.error, "error");
+    } else {
+      showToast("数据已刷新", "success", 2000);
+    }
+  } finally {
+    clearTimeout(safetyTimer);
+    dashboardLoading = false;
+    if (button) {
+      button.classList.remove("button--loading");
+      button.disabled = false;
+      button.textContent = "刷新数据";
+    }
   }
-  dashboardLoading = false;
 }
 
 document.getElementById("refresh-dashboard")?.addEventListener("click", () => {

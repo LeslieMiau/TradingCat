@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% set active_page = "briefing" %}
+
+{% block page_title %}盘前简报 — TradingCat{% endblock %}
+
+{% block shell %}
+<header class="hero hero-compact">
+  <div class="hero-copy">
+    <p class="eyebrow">Pre-Market Briefing</p>
+    <h1>盘前简报</h1>
+  </div>
+  <div class="hero-actions">
+    <button id="refresh-briefing" class="button button-primary button-sm" type="button">刷新数据</button>
+    <button id="run-briefing" class="button button-sm" type="button">运行简报</button>
+  </div>
+</header>
+
+<main class="dashboard-grid" id="briefing-root">
+  <!-- 市场全景 -->
+  <section class="panel" id="panel-overview">
+    <div class="panel-header"><h2>市场全景</h2></div>
+    <div id="overview-cards" class="cards-grid four compact">
+      <article class="metric-tile loading"><span>加载中...</span></article>
+    </div>
+  </section>
+
+  <!-- 关键支撑阻力位 -->
+  <section class="panel" id="panel-levels">
+    <div class="panel-header">
+      <h2>关键支撑阻力位</h2>
+      <span class="meta-text">基于近期价格行为和流动性数据</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>资产</th><th>支撑位</th><th>阻力位</th></tr>
+        </thead>
+        <tbody id="levels-table"><tr><td colspan="3" class="table-empty">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 板块轮动 -->
+  <section class="panel" id="panel-sectors">
+    <div class="panel-header">
+      <h2>板块轮动</h2>
+      <span class="meta-text">近期板块强弱变化</span>
+    </div>
+    <div id="sectors-list" class="summary-grid">
+      <p class="detail-empty">加载中...</p>
+    </div>
+  </section>
+
+  <!-- 交易推荐 -->
+  <section class="panel panel-highlight" style="border-left: 3px solid var(--accent);" id="panel-recommendations">
+    <div class="panel-header">
+      <h2>交易推荐</h2>
+      <span class="meta-text">AI 生成的具体操作建议，仅供参考</span>
+    </div>
+    <div id="recommendations-list" class="cards-grid two">
+      <p class="detail-empty">加载中...</p>
+    </div>
+    <p style="font-size: 12px; color: var(--text-muted); margin-top: 12px; padding: 0 4px;">
+      本报告由 AI 生成，仅供参考，不构成投资建议。交易有风险，请自行判断。
+    </p>
+  </section>
+
+  <!-- AI 深度分析 -->
+  <section class="panel" id="panel-analysis">
+    <div class="panel-header">
+      <h2>AI 深度分析</h2>
+      <span class="meta-text">DeepSeek 生成的完整分析报告</span>
+    </div>
+    <div id="ai-analysis-content" class="panel-body" style="white-space: pre-wrap; line-height: 1.7; font-size: 14px;">
+      <p class="detail-empty">加载中...</p>
+    </div>
+  </section>
+
+  <!-- 感知快照详情 -->
+  <section class="panel" id="panel-awareness">
+    <div class="panel-header">
+      <h2>感知快照详情</h2>
+      <span class="meta-text">市场感知服务的完整数据</span>
+    </div>
+    <pre id="awareness-raw" class="panel-body" style="font-size: 12px; max-height: 400px; overflow: auto; background: var(--surface-2); padding: 12px; border-radius: 6px;"><p class="detail-empty">加载中...</p></pre>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/common.js"></script>
+  <script src="/static/api.js"></script>
+  <script src="/static/components.js"></script>
+  <script src="/static/hotkeys.js"></script>
+  <script src="/static/dashboard_briefing.js?v=1"></script>
+{% endblock %}

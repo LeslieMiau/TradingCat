@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% set active_page = "review" %}
+
+{% block page_title %}盘后复盘 — TradingCat{% endblock %}
+
+{% block shell %}
+<header class="hero hero-compact">
+  <div class="hero-copy">
+    <p class="eyebrow">Post-Market Review</p>
+    <h1>盘后复盘</h1>
+  </div>
+  <div class="hero-actions">
+    <button id="refresh-review" class="button button-primary button-sm" type="button">刷新数据</button>
+    <button id="run-review" class="button button-sm" type="button">运行复盘</button>
+  </div>
+</header>
+
+<main class="dashboard-grid" id="review-root">
+  <!-- 计划概览 -->
+  <section class="panel" id="panel-plan">
+    <div class="panel-header"><h2>计划概览</h2></div>
+    <p id="plan-headline" class="detail-paragraph" style="padding: 0 16px;">加载中...</p>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead><tr><th>状态</th><th>信号数</th><th>意图数</th><th>手动数</th></tr></thead>
+        <tbody id="plan-metrics"><tr><td colspan="4" class="table-empty">加载中...</td></tr></tbody>
+      </table>
+    </div>
+    <ul id="plan-reasons" class="detail-list">
+      <li class="detail-empty">加载中...</li>
+    </ul>
+  </section>
+
+  <!-- 总结概览 -->
+  <section class="panel" id="panel-summary">
+    <div class="panel-header"><h2>总结概览</h2></div>
+    <p id="summary-headline" class="detail-paragraph" style="padding: 0 16px;">加载中...</p>
+    <div class="summary-grid">
+      <article class="detail-card">
+        <h4>亮点</h4>
+        <ul id="summary-highlights" class="detail-list"><li class="detail-empty">加载中...</li></ul>
+      </article>
+      <article class="detail-card">
+        <h4>阻塞项</h4>
+        <ul id="summary-blockers" class="detail-list"><li class="detail-empty">加载中...</li></ul>
+      </article>
+      <article class="detail-card">
+        <h4>下一步动作</h4>
+        <ul id="summary-next-actions" class="detail-list"><li class="detail-empty">加载中...</li></ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- 偏差分析 -->
+  <section class="panel" id="panel-deviations">
+    <div class="panel-header">
+      <h2>偏差分析</h2>
+      <span class="meta-text">计划 vs 实际偏差</span>
+    </div>
+    <ul id="deviations-list" class="detail-list">
+      <li class="detail-empty">加载中...</li>
+    </ul>
+  </section>
+
+  <!-- 交易质量评分 -->
+  <section class="panel" id="panel-scores">
+    <div class="panel-header">
+      <h2>交易质量评分</h2>
+      <span class="meta-text">AI 对每个标的的交易质量评估（0-10）</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead><tr><th>标的</th><th>综合评分</th><th>入场质量</th><th>出场质量</th><th>仓位质量</th><th>说明</th></tr></thead>
+        <tbody id="scores-table"><tr><td colspan="6" class="table-empty">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 经验教训 -->
+  <section class="panel" id="panel-lessons">
+    <div class="panel-header">
+      <h2>经验教训</h2>
+      <span class="meta-text">按类别归集的今日经验</span>
+    </div>
+    <div id="lessons-list" class="summary-grid">
+      <p class="detail-empty">加载中...</p>
+    </div>
+  </section>
+
+  <!-- 下个交易日调整 -->
+  <section class="panel panel-highlight" style="border-left: 3px solid var(--accent);" id="panel-adjustments">
+    <div class="panel-header">
+      <h2>下个交易日调整</h2>
+      <span class="meta-text">AI 建议的具体调整措施</span>
+    </div>
+    <div id="adjustments-list" class="summary-grid">
+      <p class="detail-empty">加载中...</p>
+    </div>
+  </section>
+
+  <!-- AI 交易日志 -->
+  <section class="panel" id="panel-journal">
+    <div class="panel-header">
+      <h2>AI 交易日志</h2>
+      <span class="meta-text">DeepSeek 生成的完整分析报告</span>
+    </div>
+    <div id="ai-journal-content" class="panel-body" style="white-space: pre-wrap; line-height: 1.7; font-size: 14px;">
+      <p class="detail-empty">加载中...</p>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/common.js"></script>
+  <script src="/static/api.js"></script>
+  <script src="/static/components.js"></script>
+  <script src="/static/hotkeys.js"></script>
+  <script src="/static/dashboard_review.js?v=1"></script>
+{% endblock %}

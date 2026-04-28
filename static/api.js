@@ -94,4 +94,9 @@ const API = {
   insightsRun: "/insights/run",
   insightDismiss: (id) => `/insights/${encodeURIComponent(id)}/dismiss`,
   insightAck: (id) => `/insights/${encodeURIComponent(id)}/ack`,
+  insightDetail: (id) => `/insights/${encodeURIComponent(id)}/detail`,
+
+  /* ── Briefing & Review Detail Pages ── */
+  briefingData: (asOf) => asOf ? `/dashboard/briefing/data?as_of=${encodeURIComponent(asOf)}` : "/dashboard/briefing/data",
+  reviewData: (asOf) => asOf ? `/dashboard/review/data?as_of=${encodeURIComponent(asOf)}` : "/dashboard/review/data",
 };
