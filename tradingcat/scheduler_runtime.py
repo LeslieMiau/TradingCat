@@ -6,6 +6,7 @@ from datetime import date, time, timedelta
 from typing import TYPE_CHECKING, Callable
 
 from tradingcat.domain.models import Market
+from tradingcat.services.trading_session import TradingSessionService
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,15 @@ class ApplicationSchedulerRuntime:
                 description="轮询组合风险状态；遇到硬性违规或 NAV 不可用时自动激活紧急关停",
                 interval_seconds=interval,
                 handler=self.run_intraday_risk_tick_job,
+            )
+        insight_interval = int(getattr(self._app.config, "intraday_insight_seconds", 300))
+        if insight_interval > 0:
+            self._app.scheduler.register_interval(
+                job_id="intraday_insight_scan",
+                name="盘中洞察扫描",
+                description="周期性运行 InsightEngine 检测器，捕捉盘中异常",
+                interval_seconds=insight_interval,
+                handler=self.run_intraday_insight_scan_job,
             )
         advisory_cfg = getattr(self._app.config, "advisory_report", None)
         if advisory_cfg is not None and advisory_cfg.enabled:
@@ -174,6 +184,81 @@ class ApplicationSchedulerRuntime:
             return f"已持久化 {rows} 行指标，清理 {pruned} 行旧数据"
         except Exception as exc:
             return f"情绪持久化失败：{exc}"
+
+    # ── Autonomous daily-cycle jobs ──────────────────────────────────────────
+
+    def _run_pre_market_briefing(self, market: Market) -> str:
+        from tradingcat.services.pre_market_orchestrator import PreMarketOrchestrator
+        session_svc = TradingSessionService(self._app.market_calendar)
+        orch = PreMarketOrchestrator(
+            market_awareness=self._app.market_awareness,
+            insight_engine=self._app.insight_engine,
+            ai_researcher=self._app.ai_researcher,
+            trading_session=session_svc,
+            data_dir=self._app.config.data_dir,
+        )
+        result = orch.run(market=market)
+        if result.skipped_reason:
+            return f"{market.value} 盘前简报跳过：{result.skipped_reason}"
+        return (
+            f"{market.value} 盘前简报完成：{result.insight_count} 条隔夜洞察"
+            + (f"，AI 简报已保存" if result.briefing_path else "")
+        )
+
+    def run_pre_market_briefing_job(self) -> str:
+        return self._run_pre_market_briefing(Market.CN)
+
+    def run_pre_market_briefing_us_job(self) -> str:
+        return self._run_pre_market_briefing(Market.US)
+
+    def run_pre_market_briefing_hk_job(self) -> str:
+        return self._run_pre_market_briefing(Market.HK)
+
+    def run_intraday_insight_scan_job(self) -> str:
+        try:
+            result = self._app.insight_engine.run()
+            return f"盘中扫描：产生 {len(result.produced)} 条新洞察，过期 {result.expired} 条"
+        except Exception as exc:
+            logger.exception("intraday insight scan failed")
+            return f"盘中扫描失败：{exc}"
+
+    def _run_post_market_reflection(self, market: Market) -> str:
+        try:
+            result = self._app.run_post_market_reflection(date.today())
+            parts = [f"{market.value} 盘后回顾完成（{result.as_of}）"]
+            if result.deviations:
+                parts.append(f"偏差：{'；'.join(result.deviations[:3])}")
+            parts.append(f"未处理洞察：{result.unresolved_insight_count}")
+            if result.ai_journal:
+                parts.append("AI 日志已保存")
+            return "；".join(parts)
+        except Exception as exc:
+            logger.exception("post-market reflection failed")
+            return f"{market.value} 盘后回顾失败：{exc}"
+
+    def run_post_market_reflection_job(self) -> str:
+        return self._run_post_market_reflection(Market.CN)
+
+    def run_post_market_reflection_us_job(self) -> str:
+        return self._run_post_market_reflection(Market.US)
+
+    def run_post_market_reflection_hk_job(self) -> str:
+        return self._run_post_market_reflection(Market.HK)
+
+    def run_self_iteration_weekly_job(self) -> str:
+        try:
+            result = self._app.run_self_iteration_weekly(date.today())
+            parts = [f"每周自我迭代完成（{result.as_of}）"]
+            sn_count = len(result.insight_signal_noise)
+            parts.append(f"分析了 {sn_count} 类洞察信号")
+            if result.detector_tuning_hints:
+                parts.append(f"调参提示：{'；'.join(result.detector_tuning_hints[:2])}")
+            if result.weekly_report_path:
+                parts.append("研究报告已生成")
+            return "；".join(parts)
+        except Exception as exc:
+            logger.exception("self-iteration weekly failed")
+            return f"每周自我迭代失败：{exc}"
 
 
 _JOB_REGISTRATIONS = [
@@ -311,5 +396,69 @@ _JOB_REGISTRATIONS = [
         local_time=time(9, 0),
         market=None,
         handler_name="run_sentiment_history_persist_job",
+    ),
+    # ── Autonomous daily-cycle jobs ──────────────────────────────────────
+    SchedulerRegistration(
+        job_id="pre_market_briefing",
+        name="A股盘前简报",
+        description="运行市场感知快照、隔夜洞察引擎、AI 简报 (A股)",
+        timezone="Asia/Shanghai",
+        local_time=time(8, 0),
+        market=Market.CN,
+        handler_name="run_pre_market_briefing_job",
+    ),
+    SchedulerRegistration(
+        job_id="pre_market_briefing_us",
+        name="美股盘前简报",
+        description="运行市场感知快照、隔夜洞察引擎、AI 简报 (美股)",
+        timezone="America/New_York",
+        local_time=time(8, 0),
+        market=Market.US,
+        handler_name="run_pre_market_briefing_us_job",
+    ),
+    SchedulerRegistration(
+        job_id="pre_market_briefing_hk",
+        name="港股盘前简报",
+        description="运行市场感知快照、隔夜洞察引擎、AI 简报 (港股)",
+        timezone="Asia/Hong_Kong",
+        local_time=time(8, 0),
+        market=Market.HK,
+        handler_name="run_pre_market_briefing_hk_job",
+    ),
+    SchedulerRegistration(
+        job_id="post_market_reflection",
+        name="A股盘后回顾",
+        description="计划与实际对比、AI 日志、未处理洞察收集 (A股)",
+        timezone="Asia/Shanghai",
+        local_time=time(18, 35),
+        market=Market.CN,
+        handler_name="run_post_market_reflection_job",
+    ),
+    SchedulerRegistration(
+        job_id="post_market_reflection_us",
+        name="美股盘后回顾",
+        description="计划与实际对比、AI 日志、未处理洞察收集 (美股)",
+        timezone="America/New_York",
+        local_time=time(16, 30),
+        market=Market.US,
+        handler_name="run_post_market_reflection_us_job",
+    ),
+    SchedulerRegistration(
+        job_id="post_market_reflection_hk",
+        name="港股盘后回顾",
+        description="计划与实际对比、AI 日志、未处理洞察收集 (港股)",
+        timezone="Asia/Hong_Kong",
+        local_time=time(16, 30),
+        market=Market.HK,
+        handler_name="run_post_market_reflection_hk_job",
+    ),
+    SchedulerRegistration(
+        job_id="self_iteration_weekly",
+        name="每周自我迭代",
+        description="洞察反馈信噪比分析、策略建议、每周研究管线",
+        timezone="Asia/Shanghai",
+        local_time=time(9, 30),
+        market=Market.CN,
+        handler_name="run_self_iteration_weekly_job",
     ),
 ]

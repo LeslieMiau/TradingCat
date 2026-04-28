@@ -1122,6 +1122,7 @@ class AppConfig(BaseModel):
     smoke_symbols: list[str] = Field(default_factory=list)
     approval_expiry_minutes: int = 60
     intraday_risk_tick_seconds: int = 60
+    intraday_insight_seconds: int = 300
     seed_demo_data: bool = False
     manual_order_requires_approval: bool = True
     algo_twap_slices: int = 5
@@ -1210,6 +1211,7 @@ class AppConfig(BaseModel):
             smoke_symbols=[item.strip() for item in smoke_symbols_raw.split(",") if item.strip()],
             approval_expiry_minutes=int(_getenv("TRADINGCAT_APPROVAL_EXPIRY_MINUTES", "60", dotenv_values)),
             intraday_risk_tick_seconds=int(_getenv("TRADINGCAT_INTRADAY_RISK_TICK_SECONDS", "60", dotenv_values)),
+            intraday_insight_seconds=int(_getenv("TRADINGCAT_INTRADAY_INSIGHT_SECONDS", "300", dotenv_values)),
             seed_demo_data=seed_demo_data_raw in {"1", "true", "yes", "on"},
             manual_order_requires_approval=manual_order_requires_approval_raw in {"1", "true", "yes", "on"},
             algo_twap_slices=int(_getenv("TRADINGCAT_ALGO_TWAP_SLICES", "5", dotenv_values)),
