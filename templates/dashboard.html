@@ -178,6 +178,44 @@
           </div>
         </section>
 
+        <!-- 自主交易循环 -->
+        <section class="panel" style="border-left: 3px solid var(--accent);">
+          <div class="panel-header">
+            <h2>自主交易循环</h2>
+            <span class="meta-text">盘前 → 盘中 → 盘后 → 迭代</span>
+          </div>
+          <div class="panel-body">
+            <h3>市场阶段</h3>
+            <div id="cycle-phases" class="phase-chips">
+              <span class="meta-text">加载中...</span>
+            </div>
+            <div class="table-wrap" style="margin-top: 12px;">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>任务</th>
+                    <th>状态</th>
+                    <th>下次执行</th>
+                    <th>间隔</th>
+                    <th>上次执行</th>
+                    <th>结果</th>
+                    <th>详情</th>
+                  </tr>
+                </thead>
+                <tbody id="cycle-jobs-body">
+                  <tr><td colspan="7" class="table-empty">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="cycle-run-briefing" class="button button-sm" type="button">运行盘前简报</button>
+              <button id="cycle-run-scan" class="button button-sm" type="button">运行洞察扫描</button>
+              <button id="cycle-run-reflection" class="button button-sm" type="button">运行盘后回顾</button>
+              <button id="cycle-run-iteration" class="button button-sm" type="button">运行自我迭代</button>
+            </div>
+          </div>
+        </section>
+
       </main>
 {% endblock %}
 
@@ -186,6 +224,7 @@
     <script src="/static/api.js"></script>
     <script src="/static/components.js"></script>
     <script src="/static/hotkeys.js"></script>
+    <script src="/static/dashboard_autonomous.js"></script>
     <script src="/static/dashboard_accounts.js"></script>
     <script src="/static/dashboard_strategy.js"></script>
     <script src="/static/dashboard_operations.js"></script>

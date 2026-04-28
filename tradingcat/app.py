@@ -80,6 +80,11 @@ from tradingcat.services.rollout import RolloutPolicyService, RolloutPromotionSe
 from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerRunHistory, SchedulerService
 from tradingcat.services.selection import StrategySelectionService
+from tradingcat.services.post_market_reflection import (
+    PostMarketReflectionResult,
+    PostMarketReflectionService,
+)
+from tradingcat.services.self_iteration import SelfIterationResult, SelfIterationService
 from tradingcat.services.trade_ledger_reconciliation import TradeLedgerReconciliationService
 from tradingcat.services.trading_journal import TradingJournalService
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
@@ -807,6 +812,25 @@ class TradingCatApplication:
             metrics={"order_count": len(orders), "alert_count": alerts["count"], "gate": gate},
         )
         return self.trading_journal.save_summary(note)
+
+    def run_post_market_reflection(self, as_of: date) -> PostMarketReflectionResult:
+        """盤後回顧：計劃 vs 實際 → AI 日誌 → 未處理洞察。"""
+        service = PostMarketReflectionService(
+            ai_researcher=self.ai_researcher,
+            insight_store=self.insight_store,
+            trading_journal=self.trading_journal,
+            awareness_service=self.market_awareness,
+        )
+        return service.run(as_of, summary_factory=self.generate_daily_trading_summary)
+
+    def run_self_iteration_weekly(self, as_of: date) -> SelfIterationResult:
+        """每週自我迭代：洞察信噪比 → 策略建議 → 每週研究。"""
+        service = SelfIterationService(
+            insight_store=self.insight_store,
+            ai_researcher=self.ai_researcher,
+            auto_research=self.auto_research,
+        )
+        return service.run_weekly(as_of)
 
     def review_strategy_selections(self, as_of: date) -> dict[str, object]:
         report = self.research_queries.recommendations(as_of)

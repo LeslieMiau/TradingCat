@@ -721,6 +721,24 @@ a:hover { color: var(--accent-bright); }
   font: 500 10px/1 var(--font-mono);
 }
 
+/* Phase badges for autonomous cycle */
+.phase-sleep { color: var(--muted); background: rgba(77, 87, 106, 0.12); }
+.phase-pre-market { color: var(--warn); background: var(--warn-soft); }
+.phase-opening { color: var(--up); background: var(--up-soft); }
+.phase-intraday { color: var(--ok); background: var(--ok-soft); }
+.phase-closing { color: var(--warn); background: var(--warn-soft); }
+.phase-post-market { color: var(--muted); background: rgba(77, 87, 106, 0.12); }
+
+.badge-ok { color: var(--ok); background: var(--ok-soft); }
+.badge-fail { color: var(--block); background: var(--block-soft); }
+.badge-warn { color: var(--warn); background: var(--warn-soft); }
+
+/* Phase chips row */
+.phase-chips { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.phase-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--panel-strong); }
+.phase-market { font: 600 12px/1 var(--font); color: var(--text); }
+.phase-date { font-size: 10px; }
+
 /* --------------------------------------------------------------------------
    22. Status Classes
    -------------------------------------------------------------------------- */

@@ -83,6 +83,12 @@ const API = {
   quantAutoResearchLatest: "/research/auto-research/latest",
   quantAttribution: (start, end) => `/research/attribution?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
 
+  /* ── Scheduler / Autonomous Cycle ── */
+  schedulerJobs: "/scheduler/jobs",
+  schedulerRun: (jobId) => `/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
+  schedulerRuns: (limit = 50, jobId) => jobId ? `/scheduler/jobs/${encodeURIComponent(jobId)}/runs?limit=${limit}` : `/scheduler/runs?limit=${limit}`,
+  schedulerCycleStatus: "/scheduler/cycle-status",
+
   /* ── Insights ── */
   insightsList: "/insights",
   insightsRun: "/insights/run",

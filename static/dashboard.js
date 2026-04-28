@@ -53,6 +53,7 @@ function renderDashboard() {
     ["renderExecutionQueue", dashboardOperations?.renderExecutionQueue],
     ["renderAlphaRadar", dashboardOperations?.renderAlphaRadar],
     ["renderMacroCalendar", dashboardOperations?.renderMacroCalendar],
+    ["renderAutonomous", DashboardAutonomous?.renderAutonomous],
   ];
   sections.forEach(([label, fn]) => renderSection(label, fn));
 }
@@ -71,7 +72,7 @@ async function loadSummary() {
   state.error = null;
   renderDashboard();
 
-  const [incidentsResult, rebalanceResult, alphaResult, macroResult] = await Promise.all([
+  const [incidentsResult, rebalanceResult, alphaResult, macroResult, cycleResult] = await Promise.all([
     apiFetch(API.opsIncidentsReplay(7)),
     apiFetch(API.portfolioRebalancePlan, {
       method: "POST",
@@ -80,11 +81,13 @@ async function loadSummary() {
     }),
     apiFetch(API.researchAlphaRadar(15)),
     apiFetch(API.researchMacroCalendar(7)),
+    apiFetch(API.schedulerCycleStatus),
   ]);
   state.incidents = incidentsResult.ok ? incidentsResult.data : null;
   state.rebalance = rebalanceResult.ok ? rebalanceResult.data : null;
   state.alphaRadar = alphaResult.ok ? alphaResult.data : null;
   state.macroCalendar = macroResult.ok ? macroResult.data : null;
+  state.cycleStatus = cycleResult.ok ? cycleResult.data : null;
 
   renderDashboard();
 }
@@ -219,6 +222,28 @@ registerCommand("紧急关停", "触发全局紧急关停 (Shift+X)", () => {
 registerCommand("导出持仓 CSV", "导出当前持仓表格为 CSV", () => exportTableCsv("assets-table", "positions.csv"), "导出");
 registerCommand("导出计划 CSV", "导出交易计划表格为 CSV", () => exportTableCsv("plan-table", "plan.csv"), "导出");
 registerCommand("快捷键", "显示键盘快捷键 (?)", () => toggleShortcutOverlay(), "帮助");
+
+/* ── Autonomous cycle manual run buttons ── */
+const CYCLE_BUTTONS = [
+  ["cycle-run-briefing", "pre_market_briefing", "盘前简报"],
+  ["cycle-run-scan", "intraday_insight_scan", "洞察扫描"],
+  ["cycle-run-reflection", "post_market_reflection", "盘后回顾"],
+  ["cycle-run-iteration", "self_iteration_weekly", "自我迭代"],
+];
+CYCLE_BUTTONS.forEach(([btnId, jobId, label]) => {
+  document.getElementById(btnId)?.addEventListener("click", () => {
+    const btn = document.getElementById(btnId);
+    btn.disabled = true;
+    btn.textContent = "运行中...";
+    apiFetch(API.schedulerRun(jobId), { method: "POST" }).then((r) => {
+      showToast(r.ok ? `${label}：${r.data?.detail || "成功"}` : r.error || `${label} 失败`, r.ok ? "success" : "error");
+      return loadDashboard();
+    }).finally(() => {
+      btn.disabled = false;
+      btn.textContent = `运行${label}`;
+    });
+  });
+});
 
 loadDashboard().then(() => {
   enableTableSort();
