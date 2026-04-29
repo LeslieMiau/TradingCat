@@ -11,7 +11,6 @@ from fastapi.responses import HTMLResponse
 from tradingcat.api.view_models import DashboardSummaryResponse
 from tradingcat.domain.models import Market
 from tradingcat.routes.common import get_app_state, render_template
-from tradingcat.services.trading_session import TradingSessionService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +51,11 @@ def dashboard_journal_page(request: Request):
     return render_template(request, "journal.html")
 
 
+@router.get("/daily-log", response_class=HTMLResponse)
+def daily_log_page(request: Request):
+    return render_template(request, "daily_log.html")
+
+
 @router.get("/operations", response_class=HTMLResponse)
 def dashboard_operations_page(request: Request):
     return render_template(request, "operations.html")
@@ -74,18 +78,9 @@ def briefing_page(request: Request):
 
 @router.get("/briefing/data")
 def briefing_data(request: Request, as_of: date | None = None, market: str = Query(default="CN")):
-    from tradingcat.services.pre_market_orchestrator import PreMarketOrchestrator
     app = get_app_state(request)
     target_market = Market(market)
-    session_svc = TradingSessionService(app.market_calendar)
-    orch = PreMarketOrchestrator(
-        market_awareness=app.market_awareness,
-        insight_engine=app.insight_engine,
-        ai_researcher=app.ai_researcher,
-        trading_session=session_svc,
-        data_dir=app.config.data_dir,
-    )
-    result = orch.run(as_of=as_of, market=target_market)
+    result = app.daily_log.run_briefing(as_of=as_of, market=target_market)
     awareness_dict = _safe_asdict(result.awareness_snapshot) if hasattr(result, "awareness_snapshot") else {}
     ai_content = None
     recommendations = []
@@ -116,7 +111,7 @@ def briefing_data(request: Request, as_of: date | None = None, market: str = Que
 
     return {
         "as_of": str(result.as_of),
-        "market": target_market.value,
+        "market": result.market,
         "skipped_reason": result.skipped_reason,
         "insight_count": result.insight_count,
         "awareness_snapshot": awareness_dict,

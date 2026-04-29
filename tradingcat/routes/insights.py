@@ -85,7 +85,7 @@ def ack_insight(request: Request, insight_id: str, payload: InsightAckPayload):
 @router.post("/run")
 def run_insight_engine(request: Request, payload: InsightRunPayload | None = None):
     payload = payload or InsightRunPayload()
-    result = get_app_state(request).insight_engine.run(as_of=payload.as_of)
+    result = get_app_state(request).analysis_pipeline.run(as_of=payload.as_of)
     return {
         "as_of": result.as_of.isoformat(),
         "produced": result.produced,
@@ -103,26 +103,18 @@ def get_insight_detail(request: Request, insight_id: str):
     if insight is None:
         raise HTTPException(status_code=404, detail="insight not found")
     serialized = insight.model_dump(mode="json")
-    # Lazy-generate recommendation if missing
+    # Lazy-generate AI explanation if missing
     if insight.recommendation is None and app.ai_researcher.enabled:
         try:
-            rec_analysis = app.ai_researcher.analyze_insight_trading_action(insight_data=serialized)
-            meta = getattr(rec_analysis, "metadata", {}) or {}
-            if isinstance(meta, dict) and meta.get("action"):
-                from tradingcat.domain.models import TradingRecommendation
-                rec = TradingRecommendation(
-                    action=meta.get("action", "hold"),
-                    symbol=meta.get("symbol") or (insight.subjects[0] if insight.subjects else None),
-                    entry_price=meta.get("entry_price"),
-                    target_price=meta.get("target_price"),
-                    stop_loss=meta.get("stop_loss"),
-                    confidence=float(meta.get("confidence", 0.5)) if not isinstance(meta.get("confidence"), str) else 0.5,
-                    rationale=meta.get("rationale", meta.get("content", "")),
-                    time_horizon=meta.get("time_horizon", "short_term"),
-                    risk_level=meta.get("risk_level", "medium"),
-                )
-                serialized["recommendation"] = rec.model_dump(mode="json")
-                serialized["_recommendation_text"] = rec_analysis.content
+            rec_analysis = app.ai_researcher.explain_insight_evidence(insight_data=serialized)
+            serialized["_ai_explanation"] = {
+                "content": rec_analysis.content,
+                "summary": rec_analysis.summary,
+                "confidence": rec_analysis.confidence,
+                "key_factors": rec_analysis.metadata.get("key_factors", []),
+                "risk_factors": rec_analysis.metadata.get("risk_factors", []),
+                "reference_time_window": rec_analysis.metadata.get("reference_time_window", "N/A"),
+            }
         except Exception as exc:
-            logger.warning("get_insight_detail: lazy recommendation failed for %s: %s", insight_id, exc)
+            logger.warning("get_insight_detail: lazy explanation failed for %s: %s", insight_id, exc)
     return serialized

@@ -63,17 +63,16 @@ class AIResearcher:
                 "- confidence: string (high/medium/low)\n"
                 "- support_resistance: array of {asset, support_levels: [float], resistance_levels: [float]}\n"
                 "- sector_rotation: array of {sector, observation, direction (strengthening/weakening/neutral)}\n"
-                "- recommendations: array of REQUIRED trading recommendations, each with:\n"
-                "    action (buy/sell/hold/watch/avoid), symbol, entry_price, target_price, stop_loss,\n"
-                "    confidence (0-1), rationale, time_horizon (intraday/short_term/medium_term), risk_level (low/medium/high)\n"
+                "- observations: array of research observations, each with:\n"
+                "    symbol, observation (string), confidence (0-1), rationale, time_horizon (intraday/short_term/medium_term)\n"
                 "- content: full analysis text in Chinese with specific numbers and levels\n"
-                "You MUST include at least 3 specific trading recommendations with quantified entry/target/stop prices. "
+                "Provide observations as research input only — do not output buy/sell/hold trading actions. "
                 "All observations must cite supporting data. Be specific — avoid vague phrases like 'may fluctuate'."
             ),
             AIFeature.ANOMALY: (
                 "You are a trade surveillance analyst. "
                 "Analyze the detected price/volume anomaly and provide a concise assessment in Chinese. "
-                "State: (1) possible causes, (2) risk level, (3) suggested actions. "
+                "State: (1) possible causes, (2) risk level, (3) related factors to monitor. "
                 "Keep under 200 words. Be specific."
             ),
             AIFeature.STRATEGY: (
@@ -210,26 +209,25 @@ class AIResearcher:
             },
         )
 
-    def analyze_insight_trading_action(self, insight_data: dict[str, Any] | None = None) -> AIAnalysis:
-        """Generate a specific trading recommendation for a single insight."""
+    def explain_insight_evidence(self, insight_data: dict[str, Any] | None = None) -> AIAnalysis:
+        """Generate a research-only explanation for a detected insight.
+
+        This method intentionally does NOT output buy/sell/hold actions or
+        entry/target/stop prices. It provides evidence analysis only.
+        """
         system = (
             "You are a quantitative risk analyst. Given the following market insight, "
-            "provide a specific trading recommendation in Chinese. "
+            "provide an evidence-based explanation in Chinese. "
             "Output valid JSON with these fields:\n"
-            "- action: one of buy/sell/hold/watch/avoid\n"
-            "- symbol: the subject ticker\n"
-            "- entry_price: float or null\n"
-            "- target_price: float or null\n"
-            "- stop_loss: float or null\n"
-            "- confidence: 0.0-1.0\n"
-            "- rationale: string explaining the reasoning\n"
-            "- time_horizon: intraday/short_term/medium_term\n"
-            "- risk_level: low/medium/high\n"
+            "- key_factors: array of {factor, impact (positive/negative/neutral), detail}\n"
+            "- risk_factors: array of strings describing plausible risks\n"
+            "- reference_time_window: string (e.g. 'next 1-2 trading days')\n"
             "- content: full analysis text in Chinese\n"
-            "Be specific with prices and levels. If exact prices are unavailable, estimate from context."
+            "Do NOT output buy/sell/hold actions or price targets. "
+            "Focus on explaining what the insight means and what factors to monitor."
         )
         user = json.dumps({
-            "request": "insight_trading_action",
+            "request": "insight_explanation",
             "date": str(date.today()),
             "insight": insight_data or {},
         }, ensure_ascii=False, default=str)
@@ -237,10 +235,14 @@ class AIResearcher:
         parsed = self._parse_json(raw)
         return AIAnalysis(
             feature=AIFeature.ANOMALY,  # reuse anomaly category for insights
-            content=parsed.get("content", raw or "Recommendation unavailable"),
-            summary=parsed.get("action", "Trading recommendation"),
+            content=parsed.get("content", raw or "Explanation unavailable"),
+            summary=parsed.get("summary", "Insight explanation"),
             confidence=parsed.get("confidence", "medium"),
-            metadata=parsed,
+            metadata={
+                "key_factors": parsed.get("key_factors", []),
+                "risk_factors": parsed.get("risk_factors", []),
+                "reference_time_window": parsed.get("reference_time_window", "N/A"),
+            },
         )
 
     # ---- persistence ----

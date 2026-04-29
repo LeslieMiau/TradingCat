@@ -24,9 +24,7 @@ def test_preflight_passes_basic_local_defaults(tmp_path, monkeypatch):
 
     assert payload["healthy"] is True
     assert payload["futu"]["enabled"] is False
-    assert payload["postgres"]["enabled"] is False
     assert payload["duckdb"]["enabled"] is False
     assert payload["scheduler"]["backend"] == "apscheduler"
-    assert any(check["name"] == "postgres_enabled" for check in payload["checks"])
     assert any(check["name"] == "duckdb_enabled" for check in payload["checks"])
     assert any(check["name"] == "scheduler_driver" for check in payload["checks"])

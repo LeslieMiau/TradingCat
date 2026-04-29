@@ -612,6 +612,15 @@ class RolloutPolicy(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class ExecutionPolicy(BaseModel):
+    """Lightweight execution mode policy — replaces RolloutPolicy."""
+    mode: str = "paper"  # paper | manual_live | live
+    max_allocation_ratio: float = 0.0
+    manual_confirmation_required: bool = False
+    reason: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class RolloutPromotionAttempt(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     requested_stage: str

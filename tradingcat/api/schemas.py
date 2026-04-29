@@ -111,8 +111,8 @@ class RebalancePlanPayload(BaseModel):
     as_of: date | None = None
 
 
-class RolloutPolicyPayload(BaseModel):
-    stage: str
+class ExecutionPolicyPayload(BaseModel):
+    mode: str
     reason: str | None = None
 
 

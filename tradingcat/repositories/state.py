@@ -20,6 +20,7 @@ from tradingcat.domain.models import (
     ComplianceChecklist,
     DailyTradingPlanNote,
     DailyTradingSummaryNote,
+    ExecutionPolicy,
     ExecutionReport,
     HistoryAuditRun,
     HistorySyncRun,
@@ -35,7 +36,6 @@ from tradingcat.domain.models import (
     TradeLedgerReconciliationRun,
 )
 from tradingcat.repositories.json_store import JsonStore
-from tradingcat.repositories.postgres_store import PostgresStore
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +44,6 @@ from tradingcat.repositories.postgres_store import PostgresStore
 
 def _build_store(config_or_data_dir: AppConfig | Path, bucket: str):
     if isinstance(config_or_data_dir, AppConfig):
-        if config_or_data_dir.postgres.enabled:
-            return PostgresStore(config_or_data_dir.postgres.dsn), bucket
         return JsonStore(config_or_data_dir.data_dir / f"{bucket}.json"), None
     return JsonStore(config_or_data_dir / f"{bucket}.json"), None
 
@@ -232,6 +230,11 @@ class RolloutPolicyRepository(_SingletonRepository[RolloutPolicy]):
     _model_class = RolloutPolicy
 
 
+class ExecutionPolicyRepository(_SingletonRepository[ExecutionPolicy]):
+    _bucket_name = "execution_policy"
+    _model_class = ExecutionPolicy
+
+
 # ---------------------------------------------------------------------------
 # Special repositories
 # ---------------------------------------------------------------------------
@@ -257,9 +260,7 @@ class AuditLogRepository:
 
     def __init__(self, config_or_data_dir: AppConfig | Path) -> None:
         self._store, self._bucket = _build_store(config_or_data_dir, "audit_events")
-        self._path = None if isinstance(config_or_data_dir, AppConfig) else Path(config_or_data_dir) / "audit_events.json"
-        if isinstance(config_or_data_dir, AppConfig) and not config_or_data_dir.postgres.enabled:
-            self._path = config_or_data_dir.data_dir / "audit_events.json"
+        self._path = config_or_data_dir.data_dir / "audit_events.json" if isinstance(config_or_data_dir, AppConfig) else Path(config_or_data_dir) / "audit_events.json"
 
     def load(self) -> dict[str, AuditLogEntry]:
         records = self._store.load(self._bucket, []) if self._bucket else self._store.load([])

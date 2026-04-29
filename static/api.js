@@ -38,16 +38,12 @@ const API = {
   executionQuality: "/execution/quality",
 
   /* ── Operations ── */
-  opsLiveAcceptance: "/ops/live-acceptance",
-  opsRollout: "/ops/rollout",
-  opsRolloutPromote: "/ops/rollout/promote",
+  opsExecutionPolicy: "/ops/execution-policy",
   opsExecutionMetrics: "/ops/execution-metrics",
   opsIncidentsReplay: (windowDays = 7) => `/ops/incidents/replay?window_days=${encodeURIComponent(windowDays)}`,
   opsTca: "/ops/tca",
   opsRiskConfig: "/ops/risk/config",
   opsEvaluateTriggers: "/ops/evaluate-triggers",
-  opsAcceptanceEvidenceCapture: "/ops/acceptance/evidence/capture",
-  opsAcceptanceEvidenceTimeline: (windowDays = 42) => `/ops/acceptance/evidence/timeline?window_days=${encodeURIComponent(windowDays)}`,
 
   /* ── Research ── */
   researchStrategies: (id) => `/research/strategies/${encodeURIComponent(id)}`,

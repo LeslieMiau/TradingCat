@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, Request
 
-from tradingcat.api.schemas import RiskUpdatePayload, RolloutPolicyPayload
+from tradingcat.api.schemas import ExecutionPolicyPayload, RiskUpdatePayload
 from tradingcat.api.view_models import OperationsReadinessResponse
 from tradingcat.routes.common import get_app_state
 
@@ -30,11 +30,6 @@ def update_risk_config(request: Request, payload: RiskUpdatePayload):
 @router.get("/tca")
 def get_tca_metrics(request: Request):
     return get_app_state(request).operations_facade.tca()
-
-
-@router.get("/audit/summary")
-def ops_audit_summary(request: Request):
-    return get_app_state(request).audit.summary()
 
 
 @router.get("/readiness", response_model=OperationsReadinessResponse)
@@ -82,79 +77,11 @@ def ops_journal_summary(request: Request):
     return get_app_state(request).operations.summary()
 
 
-@router.get("/acceptance")
-def ops_acceptance(request: Request):
-    return get_app_state(request).operations.acceptance_summary()
+@router.get("/execution-policy")
+def get_execution_policy(request: Request):
+    return get_app_state(request).execution_policy.summary()
 
 
-@router.get("/acceptance/timeline")
-@router.get("/live-acceptance/timeline")
-def ops_acceptance_timeline(request: Request, window_days: int = 30):
-    return get_app_state(request).operations.acceptance_timeline(window_days=window_days)
-
-
-@router.get("/acceptance/gates")
-def ops_acceptance_gates(request: Request):
-    return get_app_state(request).operations_facade.acceptance_gates()
-
-
-@router.post("/acceptance/evidence/capture")
-def ops_capture_acceptance_evidence(request: Request):
-    return get_app_state(request).operations_facade.capture_acceptance_evidence()
-
-
-@router.get("/acceptance/evidence/timeline")
-def ops_acceptance_evidence_timeline(request: Request, window_days: int = 42):
-    return get_app_state(request).operations_facade.acceptance_evidence_timeline(window_days=window_days)
-
-
-@router.get("/rollout")
-def ops_rollout(request: Request):
-    return get_app_state(request).operations_facade.rollout()
-
-
-@router.get("/rollout/milestones")
-def ops_rollout_milestones(request: Request):
-    return get_app_state(request).operations.rollout_milestones()
-
-
-@router.get("/rollout/checklist")
-def ops_rollout_checklist(request: Request, stage: str | None = None, as_of: date | None = None):
-    return get_app_state(request).operations_facade.rollout_checklist(stage, as_of)
-
-
-@router.get("/rollout/promotions")
-@router.get("/rollout/promotions/summary")
-def ops_rollout_promotions(request: Request):
-    return get_app_state(request).rollout_promotions.summary()
-
-
-@router.get("/rollout-policy")
-def ops_rollout_policy(request: Request):
-    return get_app_state(request).operations_facade.rollout_policy_summary()
-
-
-@router.post("/rollout-policy")
-def ops_set_rollout_policy(request: Request, payload: RolloutPolicyPayload):
-    return get_app_state(request).rollout_policy.set_policy(payload.stage, reason=payload.reason, source="manual")
-
-
-@router.post("/rollout-policy/apply-recommendation")
-def ops_apply_rollout_policy_recommendation(request: Request):
-    return get_app_state(request).operations_facade.apply_rollout_policy_recommendation()
-
-
-@router.post("/rollout/promote")
-@router.post("/rollout-policy/promote")
-def ops_rollout_promote(request: Request, stage: str, reason: str | None = None):
-    return get_app_state(request).promote_rollout_stage(stage, reason)
-
-
-@router.get("/go-live")
-def ops_go_live(request: Request, as_of: date | None = None):
-    return get_app_state(request).operations_facade.go_live(as_of)
-
-
-@router.get("/live-acceptance")
-def ops_live_acceptance(request: Request, as_of: date | None = None, incident_window_days: int = 14):
-    return get_app_state(request).operations_facade.live_acceptance(as_of, incident_window_days)
+@router.post("/execution-policy")
+def set_execution_policy(request: Request, payload: ExecutionPolicyPayload):
+    return get_app_state(request).execution_policy.set_mode(payload.mode, reason=payload.reason)

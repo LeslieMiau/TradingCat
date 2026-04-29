@@ -7,7 +7,7 @@ from tradingcat.domain.models import AssetClass, Bar, Instrument, Market, OrderS
 from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.state import ApprovalRepository, ExecutionStateRepository, OrderRepository
-from tradingcat.services.approval import ApprovalService
+from tradingcat.services.manual_confirmation import ManualConfirmationService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.rule_engine import RuleEngine, TriggerRepository
@@ -67,7 +67,7 @@ def _build_rule_engine(tmp_path, adapter):
     execution = ExecutionService(
         live_broker=SimulatedBrokerAdapter(),
         manual_broker=ManualExecutionAdapter(),
-        approvals=ApprovalService(ApprovalRepository(tmp_path)),
+        approvals=ManualConfirmationService(ApprovalRepository(tmp_path)),
         repository=OrderRepository(tmp_path),
         state_repository=ExecutionStateRepository(tmp_path),
     )

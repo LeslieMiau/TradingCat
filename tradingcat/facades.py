@@ -171,20 +171,12 @@ class DashboardFacade:
         }
 
     def _details_summary(self, gate: dict[str, object], dashboard_context: dict[str, object]) -> dict[str, object]:
-        live_acceptance = dashboard_context["live_acceptance"]
-        rollout = dashboard_context["rollout"]
-        acceptance_progress = {
-            "current_clean_day_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_day_streak"),
-            "current_clean_week_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_week_streak"),
-            "remaining_clean_days": live_acceptance.get("next_requirement", {}).get("remaining_clean_days"),
-            "remaining_clean_weeks": live_acceptance.get("next_requirement", {}).get("remaining_clean_weeks"),
-            "next_requirement": live_acceptance.get("next_requirement", {}),
-            "blockers": list(live_acceptance.get("blockers", [])) or list(rollout.get("blockers", [])),
-        }
+        policy = dashboard_context["rollout"]
         return {
             "execution_gate": gate,
-            "live_acceptance": live_acceptance,
-            "acceptance_progress": acceptance_progress,
+            "policy_mode": policy.get("mode", "paper"),
+            "max_allocation_ratio": policy.get("max_allocation_ratio", 0.0),
+            "manual_confirmation_required": policy.get("manual_confirmation_required", False),
             "data_quality": dashboard_context["data_quality"],
             "market_awareness": dashboard_context.get("market_awareness", {}),
             "operations": dashboard_context["operations"],
@@ -499,11 +491,10 @@ class ResearchFacade:
         }
 
     def ml_predict(self, symbols: list[str]) -> dict[str, object]:
-        models = self._app.ml_pipeline._registry.list_models() if hasattr(self._app.ml_pipeline, '_registry') else []
         return {
             "symbols": symbols,
-            "models_available": [str(m) for m in (models or [])],
-            "note": "Train a model via POST /research/ml/train to enable predictions",
+            "models_available": [],
+            "note": "ML pipeline has been moved to research/experimental. Use the standalone ml_pipeline.py module directly.",
             "predictions": {},
         }
 
@@ -600,35 +591,8 @@ class OperationsFacade:
 
     def execution_metrics(self) -> dict[str, object]:
         return self._app.operations_execution_metrics()
-
-    def acceptance_gates(self) -> dict[str, object]:
-        return self._app.acceptance_gates()
-
-    def trade_ledger(
-        self,
-        *,
-        start: date | None = None,
-        end: date | None = None,
-        market: str | None = None,
-    ) -> dict[str, object]:
-        return self._app.trade_ledger_export(start=start, end=end, market=market)
-
-    def capture_acceptance_evidence(
-        self,
-        *,
-        as_of: date | None = None,
-        notes: list[str] | None = None,
-    ) -> dict[str, object]:
-        return self._app.capture_acceptance_evidence(as_of=as_of, notes=notes)
-
-    def acceptance_evidence_timeline(self, *, window_days: int = 42) -> dict[str, object]:
-        return self._app.acceptance_evidence_timeline(window_days=window_days)
-
     def tca(self) -> dict[str, object]:
-        return self._app.operations_analytics.tca_summary(
-            audit_metrics=self._app.audit.execution_metrics_summary(),
-            execution_tca=self._app.execution.transaction_cost_summary(),
-        )
+        return self._app.execution_analysis.tca_metrics()
 
     def daily_report(self) -> dict[str, object]:
         return self._app.operations_period_report(window_days=1, label="daily")
@@ -644,25 +608,6 @@ class OperationsFacade:
 
     def record_journal(self) -> dict[str, object]:
         return self._app.record_operations_journal()
-
-    def rollout(self) -> dict[str, object]:
-        return self._app.operations_rollout()
-
-    def rollout_checklist(self, stage: str | None, as_of: date | None) -> dict[str, object]:
-        return self._app.rollout_checklist(stage, as_of)
-
-    def rollout_policy_summary(self) -> dict[str, object]:
-        return self._app.rollout_policy_summary()
-
-    def apply_rollout_policy_recommendation(self) -> dict[str, object]:
-        return self._app.rollout_policy.apply_recommendation(self._app.operations_rollout())
-
-    def go_live(self, as_of: date | None = None) -> dict[str, object]:
-        return self._app.go_live_summary(as_of)
-
-    def live_acceptance(self, as_of: date | None = None, incident_window_days: int = 14) -> dict[str, object]:
-        return self._app.live_acceptance_summary(as_of, incident_window_days)
-
 
 class JournalFacade:
     def __init__(self, app: "TradingCatApplication") -> None:

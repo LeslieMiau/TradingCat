@@ -6,7 +6,7 @@ import threading
 from tradingcat.adapters.base import BrokerAdapter
 from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, OrderStatus, PortfolioSnapshot, ReconciliationSummary
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
-from tradingcat.services.approval import ApprovalService
+from tradingcat.services.manual_confirmation import ManualConfirmationService
 from tradingcat.services.order_state_machine import OrderStateMachine
 from tradingcat.services.reconciliation import ReconciliationService
 
@@ -19,7 +19,7 @@ class ExecutionService:
         self,
         live_broker: BrokerAdapter,
         manual_broker: BrokerAdapter,
-        approvals: ApprovalService,
+        approvals: ManualConfirmationService,
         repository: OrderRepository,
         state_repository: ExecutionStateRepository,
     ) -> None:

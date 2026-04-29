@@ -35,18 +35,16 @@ from tradingcat.repositories.state import (
     ComplianceRepository,
     DailyTradingPlanRepository,
     DailyTradingSummaryRepository,
+    ExecutionPolicyRepository,
     ExecutionStateRepository,
     HistoryAuditRunRepository,
     HistorySyncRunRepository,
     KillSwitchRepository,
-    AcceptanceGateSnapshotRepository,
     OperationsJournalRepository,
     OrderRepository,
     PortfolioHistoryRepository,
     PortfolioRepository,
     RecoveryAttemptRepository,
-    RolloutPolicyRepository,
-    RolloutPromotionRepository,
     SchedulerRunRecordRepository,
     StrategyAllocationRepository,
     StrategySelectionRepository,
@@ -55,15 +53,18 @@ from tradingcat.repositories.state import (
 from tradingcat.services.alerts import AlertService
 from tradingcat.services.notifier import build_default_dispatcher
 from tradingcat.services.allocation import StrategyAllocationService
-from tradingcat.services.approval import ApprovalService
+from tradingcat.services.manual_confirmation import ManualConfirmationService
 from tradingcat.services.audit import AuditService
 from tradingcat.services.compliance import ComplianceService
 from tradingcat.services.data_sync import HistoryAuditService, HistorySyncService
+from tradingcat.services.analysis_pipeline import AnalysisPipelineService
+from tradingcat.services.daily_log import DailyLogService, DailyLogReviewResult
 from tradingcat.services.dashboard_snapshots import DashboardSnapshotService
 from tradingcat.services.execution import ExecutionService
+from tradingcat.services.execution_policy import ExecutionPolicyService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
-from tradingcat.services.operations_analytics import OperationsAnalyticsService
+from tradingcat.services.execution_analysis import ExecutionAnalysisService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
 from tradingcat.services.portfolio_projections import PortfolioProjectionService
@@ -76,17 +77,11 @@ from tradingcat.services.reporting import (
 )
 from tradingcat.services.research import ResearchService
 from tradingcat.services.risk import RiskEngine, RiskViolation
-from tradingcat.services.rollout import RolloutPolicyService, RolloutPromotionService
 from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerRunHistory, SchedulerService
 from tradingcat.services.selection import StrategySelectionService
-from tradingcat.services.post_market_reflection import (
-    PostMarketReflectionResult,
-    PostMarketReflectionService,
-)
-from tradingcat.services.self_iteration import SelfIterationResult, SelfIterationService
-from tradingcat.services.trade_ledger_reconciliation import TradeLedgerReconciliationService
 from tradingcat.services.trading_journal import TradingJournalService
+from tradingcat.services.trade_ledger_reconciliation import TradeLedgerReconciliationService
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
 from tradingcat.scheduler_runtime import ApplicationSchedulerRuntime
 
@@ -143,7 +138,7 @@ class TradingCatApplication:
 
         self.risk = RiskEngine(self.config.risk, kill_switch_repository=KillSwitchRepository(self.config))
         self.audit = AuditService(AuditLogRepository(self.config))
-        self.approvals = ApprovalService(ApprovalRepository(self.config), expiry_minutes=self.config.approval_expiry_minutes)
+        self.approvals = ManualConfirmationService(ApprovalRepository(self.config), ttl_minutes=self.config.approval_expiry_minutes)
         self.compliance = ComplianceService(ComplianceRepository(self.config))
         self.portfolio = PortfolioService(self.config, PortfolioRepository(self.config), PortfolioHistoryRepository(self.config))
         self.selection = StrategySelectionService(StrategySelectionRepository(self.config))
@@ -156,19 +151,30 @@ class TradingCatApplication:
             build_ledger_entries=lambda **kwargs: self.trade_ledger_service().build_entries(**kwargs),
         )
         self.operations = OperationsJournalService(OperationsJournalRepository(self.config))
-        from tradingcat.services.acceptance_gates import AcceptanceGateEvidenceService
-
-        self.acceptance_evidence = AcceptanceGateEvidenceService(
-            AcceptanceGateSnapshotRepository(self.config)
-        )
         self.recovery = RecoveryService(RecoveryAttemptRepository(self.config))
-        self.rollout_policy = RolloutPolicyService(RolloutPolicyRepository(self.config))
-        self.rollout_promotions = RolloutPromotionService(RolloutPromotionRepository(self.config))
-        self.trading_journal = TradingJournalService(
+        self.execution_policy = ExecutionPolicyService(ExecutionPolicyRepository(self.config))
+        tj = TradingJournalService(
             DailyTradingPlanRepository(self.config),
             DailyTradingSummaryRepository(self.config),
         )
-        self.operations_analytics = OperationsAnalyticsService()
+        self.daily_log = DailyLogService(
+            trading_journal=tj,
+            ai_researcher=lambda: self.ai_researcher,
+            insight_store=lambda: self.insight_store,
+            insight_engine=lambda: self.insight_engine,
+            awareness_service=lambda: self.market_awareness,
+            market_calendar=self.market_calendar,
+            data_dir=self.config.data_dir,
+            plan_factory=lambda as_of: self.generate_daily_trading_plan(as_of),
+            summary_factory=lambda as_of: self.generate_daily_trading_summary(as_of),
+        )
+        # compat alias for routes that still reference self.trading_journal
+        self.trading_journal = tj
+        self.execution_analysis = ExecutionAnalysisService(
+            execution_getter=lambda: self.execution,
+            audit=self.audit,
+            alerts=self.alerts,
+        )
 
         self.runtime: ApplicationRuntime | None = None
         self._summary_cache: dict[tuple[object, ...], tuple[float, object]] = {}
@@ -207,12 +213,12 @@ class TradingCatApplication:
             run_market_data_smoke_test=self.run_market_data_smoke_test,
             preview_execution=self.preview_execution,
             data_quality_summary=lambda: self.data_quality_summary(),
-            operations_rollout=lambda: self.operations_rollout(),
+            execution_policy_gate=lambda: self.execution_policy.gate_readiness(),
             alerts_summary=lambda: self.alerts.latest_summary(),
             compliance_summary=lambda: self.compliance.summary(),
             order_state_summary=lambda: self.execution.order_state_summary(),
             execution_authorization_summary=lambda: self.execution.authorization_summary(),
-            operations_execution_readiness=self.operations_analytics.execution_readiness,
+            operations_execution_readiness=self.execution_analysis.execution_readiness,
         )
         self.research_queries = ResearchQueryService(
             market_awareness_getter=lambda: self.market_awareness,
@@ -229,8 +235,8 @@ class TradingCatApplication:
             market_awareness_getter=lambda: self.market_awareness,
             execution_gate_summary=self.execution_gate_summary,
             operations_period_report=self.operations_period_report,
-            live_acceptance_summary=lambda as_of: self.live_acceptance_summary(as_of),
-            operations_rollout=self.operations_rollout,
+            live_acceptance_summary=lambda _as_of: self.execution_policy.summary(),
+            operations_rollout=self.execution_policy.summary,
             operations_readiness=self.operations_readiness,
             data_quality_summary=self.data_quality_summary,
             active_execution_strategy_ids_getter=self.active_execution_strategy_ids,
@@ -245,14 +251,10 @@ class TradingCatApplication:
         self.runtime_manager.initialize()
         self.scheduler_runtime.register_jobs()
 
-        # Bridge urgent insights to AlertService — runs after runtime so
-        # insight_store and event_bus are both ready.
-        from tradingcat.services.insight_alert_bridge import InsightAlertBridge
-
-        self.insight_alert_bridge = InsightAlertBridge(
-            event_bus=self.event_bus,
-            insight_store=self.insight_store,
-            alerts=self.alerts,
+        # Analysis pipeline wraps insight engine + explicit alert emission.
+        self.analysis_pipeline = AnalysisPipelineService(
+            insight_engine=self.insight_engine,
+            alert_service=self.alerts,
         )
 
     def _require_runtime(self) -> ApplicationRuntime:
@@ -337,10 +339,6 @@ class TradingCatApplication:
         return self._require_runtime().portfolio_optimizer
 
     @property
-    def ml_pipeline(self):
-        return self._require_runtime().ml_pipeline
-
-    @property
     def algo_executor(self):
         return self._require_runtime().algo_executor
 
@@ -405,7 +403,6 @@ class TradingCatApplication:
         self.allocations.clear()
         self.operations.clear()
         self.recovery.clear()
-        self.rollout_promotions.clear()
         self.trading_journal.clear()
         self.portfolio.reset()
         self.market_history.reset_cache()
@@ -813,24 +810,9 @@ class TradingCatApplication:
         )
         return self.trading_journal.save_summary(note)
 
-    def run_post_market_reflection(self, as_of: date) -> PostMarketReflectionResult:
+    def run_post_market_reflection(self, as_of: date) -> DailyLogReviewResult:
         """盤後回顧：計劃 vs 實際 → AI 日誌 → 未處理洞察。"""
-        service = PostMarketReflectionService(
-            ai_researcher=self.ai_researcher,
-            insight_store=self.insight_store,
-            trading_journal=self.trading_journal,
-            awareness_service=self.market_awareness,
-        )
-        return service.run(as_of, summary_factory=self.generate_daily_trading_summary)
-
-    def run_self_iteration_weekly(self, as_of: date) -> SelfIterationResult:
-        """每週自我迭代：洞察信噪比 → 策略建議 → 每週研究。"""
-        service = SelfIterationService(
-            insight_store=self.insight_store,
-            ai_researcher=self.ai_researcher,
-            auto_research=self.auto_research,
-        )
-        return service.run_weekly(as_of)
+        return self.daily_log.run_review(as_of=as_of)
 
     def review_strategy_selections(self, as_of: date) -> dict[str, object]:
         report = self.research_queries.recommendations(as_of)
@@ -988,20 +970,11 @@ class TradingCatApplication:
                 evaluation_date,
                 validation=self._base_validation_snapshot(evaluation_date),
             ),
-            "policy_stage": self.rollout_policy.current().stage,
+            "policy_stage": self.execution_policy.policy.mode,
         }
 
     def operations_execution_metrics(self) -> dict[str, object]:
-        audit_metrics = self.audit.execution_metrics_summary()
-        execution_quality = self.execution.execution_quality_summary()
-        execution_tca = self.execution.transaction_cost_summary()
-        authorization = self.execution.authorization_summary()
-        return self.operations_analytics.execution_metrics(
-            audit_metrics=audit_metrics,
-            execution_quality=execution_quality,
-            execution_tca=execution_tca,
-            authorization=authorization,
-        )
+        return self.execution_analysis.execution_metrics()
 
     def trade_ledger_service(self):
         from tradingcat.services.trade_ledger import TradeLedgerService
@@ -1039,21 +1012,6 @@ class TradingCatApplication:
                 "market": parsed_market.value if parsed_market else None,
             },
         }
-
-    def capture_acceptance_evidence(
-        self,
-        *,
-        as_of: date | None = None,
-        notes: list[str] | None = None,
-    ) -> dict[str, object]:
-        gates_payload = self.acceptance_gates()
-        snapshot = self.acceptance_evidence.capture(
-            gates_payload, as_of=as_of, notes=notes
-        )
-        return snapshot.model_dump(mode="json")
-
-    def acceptance_evidence_timeline(self, *, window_days: int = 42) -> dict[str, object]:
-        return self.acceptance_evidence.timeline(window_days=window_days)
 
     def run_history_audit(
         self,
@@ -1171,43 +1129,6 @@ class TradingCatApplication:
     def trade_ledger_reconciliation_timeline(self, *, window_days: int = 30) -> dict[str, object]:
         return self.trade_ledger_reconciliation.timeline(window_days=window_days)
 
-    def acceptance_gates(self) -> dict[str, object]:
-        from tradingcat.services.acceptance_gates import compute_acceptance_gates
-
-        reconciliation: dict[str, object] | None = None
-        try:
-            summary = self.execution.reconcile_live_state()
-        except Exception:
-            logger.exception("Acceptance gate: reconciliation snapshot failed")
-        else:
-            reconciliation = summary.model_dump(mode="json") if summary is not None else None
-
-        portfolio_reconciliation: dict[str, object] | None = None
-        try:
-            portfolio_summary = self.reconcile_portfolio_with_live_broker()
-        except Exception:
-            logger.exception("Acceptance gate: portfolio reconciliation snapshot failed")
-        else:
-            portfolio_reconciliation = (
-                portfolio_summary.model_dump(mode="json") if portfolio_summary is not None else None
-            )
-
-        latest_ledger_recon = self.trade_ledger_reconciliation.latest()
-        return compute_acceptance_gates(
-            execution_quality=self.execution.execution_quality_summary(),
-            audit_metrics=self.audit.execution_metrics_summary(),
-            reconciliation=reconciliation,
-            portfolio_reconciliation=portfolio_reconciliation,
-            kill_switch_events=self.risk.kill_switch_events(),
-            scheduler_jobs=self.scheduler.list_jobs(),
-            scheduler_runs=self.scheduler.run_history(limit=500),
-            trade_ledger_reconciliation=(
-                latest_ledger_recon.model_dump(mode="json")
-                if latest_ledger_recon is not None
-                else None
-            ),
-        )
-
     def operations_readiness(self) -> dict[str, object]:
         return self._cached_summary(
             ("operations_readiness", date.today().isoformat()),
@@ -1222,153 +1143,9 @@ class TradingCatApplication:
             data_quality=self.data_quality_summary(),
         )
 
-    def operations_rollout(self) -> dict[str, object]:
-        return self._cached_summary(
-            ("operations_rollout", date.today().isoformat()),
-            self._build_operations_rollout,
-        )
-
-    def _build_operations_rollout(self) -> dict[str, object]:
-        rollout = self.operations.rollout_summary(
-            readiness=self.operations_readiness(),
-            compliance_summary=self.compliance.summary(),
-            alerts_summary=self.alerts.latest_summary(),
-        )
-        target_stage = str(rollout.get("current_recommendation", "hold"))
-        gate_readiness = self.acceptance_evidence.gate_readiness(target_stage)
-        rollout["acceptance_gate_readiness"] = gate_readiness
-        if gate_readiness.get("blockers"):
-            rollout = dict(rollout)
-            rollout["blockers"] = list(rollout.get("blockers", [])) + list(gate_readiness["blockers"])
-            rollout["ready_for_rollout"] = False
-        return rollout
-
-    def rollout_policy_summary(self) -> dict[str, object]:
-        summary = self.rollout_policy.summary()
-        recommended_stage = self.operations_rollout()["current_recommendation"]
-        summary["recommended_stage"] = recommended_stage
-        summary["policy_matches_recommendation"] = summary["stage"] == recommended_stage
-        summary["blocking_reasons"] = (
-            []
-            if summary["policy_matches_recommendation"]
-            else [f"Active rollout policy {summary['stage']} does not match recommended stage {recommended_stage}."]
-        )
-        return summary
-
     def record_operations_journal(self) -> dict[str, object]:
         entry = self.operations.record(self.operations_readiness())
         return {"entry": entry, "summary": self.operations.summary()}
-
-    def promote_rollout_stage(self, stage: str, reason: str | None = None) -> dict[str, object]:
-        rollout = self.operations_rollout()
-        policy = self.rollout_policy.current()
-        allowed = bool(rollout["ready_for_rollout"]) and stage == rollout["current_recommendation"]
-        attempt = self.rollout_promotions.record(
-            requested_stage=stage,
-            recommended_stage=str(rollout["current_recommendation"]),
-            current_stage=policy.stage,
-            allowed=allowed,
-            reason=reason,
-            blocker=str(rollout["blockers"][0]) if rollout["blockers"] else None,
-        )
-        if allowed:
-            policy = self.rollout_policy.set_policy(stage, reason=reason or "Promotion approved", source="manual")
-        return {"allowed": allowed, "attempt": attempt, "policy": policy, "rollout": rollout}
-
-    def rollout_checklist(self, stage: str | None = None, as_of: date | None = None) -> dict[str, object]:
-        rollout = self.operations_rollout()
-        target_stage = stage or str(rollout["current_recommendation"])
-        blockers = [str(blocker) for blocker in rollout["blockers"]]
-        return {"stage": target_stage, "ready": not blockers, "as_of": as_of or date.today(), "blockers": blockers}
-
-    def go_live_summary(self, as_of: date | None = None) -> dict[str, object]:
-        evaluation_date = as_of or date.today()
-        return self._cached_summary(
-            ("go_live_summary", evaluation_date.isoformat()),
-            lambda: self._build_go_live_summary(evaluation_date),
-        )
-
-    def _build_go_live_summary(self, evaluation_date: date) -> dict[str, object]:
-        gate = self.execution_gate_summary(evaluation_date)
-        rollout = self.operations_rollout()
-        milestones = self.operations.rollout_milestones()
-        policy = self.rollout_policy_summary()
-        acceptance = self.operations.acceptance_summary()
-        diagnostic_findings = {str(item) for item in gate.get("diagnostics", {}).get("findings", [])}
-        engineering_blockers = [
-            str(reason)
-            for reason in gate.get("reasons", [])
-            if str(reason) not in diagnostic_findings
-        ]
-        rollout_blockers = [str(blocker) for blocker in rollout.get("blockers", [])]
-        policy_blockers = [str(blocker) for blocker in policy.get("blocking_reasons", [])]
-        blockers = list(dict.fromkeys(engineering_blockers + rollout_blockers + policy_blockers))
-        next_actions = list(dict.fromkeys(
-            list(gate.get("next_actions", []))
-            + (
-                ["Apply the rollout recommendation or manually align /ops/rollout-policy before promotion."]
-                if policy_blockers
-                else []
-            )
-            + [f"Resolve rollout blocker: {blocker}" for blocker in rollout.get("blockers", [])[:3]]
-        ))
-        return {
-            "as_of": gate["as_of"],
-            "promotion_allowed": bool(gate["ready"]) and bool(rollout["ready_for_rollout"]),
-            "gate": gate,
-            "acceptance": acceptance,
-            "rollout": rollout,
-            "milestones": milestones,
-            "policy": policy,
-            "promotion_history": self.rollout_promotions.summary(),
-            "engineering_blockers": engineering_blockers,
-            "rollout_blockers": rollout_blockers,
-            "policy_blockers": policy_blockers,
-            "blockers": blockers,
-            "next_actions": next_actions,
-        }
-
-    def live_acceptance_summary(self, as_of: date | None = None, incident_window_days: int = 14) -> dict[str, object]:
-        evaluation_date = as_of or date.today()
-        return self._cached_summary(
-            ("live_acceptance_summary", evaluation_date.isoformat(), incident_window_days),
-            lambda: self._build_live_acceptance_summary(evaluation_date, incident_window_days),
-        )
-
-    def _build_live_acceptance_summary(self, evaluation_date: date, incident_window_days: int) -> dict[str, object]:
-        go_live = self.go_live_summary(evaluation_date)
-        metrics = self.operations_execution_metrics()
-        alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=incident_window_days)
-        acceptance = self.operations.acceptance_summary()
-        evidence = acceptance.get("evidence", {}) if isinstance(acceptance, dict) else {}
-        next_requirement = self.operations.acceptance_timeline(window_days=max(30, incident_window_days)).get("next_requirement", {})
-        blockers = []
-        if not go_live["promotion_allowed"]:
-            blockers.append("Go-live promotion is currently blocked.")
-        blockers.extend(str(blocker) for blocker in go_live.get("policy_blockers", []))
-        auth_ok = metrics.get("authorization_ok", False)
-        slip_ok = metrics.get("slippage_within_limits", False)
-        if not auth_ok:
-            blockers.append("Execution authorization summary is not clean.")
-        if not slip_ok:
-            blockers.append("Execution quality is outside the configured thresholds.")
-        clean_week_streak = int(evidence.get("current_clean_week_streak", 0))
-        if clean_week_streak < 4:
-            blockers.append(f"Need {max(0, 4 - clean_week_streak)} more clean week(s) before go-live consideration.")
-        incident_days = int((evidence.get("counts") or {}).get("incident_day", 0)) if isinstance(evidence, dict) else 0
-        if incident_days > 0:
-            blockers.append(f"{incident_days} incident day(s) remain in the acceptance evidence history.")
-        return {
-            "as_of": evaluation_date,
-            "ready_for_live": len(blockers) == 0,
-            "incident_count": len(alerts),
-            "blockers": blockers,
-            "go_live": go_live,
-            "authorization_ok": auth_ok,
-            "slippage_within_limits": slip_ok,
-            "acceptance_evidence": evidence,
-            "next_requirement": next_requirement,
-        }
 
     def operations_period_report(self, window_days: int, label: str) -> dict[str, object]:
         return self._cached_summary(
@@ -1383,9 +1160,8 @@ class TradingCatApplication:
         audit_events = filter_recent_items(self.audit.list_events(limit=500), timestamp_attr="created_at", window_days=window_days)
         recoveries = filter_recent_items(self.recovery.list_attempts(), timestamp_attr="attempted_at", window_days=window_days)
         journal_entries = filter_recent_items(self.operations.list_entries(), timestamp_attr="recorded_at", window_days=window_days)
-        period_insights = self.operations_analytics.period_insights(
+        period_insights = self.execution_analysis.period_insights(
             window_days=window_days,
-            execution_tca=execution_metrics.get("execution_tca", {}),
             alerts=alerts,
             audit_events=audit_events,
             recoveries=recoveries,
@@ -1630,7 +1406,7 @@ class TradingCatApplication:
         return event
 
     def expire_stale_approvals(self, reason: str | None = None) -> dict[str, object]:
-        requests = self.approvals.expire_stale(timedelta(minutes=self.config.approval_expiry_minutes), reason=reason)
+        requests = self.approvals.expire_stale(reason=reason)
         self.audit.log(category="approval", action="expire_stale", details={"expired_count": len(requests)})
         return {"expired_count": len(requests), "requests": requests}
 

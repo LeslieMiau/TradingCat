@@ -91,36 +91,25 @@
   function renderRecommendations(data) {
     var el = document.getElementById("recommendations-list");
     if (!el) return;
-    var recs = data.recommendations || [];
-    if (!recs.length) {
-      el.innerHTML = '<p class="detail-empty">暂无推荐（运行简报后生成）</p>';
+    var obs = data.observations || [];
+    if (!obs.length) {
+      el.innerHTML = '<p class="detail-empty">暂无观察（运行简报后生成）</p>';
       return;
     }
-    el.innerHTML = recs.map(function (r) {
-      var action = r.action || "hold";
-      var actionLabel = { buy: "买入", sell: "卖出", hold: "持有", watch: "观望", avoid: "回避" }[action] || action;
-      var actionClass = { buy: "badge-ok", sell: "badge-fail", hold: "badge-info", watch: "badge-warn", avoid: "badge-fail" }[action] || "";
-      var confPct = Math.round((r.confidence || 0.5) * 100);
-      var riskLabel = { low: "低", medium: "中", high: "高" }[r.risk_level] || r.risk_level;
-      var horizonLabel = { intraday: "日内", short_term: "短期", medium_term: "中期" }[r.time_horizon] || r.time_horizon;
+    el.innerHTML = obs.map(function (o) {
+      var confPct = Math.round((o.confidence || 0.5) * 100);
+      var horizonLabel = { intraday: "日内", short_term: "短期", medium_term: "中期" }[o.time_horizon] || o.time_horizon || "N/A";
       return '<article class="detail-card" style="border-left:3px solid var(--accent);">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
-        '<span class="badge ' + actionClass + '" style="font-size:14px;padding:4px 12px;">' + actionLabel + "</span>" +
-        '<strong>' + escapeHtml(r.symbol || "") + "</strong>" +
-        "</div>" +
-        '<div style="font-size:13px;line-height:1.8;">' +
-        (r.entry_price ? '<span>入场: <strong>' + r.entry_price + "</strong></span><br>" : "") +
-        (r.target_price ? '<span>目标: <strong>' + r.target_price + "</strong></span><br>" : "") +
-        (r.stop_loss ? '<span>止损: <strong>' + r.stop_loss + "</strong></span><br>" : "") +
+        '<strong>' + escapeHtml(o.symbol || "") + "</strong>" +
         "</div>" +
         '<div style="margin:8px 0;display:flex;gap:12px;font-size:12px;color:var(--text-muted);">' +
         '<span>周期: ' + horizonLabel + "</span>" +
-        '<span>风险: ' + riskLabel + "</span>" +
         '<span>置信度: ' + confPct + "%</span>" +
         "</div>" +
         '<div style="position:relative;height:6px;background:var(--surface-2);border-radius:3px;margin-bottom:8px;">' +
         '<div style="width:' + confPct + "%;height:100%;background:var(--accent);border-radius:3px;" + '"></div></div>' +
-        '<p style="font-size:13px;margin:0;">' + escapeHtml(r.rationale || "") + "</p>" +
+        '<p style="font-size:13px;margin:0;">' + escapeHtml(o.observation || o.rationale || "") + "</p>" +
         "</article>";
     }).join("");
   }

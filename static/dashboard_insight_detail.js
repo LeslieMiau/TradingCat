@@ -93,16 +93,15 @@
   function renderRecommendation(data) {
     var el = document.getElementById("recommendation-body");
     if (!el) return;
-    var rec = data.recommendation;
-    if (!rec) {
-      el.innerHTML = '<p class="detail-empty">暂无交易建议（AI 生成中...）</p>' +
-        '<button id="btn-gen-rec" class="button button-sm" type="button">生成交易建议</button>';
-      var btn = document.getElementById("btn-gen-rec");
+    var ai = data._ai_explanation;
+    if (!ai) {
+      el.innerHTML = '<p class="detail-empty">暂无 AI 分析（点击下方生成为 AI 分析）</p>' +
+        '<button id="btn-gen-ai" class="button button-sm" type="button">生成 AI 分析</button>';
+      var btn = document.getElementById("btn-gen-ai");
       if (btn) {
         btn.addEventListener("click", function () {
           btn.disabled = true;
           btn.textContent = "生成中...";
-          // Reload with recommendation generation
           apiFetch(API.insightDetail(insightId))
             .then(function (r) {
               if (!r.ok) throw new Error(r.error || "加载失败");
@@ -114,35 +113,24 @@
       }
       return;
     }
-    var actionLabel = { buy: "买入", sell: "卖出", hold: "持有", watch: "观望", avoid: "回避" }[rec.action] || rec.action;
-    var actionClass = { buy: "badge-ok", sell: "badge-fail", hold: "badge-info", watch: "badge-warn", avoid: "badge-fail" }[rec.action] || "";
-    var riskLabel = { low: "低", medium: "中", high: "高" }[rec.risk_level] || rec.risk_level;
-    var horizonLabel = { intraday: "日内", short_term: "短期", medium_term: "中期" }[rec.time_horizon] || rec.time_horizon;
-    var confPct = Math.round((rec.confidence || 0.5) * 100);
+    var confPct = Math.round((ai.confidence || 0.5) * 100);
+    var factors = ai.key_factors || [];
+    var risks = ai.risk_factors || [];
+    var timeWindow = ai.reference_time_window || "N/A";
     el.innerHTML =
-      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">' +
-      '<span class="badge ' + actionClass + '" style="font-size:16px;padding:6px 16px;">' + actionLabel + "</span>" +
-      '<strong style="font-size:18px;">' + escapeHtml(rec.symbol || "") + "</strong>" +
-      "</div>" +
-      '<div class="summary-grid" style="grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">' +
-      (rec.entry_price ? _detailBox("入场价", rec.entry_price) : "") +
-      (rec.target_price ? _detailBox("目标价", rec.target_price) : "") +
-      (rec.stop_loss ? _detailBox("止损价", rec.stop_loss) : "") +
-      "</div>" +
+      '<div style="margin-bottom:12px;">' +
       '<div style="display:flex;gap:16px;font-size:13px;color:var(--text-muted);margin-bottom:8px;">' +
-      '<span>周期: ' + horizonLabel + "</span>" +
-      '<span>风险: ' + riskLabel + "</span>" +
+      '<span>参考窗口: ' + escapeHtml(timeWindow) + "</span>" +
       '<span>置信度: ' + confPct + "%</span>" +
       "</div>" +
       '<div style="position:relative;height:8px;background:var(--surface-2);border-radius:4px;margin-bottom:12px;">' +
       '<div style="width:' + confPct + "%;height:100%;background:var(--accent);border-radius:4px;" + '"></div></div>' +
-      '<p style="font-size:14px;line-height:1.6;">' + escapeHtml(rec.rationale || "") + "</p>";
-  }
-
-  function _detailBox(label, value) {
-    return '<div class="detail-card" style="text-align:center;padding:12px;">' +
-      '<div style="font-size:11px;color:var(--text-muted);">' + label + "</div>" +
-      '<div style="font-size:20px;font-weight:600;margin-top:4px;">' + escapeHtml(String(value)) + "</div></div>";
+      '<p style="font-size:14px;line-height:1.6;margin-bottom:16px;">' + escapeHtml(ai.summary || "") + "</p>" +
+      (factors.length ? '<div style="margin-bottom:12px;"><strong style="font-size:13px;">关键因素</strong><ul style="font-size:13px;line-height:1.8;margin:6px 0 0 0;padding-left:20px;">' +
+        factors.map(function (f) { return "<li>" + escapeHtml(f) + "</li>"; }).join("") + "</ul></div>" : "") +
+      (risks.length ? '<div><strong style="font-size:13px;">风险因素</strong><ul style="font-size:13px;line-height:1.8;margin:6px 0 0 0;padding-left:20px;">' +
+        risks.map(function (r) { return "<li>" + escapeHtml(r) + "</li>"; }).join("") + "</ul></div>" : "") +
+      "</div>";
   }
 
   function renderActionStatus(data) {
