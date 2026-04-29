@@ -35,10 +35,3 @@ def test_opend_check_script_exists_and_uses_socket_probe():
     assert "TRADINGCAT_FUTU_PORT" in content
 
 
-def test_init_postgres_script_exists():
-    script = Path("/Users/miau/Documents/TradingCat/scripts/init_postgres.sh")
-    content = script.read_text(encoding="utf-8")
-
-    assert script.exists()
-    assert "createdb" in content
-    assert "TRADINGCAT_POSTGRES_ENABLED=true" in content

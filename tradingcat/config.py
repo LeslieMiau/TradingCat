@@ -144,20 +144,6 @@ class RiskConfig(BaseModel):
         return value
 
 
-class PostgresConfig(BaseModel):
-    enabled: bool = False
-    dsn: str = "postgresql:///tradingcat"
-
-    @classmethod
-    def from_env(cls, dotenv_values: dict[str, str] | None = None) -> "PostgresConfig":
-        env_values = dotenv_values or {}
-        enabled_raw = _getenv("TRADINGCAT_POSTGRES_ENABLED", "false", env_values).strip().lower()
-        return cls(
-            enabled=enabled_raw in {"1", "true", "yes", "on"},
-            dsn=_getenv("TRADINGCAT_POSTGRES_DSN", "postgresql:///tradingcat", env_values),
-        )
-
-
 class YFinanceConfig(BaseModel):
     enabled: bool = False
 
@@ -1136,7 +1122,6 @@ class AppConfig(BaseModel):
     demo_max_daily_return: float = 0.025
     demo_drawdown_ceiling: float = 0.04
     demo_weekly_pnl_multiplier: float = 3.0
-    postgres: PostgresConfig = Field(default_factory=PostgresConfig)
     duckdb: DuckDbConfig = Field(default_factory=DuckDbConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     futu: FutuConfig = Field(default_factory=FutuConfig)
@@ -1225,7 +1210,6 @@ class AppConfig(BaseModel):
             demo_max_daily_return=float(_getenv("TRADINGCAT_DEMO_MAX_DAILY_RETURN", "0.025", dotenv_values)),
             demo_drawdown_ceiling=float(_getenv("TRADINGCAT_DEMO_DRAWDOWN_CEILING", "0.04", dotenv_values)),
             demo_weekly_pnl_multiplier=float(_getenv("TRADINGCAT_DEMO_WEEKLY_PNL_MULTIPLIER", "3.0", dotenv_values)),
-            postgres=PostgresConfig.from_env(dotenv_values),
             duckdb=DuckDbConfig.from_env(dotenv_values),
             scheduler=SchedulerConfig.from_env(dotenv_values),
             futu=FutuConfig.from_env(dotenv_values),

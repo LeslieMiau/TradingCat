@@ -23,7 +23,7 @@ from tradingcat.services.algo_execution import AlgoExecutor
 from tradingcat.services.ashare_indices import AshareIndexObservationService
 from tradingcat.services.alpha_radar import AlphaRadarService
 from tradingcat.services.attribution import PerformanceAttribution
-from tradingcat.services.approval import ApprovalService
+from tradingcat.services.manual_confirmation import ManualConfirmationService
 from tradingcat.services.auto_research import AutoResearchPipeline
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.fear_greed import FearGreedToolService
@@ -33,7 +33,6 @@ from tradingcat.services.market_awareness import MarketAwarenessService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
 from tradingcat.services.market_sentiment import MarketSentimentService
-from tradingcat.services.ml_pipeline import MLPipeline
 from tradingcat.services.news_observation import NewsObservationService
 from tradingcat.services.participation_decision import ParticipationDecisionService
 from tradingcat.services.portfolio_optimization import OptimizerConfig, PortfolioOptimizer
@@ -89,7 +88,6 @@ class ApplicationRuntime:
     strategy_signal_provider: StrategySignalProvider
     # Phase 1–3 services
     portfolio_optimizer: PortfolioOptimizer
-    ml_pipeline: MLPipeline
     algo_executor: AlgoExecutor | None
     performance_attribution: PerformanceAttribution  # static methods, retained for interface consistency
     ai_researcher: AIResearcher
@@ -125,7 +123,7 @@ class ApplicationRuntime:
         backtest_repository: BacktestExperimentRepository,
         order_repository: OrderRepository,
         execution_state_repository: ExecutionStateRepository,
-        approvals: ApprovalService,
+        approvals: ManualConfirmationService,
         market_calendar: MarketCalendarService,
         event_bus=None,
     ) -> "ApplicationRuntime":
@@ -215,7 +213,6 @@ class ApplicationRuntime:
         )
         # Phase 1-3 services
         portfolio_optimizer = PortfolioOptimizer()
-        ml_pipeline = MLPipeline(models_dir=config.data_dir / "models")
         algo_executor: AlgoExecutor | None = None
         if hasattr(execution, "submit_order"):
             algo_executor = AlgoExecutor(
@@ -269,7 +266,6 @@ class ApplicationRuntime:
             strategy_registry=strategy_registry,
             strategy_signal_provider=strategy_signal_provider,
             portfolio_optimizer=portfolio_optimizer,
-            ml_pipeline=ml_pipeline,
             algo_executor=algo_executor,
             performance_attribution=performance_attribution,
             ai_researcher=ai_researcher,

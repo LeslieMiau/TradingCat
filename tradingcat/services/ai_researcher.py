@@ -56,14 +56,23 @@ class AIResearcher:
         prompts = {
             AIFeature.BRIEFING: (
                 "You are an experienced quantitative investment analyst. "
-                "Write a concise pre-market briefing in Chinese (with English ticker symbols). "
-                "Cover: key market movements, macro events, sector rotation signals, and trading implications. "
-                "Be specific with numbers and levels. Keep under 300 words."
+                "Write a pre-market briefing in Chinese (with English ticker symbols). "
+                "Output valid JSON with the following fields:\n"
+                "- regime: market regime assessment (bullish/neutral/caution/risk_off) with supporting_evidence string\n"
+                "- risk_posture: string assessment\n"
+                "- confidence: string (high/medium/low)\n"
+                "- support_resistance: array of {asset, support_levels: [float], resistance_levels: [float]}\n"
+                "- sector_rotation: array of {sector, observation, direction (strengthening/weakening/neutral)}\n"
+                "- observations: array of research observations, each with:\n"
+                "    symbol, observation (string), confidence (0-1), rationale, time_horizon (intraday/short_term/medium_term)\n"
+                "- content: full analysis text in Chinese with specific numbers and levels\n"
+                "Provide observations as research input only — do not output buy/sell/hold trading actions. "
+                "All observations must cite supporting data. Be specific — avoid vague phrases like 'may fluctuate'."
             ),
             AIFeature.ANOMALY: (
                 "You are a trade surveillance analyst. "
                 "Analyze the detected price/volume anomaly and provide a concise assessment in Chinese. "
-                "State: (1) possible causes, (2) risk level, (3) suggested actions. "
+                "State: (1) possible causes, (2) risk level, (3) related factors to monitor. "
                 "Keep under 200 words. Be specific."
             ),
             AIFeature.STRATEGY: (
@@ -73,9 +82,16 @@ class AIResearcher:
                 "Keep under 300 words. Be actionable."
             ),
             AIFeature.JOURNAL: (
-                "You are a portfolio manager writing a daily/weekly summary in Chinese. "
-                "Summarize: portfolio performance, key decisions, risk status, and outlook. "
-                "Use bullet points for readability. Keep under 400 words."
+                "You are a portfolio manager writing a post-market review in Chinese. "
+                "Output valid JSON with the following fields:\n"
+                "- content: full review text in Chinese with bullet points\n"
+                "- trade_scores: array of {symbol, score (0-10), entry_quality (0-10), exit_quality (0-10),\n"
+                "    sizing_quality (0-10), notes}\n"
+                "- lessons_learned: array of {category (execution/planning/risk_management), lesson, impact}\n"
+                "- adjustments: array of {adjustment, reason, target_outcome}\n"
+                "You MUST include: plan vs actual deviation analysis, per-symbol trade quality scoring, "
+                "categorized lessons, and at least 3 specific adjustments for the next session. "
+                "Be specific with numbers — avoid vague phrases."
             ),
         }
         return prompts.get(feature, prompts[AIFeature.BRIEFING])
@@ -186,6 +202,47 @@ class AIResearcher:
             content=parsed.get("content", raw or "Journal unavailable"),
             summary=parsed.get("summary", "Trading journal"),
             confidence=parsed.get("confidence", "medium"),
+            metadata={
+                "trade_scores": parsed.get("trade_scores", []),
+                "lessons_learned": parsed.get("lessons_learned", []),
+                "adjustments": parsed.get("adjustments", []),
+            },
+        )
+
+    def explain_insight_evidence(self, insight_data: dict[str, Any] | None = None) -> AIAnalysis:
+        """Generate a research-only explanation for a detected insight.
+
+        This method intentionally does NOT output buy/sell/hold actions or
+        entry/target/stop prices. It provides evidence analysis only.
+        """
+        system = (
+            "You are a quantitative risk analyst. Given the following market insight, "
+            "provide an evidence-based explanation in Chinese. "
+            "Output valid JSON with these fields:\n"
+            "- key_factors: array of {factor, impact (positive/negative/neutral), detail}\n"
+            "- risk_factors: array of strings describing plausible risks\n"
+            "- reference_time_window: string (e.g. 'next 1-2 trading days')\n"
+            "- content: full analysis text in Chinese\n"
+            "Do NOT output buy/sell/hold actions or price targets. "
+            "Focus on explaining what the insight means and what factors to monitor."
+        )
+        user = json.dumps({
+            "request": "insight_explanation",
+            "date": str(date.today()),
+            "insight": insight_data or {},
+        }, ensure_ascii=False, default=str)
+        raw = self._call_api(system, user, max_tokens=1024)
+        parsed = self._parse_json(raw)
+        return AIAnalysis(
+            feature=AIFeature.ANOMALY,  # reuse anomaly category for insights
+            content=parsed.get("content", raw or "Explanation unavailable"),
+            summary=parsed.get("summary", "Insight explanation"),
+            confidence=parsed.get("confidence", "medium"),
+            metadata={
+                "key_factors": parsed.get("key_factors", []),
+                "risk_factors": parsed.get("risk_factors", []),
+                "reference_time_window": parsed.get("reference_time_window", "N/A"),
+            },
         )
 
     # ---- persistence ----

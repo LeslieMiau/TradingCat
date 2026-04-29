@@ -6,19 +6,7 @@ import sys
 
 from tradingcat.config import AppConfig
 from tradingcat.repositories.duckdb_store import DuckDbStoreUnavailable, _load_duckdb
-from tradingcat.repositories.postgres_store import PostgresStoreUnavailable, _load_psycopg
 from tradingcat.services.scheduler import SchedulerBackendUnavailable, _load_apscheduler
-
-
-def _redact_dsn(dsn: str) -> str:
-    if "://" not in dsn:
-        return dsn
-    scheme, remainder = dsn.split("://", 1)
-    if "@" not in remainder or ":" not in remainder.split("@", 1)[0]:
-        return dsn
-    credentials, suffix = remainder.split("@", 1)
-    username = credentials.split(":", 1)[0]
-    return f"{scheme}://{username}:***@{suffix}"
 
 
 def build_startup_preflight(config: AppConfig) -> dict[str, object]:
@@ -52,58 +40,6 @@ def build_startup_preflight(config: AppConfig) -> dict[str, object]:
     )
 
     futu_enabled = config.futu.enabled
-    postgres_enabled = config.postgres.enabled
-
-    checks.append(
-        {
-            "name": "postgres_enabled",
-            "ok": True,
-            "detail": "enabled" if postgres_enabled else "disabled",
-        }
-    )
-
-    if postgres_enabled:
-        try:
-            psycopg = _load_psycopg()
-            checks.append(
-                {
-                    "name": "postgres_driver",
-                    "ok": True,
-                    "detail": "psycopg importable",
-                }
-            )
-            try:
-                with psycopg.connect(config.postgres.dsn) as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT 1")
-                        cur.fetchone()
-                checks.append(
-                    {
-                        "name": "postgres_connection",
-                        "ok": True,
-                        "detail": _redact_dsn(config.postgres.dsn),
-                    }
-                )
-            except Exception as exc:
-                checks.append(
-                    {
-                        "name": "postgres_connection",
-                        "ok": False,
-                        "detail": str(exc),
-                    }
-                )
-                recommendations.append("Start local PostgreSQL and ensure TRADINGCAT_POSTGRES_DSN points to a reachable database.")
-        except PostgresStoreUnavailable:
-            checks.append(
-                {
-                    "name": "postgres_driver",
-                    "ok": False,
-                    "detail": "psycopg is not installed in this environment",
-                }
-            )
-            recommendations.append("Install PostgreSQL support with: .venv/bin/python -m pip install -e .")
-    else:
-        recommendations.append("Set TRADINGCAT_POSTGRES_ENABLED=true to move local state and audit logs into PostgreSQL.")
 
     duckdb_enabled = config.duckdb.enabled
     checks.append(
@@ -239,10 +175,6 @@ def build_startup_preflight(config: AppConfig) -> dict[str, object]:
         "base_currency": config.base_currency,
         "portfolio_value": config.portfolio_value,
         "data_dir": str(config.data_dir),
-        "postgres": {
-            "enabled": config.postgres.enabled,
-            "dsn": _redact_dsn(config.postgres.dsn),
-        },
         "duckdb": {
             "enabled": config.duckdb.enabled,
             "path": str(config.duckdb.path),

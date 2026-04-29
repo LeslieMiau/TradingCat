@@ -7,7 +7,6 @@ from tradingcat.config import AppConfig
 from tradingcat.domain.models import BacktestExperiment, DashboardScorecardSnapshot
 from tradingcat.repositories.duckdb_store import DuckDbResearchStore
 from tradingcat.repositories.json_store import JsonStore
-from tradingcat.repositories.postgres_store import PostgresStore
 
 
 def _sanitize_non_finite(value):
@@ -28,9 +27,6 @@ class BacktestExperimentRepository:
         if isinstance(config_or_data_dir, AppConfig) and config_or_data_dir.duckdb.enabled:
             self._store = DuckDbResearchStore(config_or_data_dir.duckdb.path, config_or_data_dir.duckdb.parquet_dir)
             self._bucket = "duckdb"
-        elif isinstance(config_or_data_dir, AppConfig) and config_or_data_dir.postgres.enabled:
-            self._store = PostgresStore(config_or_data_dir.postgres.dsn)
-            self._bucket = "backtests"
         else:
             data_dir = config_or_data_dir.data_dir if isinstance(config_or_data_dir, AppConfig) else config_or_data_dir
             self._store = JsonStore(data_dir / "backtests.json")

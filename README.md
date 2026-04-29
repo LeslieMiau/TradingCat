@@ -283,10 +283,6 @@ pip install -e .[dev,futu]
 source .venv/bin/activate
 pip install -e .
 ./scripts/bootstrap_env.sh simulate
-# 编辑 .env：
-# TRADINGCAT_POSTGRES_ENABLED=true
-# TRADINGCAT_POSTGRES_DSN=postgresql:///tradingcat
-./scripts/init_postgres.sh
 ```
 
 把研究实验持久化到本地 DuckDB + Parquet：

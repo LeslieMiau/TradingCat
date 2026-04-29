@@ -39,6 +39,14 @@ const DashboardAutonomous = (() => {
     container.innerHTML = html || `<span class="meta-text">暂无数据</span>`;
   }
 
+  function detailLink(jid, detail) {
+    if (jid.startsWith("pre_market_briefing")) return '<a href="/dashboard/briefing" class="button button-xs">详情</a>';
+    if (jid.startsWith("post_market_reflection")) return '<a href="/dashboard/review" class="button button-xs">详情</a>';
+    if (jid === "intraday_insight_scan") return '<a href="/dashboard/insights" class="button button-xs">详情</a>';
+    if (jid === "self_iteration_weekly") return "";
+    return "";
+  }
+
   function renderJobs(jobs, runs) {
     const tbody = document.getElementById("cycle-jobs-body");
     if (!tbody) return;
@@ -59,6 +67,7 @@ const DashboardAutonomous = (() => {
       const lastStatus = run ? statusBadge(run.status) : "—";
       const detail = run?.detail ? escapeHtml(run.detail).slice(0, 60) : "—";
       const interval = job.interval_seconds ? `${(job.interval_seconds / 60).toFixed(0)} 分钟` : "—";
+      const dLink = detailLink(jid, run?.detail);
       return `<tr>
         <td>${escapeHtml(job.name)}</td>
         <td>${job.enabled ? '<span class="badge badge-ok">启用</span>' : '<span class="badge badge-fail">停用</span>'}</td>
@@ -67,10 +76,11 @@ const DashboardAutonomous = (() => {
         <td>${lastRun}</td>
         <td>${lastStatus}</td>
         <td title="${escapeHtml(run?.detail || "")}">${detail}</td>
+        <td>${dLink}</td>
       </tr>`;
     }).join("");
 
-    tbody.innerHTML = rows || `<tr><td colspan="7" class="table-empty">暂无数据</td></tr>`;
+    tbody.innerHTML = rows || `<tr><td colspan="8" class="table-empty">暂无数据</td></tr>`;
   }
 
   function renderAutonomous(state) {

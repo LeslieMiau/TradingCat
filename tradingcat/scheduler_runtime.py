@@ -6,7 +6,6 @@ from datetime import date, time, timedelta
 from typing import TYPE_CHECKING, Callable
 
 from tradingcat.domain.models import Market
-from tradingcat.services.trading_session import TradingSessionService
 
 
 logger = logging.getLogger(__name__)
@@ -122,7 +121,6 @@ class ApplicationSchedulerRuntime:
 
     def run_approval_expiry_job(self) -> str:
         expired = self._app.approvals.expire_stale(
-            timedelta(minutes=self._app.config.approval_expiry_minutes),
             reason="定时审批过期清理",
         )
         return f"已过期 {len(expired)} 条审批请求"
@@ -130,10 +128,6 @@ class ApplicationSchedulerRuntime:
     def run_operations_journal_job(self) -> str:
         self._app.record_operations_journal()
         return "已记录运营日报条目"
-
-    def run_acceptance_evidence_job(self) -> str:
-        snapshot = self._app.capture_acceptance_evidence(notes=["scheduled_eod_capture"])
-        return f"已采集 {snapshot['as_of']} 的验收门禁证据（{snapshot['status']}）"
 
     def run_advisory_research_job(self) -> str:
         try:
@@ -188,16 +182,7 @@ class ApplicationSchedulerRuntime:
     # ── Autonomous daily-cycle jobs ──────────────────────────────────────────
 
     def _run_pre_market_briefing(self, market: Market) -> str:
-        from tradingcat.services.pre_market_orchestrator import PreMarketOrchestrator
-        session_svc = TradingSessionService(self._app.market_calendar)
-        orch = PreMarketOrchestrator(
-            market_awareness=self._app.market_awareness,
-            insight_engine=self._app.insight_engine,
-            ai_researcher=self._app.ai_researcher,
-            trading_session=session_svc,
-            data_dir=self._app.config.data_dir,
-        )
-        result = orch.run(market=market)
+        result = self._app.daily_log.run_briefing(market=market)
         if result.skipped_reason:
             return f"{market.value} 盘前简报跳过：{result.skipped_reason}"
         return (
@@ -216,7 +201,7 @@ class ApplicationSchedulerRuntime:
 
     def run_intraday_insight_scan_job(self) -> str:
         try:
-            result = self._app.insight_engine.run()
+            result = self._app.analysis_pipeline.run()
             return f"盘中扫描：产生 {len(result.produced)} 条新洞察，过期 {result.expired} 条"
         except Exception as exc:
             logger.exception("intraday insight scan failed")
@@ -224,7 +209,7 @@ class ApplicationSchedulerRuntime:
 
     def _run_post_market_reflection(self, market: Market) -> str:
         try:
-            result = self._app.run_post_market_reflection(date.today())
+            result = self._app.daily_log.run_review(as_of=date.today())
             parts = [f"{market.value} 盘后回顾完成（{result.as_of}）"]
             if result.deviations:
                 parts.append(f"偏差：{'；'.join(result.deviations[:3])}")
@@ -244,21 +229,6 @@ class ApplicationSchedulerRuntime:
 
     def run_post_market_reflection_hk_job(self) -> str:
         return self._run_post_market_reflection(Market.HK)
-
-    def run_self_iteration_weekly_job(self) -> str:
-        try:
-            result = self._app.run_self_iteration_weekly(date.today())
-            parts = [f"每周自我迭代完成（{result.as_of}）"]
-            sn_count = len(result.insight_signal_noise)
-            parts.append(f"分析了 {sn_count} 类洞察信号")
-            if result.detector_tuning_hints:
-                parts.append(f"调参提示：{'；'.join(result.detector_tuning_hints[:2])}")
-            if result.weekly_report_path:
-                parts.append("研究报告已生成")
-            return "；".join(parts)
-        except Exception as exc:
-            logger.exception("self-iteration weekly failed")
-            return f"每周自我迭代失败：{exc}"
 
 
 _JOB_REGISTRATIONS = [
@@ -353,15 +323,6 @@ _JOB_REGISTRATIONS = [
         handler_name="run_daily_trading_plan_job",
     ),
     SchedulerRegistration(
-        job_id="acceptance_evidence_capture",
-        name="验收门禁证据采集",
-        description="为真实时间纸面交易时间线采集 Stage-C 验收门禁快照",
-        timezone="Asia/Shanghai",
-        local_time=time(18, 25),
-        market=Market.CN,
-        handler_name="run_acceptance_evidence_job",
-    ),
-    SchedulerRegistration(
         job_id="daily_trading_summary_archive",
         name="每日交易总结归档",
         description="生成并归档每日交易总结",
@@ -452,13 +413,5 @@ _JOB_REGISTRATIONS = [
         market=Market.HK,
         handler_name="run_post_market_reflection_hk_job",
     ),
-    SchedulerRegistration(
-        job_id="self_iteration_weekly",
-        name="每周自我迭代",
-        description="洞察反馈信噪比分析、策略建议、每周研究管线",
-        timezone="Asia/Shanghai",
-        local_time=time(9, 30),
-        market=Market.CN,
-        handler_name="run_self_iteration_weekly_job",
-    ),
+
 ]

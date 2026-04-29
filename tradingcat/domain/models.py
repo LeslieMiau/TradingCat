@@ -612,6 +612,15 @@ class RolloutPolicy(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class ExecutionPolicy(BaseModel):
+    """Lightweight execution mode policy — replaces RolloutPolicy."""
+    mode: str = "paper"  # paper | manual_live | live
+    max_allocation_ratio: float = 0.0
+    manual_confirmation_required: bool = False
+    reason: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class RolloutPromotionAttempt(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     requested_stage: str
@@ -872,6 +881,20 @@ class InsightUserAction(str, Enum):
     ACTED = "acted"
 
 
+class TradingRecommendation(BaseModel):
+    """Specific trading action suggested by an insight or AI analysis."""
+
+    action: str  # "buy" | "sell" | "hold" | "watch" | "avoid"
+    symbol: str | None = None
+    entry_price: float | None = None
+    target_price: float | None = None
+    stop_loss: float | None = None
+    confidence: float = 0.0  # 0.0 to 1.0
+    rationale: str = ""
+    time_horizon: str = ""  # "intraday" | "short_term" | "medium_term"
+    risk_level: str = "medium"  # "low" | "medium" | "high"
+
+
 class InsightEvidence(BaseModel):
     source: str
     fact: str
@@ -891,6 +914,7 @@ class Insight(BaseModel):
     expires_at: datetime
     user_action: InsightUserAction = InsightUserAction.PENDING
     dismissed_reason: str | None = None
+    recommendation: TradingRecommendation | None = None
 
 
 # Resolve the forward reference from MarketAwarenessSnapshot.market_sentiment.

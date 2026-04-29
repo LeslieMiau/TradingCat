@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date as date_cls
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from tradingcat.domain.models import InsightKind, InsightUserAction
 from tradingcat.routes.common import get_app_state
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/insights")
@@ -81,7 +85,7 @@ def ack_insight(request: Request, insight_id: str, payload: InsightAckPayload):
 @router.post("/run")
 def run_insight_engine(request: Request, payload: InsightRunPayload | None = None):
     payload = payload or InsightRunPayload()
-    result = get_app_state(request).insight_engine.run(as_of=payload.as_of)
+    result = get_app_state(request).analysis_pipeline.run(as_of=payload.as_of)
     return {
         "as_of": result.as_of.isoformat(),
         "produced": result.produced,
@@ -89,3 +93,28 @@ def run_insight_engine(request: Request, payload: InsightRunPayload | None = Non
         "suppressed_duplicates": result.suppressed_duplicates,
         "expired": result.expired,
     }
+
+
+@router.get("/{insight_id}/detail")
+def get_insight_detail(request: Request, insight_id: str):
+    """Return insight with an AI-generated trading recommendation (lazy)."""
+    app = get_app_state(request)
+    insight = app.insight_store.get(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    serialized = insight.model_dump(mode="json")
+    # Lazy-generate AI explanation if missing
+    if insight.recommendation is None and app.ai_researcher.enabled:
+        try:
+            rec_analysis = app.ai_researcher.explain_insight_evidence(insight_data=serialized)
+            serialized["_ai_explanation"] = {
+                "content": rec_analysis.content,
+                "summary": rec_analysis.summary,
+                "confidence": rec_analysis.confidence,
+                "key_factors": rec_analysis.metadata.get("key_factors", []),
+                "risk_factors": rec_analysis.metadata.get("risk_factors", []),
+                "reference_time_window": rec_analysis.metadata.get("reference_time_window", "N/A"),
+            }
+        except Exception as exc:
+            logger.warning("get_insight_detail: lazy explanation failed for %s: %s", insight_id, exc)
+    return serialized

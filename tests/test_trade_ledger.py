@@ -13,7 +13,6 @@ from tradingcat.domain.models import (
 )
 from tradingcat.main import TradingCatApplication
 from tradingcat.repositories.state import ApprovalRepository, ExecutionStateRepository, OrderRepository
-from tradingcat.services.approval import ApprovalService
 from tradingcat.services.execution import ExecutionService
 from tradingcat.services.trade_ledger import (
     CSV_COLUMNS,

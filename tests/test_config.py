@@ -25,8 +25,6 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_API_KEY", "av-key")
     monkeypatch.setenv("TRADINGCAT_ALPHA_VANTAGE_NEWS_TICKERS", "SPY,QQQ")
-    monkeypatch.setenv("TRADINGCAT_POSTGRES_ENABLED", "true")
-    monkeypatch.setenv("TRADINGCAT_POSTGRES_DSN", "postgresql:///tradingcat_test")
     monkeypatch.setenv("TRADINGCAT_DUCKDB_ENABLED", "true")
     monkeypatch.setenv("TRADINGCAT_DUCKDB_PATH", str(tmp_path / "research.duckdb"))
     monkeypatch.setenv("TRADINGCAT_PARQUET_DIR", str(tmp_path / "parquet"))
@@ -69,8 +67,6 @@ def test_app_config_loads_from_env(monkeypatch, tmp_path):
     assert config.alpha_vantage_news.enabled is True
     assert config.alpha_vantage_news.api_key == "av-key"
     assert config.alpha_vantage_news.tickers == ["SPY", "QQQ"]
-    assert config.postgres.enabled is True
-    assert config.postgres.dsn == "postgresql:///tradingcat_test"
     assert config.duckdb.enabled is True
     assert config.duckdb.path == tmp_path / "research.duckdb"
     assert config.duckdb.parquet_dir == tmp_path / "parquet"
@@ -101,8 +97,6 @@ def test_app_config_loads_from_dotenv(monkeypatch, tmp_path):
                 "TRADINGCAT_DATA_DIR=runtime-data",
                 "TRADINGCAT_FUTU_ENABLED=true",
                 "TRADINGCAT_FUTU_PORT=33333",
-                "TRADINGCAT_POSTGRES_ENABLED=true",
-                "TRADINGCAT_POSTGRES_DSN=postgresql:///tradingcat_dotenv",
                 "TRADINGCAT_DUCKDB_ENABLED=true",
                 "TRADINGCAT_DUCKDB_PATH=runtime-data/research.duckdb",
                 "TRADINGCAT_PARQUET_DIR=runtime-data/parquet",
@@ -121,8 +115,6 @@ def test_app_config_loads_from_dotenv(monkeypatch, tmp_path):
     assert config.data_dir == Path("runtime-data")
     assert config.futu.enabled is True
     assert config.futu.port == 33333
-    assert config.postgres.enabled is True
-    assert config.postgres.dsn == "postgresql:///tradingcat_dotenv"
     assert config.duckdb.enabled is True
     assert config.duckdb.path == Path("runtime-data/research.duckdb")
     assert config.duckdb.parquet_dir == Path("runtime-data/parquet")

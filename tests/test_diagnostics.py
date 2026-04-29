@@ -1,5 +1,5 @@
 from tradingcat.config import AppConfig
-from tradingcat.services.preflight import _redact_dsn, build_startup_preflight, summarize_validation_diagnostics
+from tradingcat.services.preflight import build_startup_preflight, summarize_validation_diagnostics
 
 
 def test_diagnostics_summary_flags_disabled_futu():
@@ -56,16 +56,4 @@ def test_diagnostics_summary_marks_ready_path():
     assert payload["ready"] is True
 
 
-def test_redact_dsn_hides_password():
-    assert _redact_dsn("postgresql://alice:s3cr3t@db.internal/tradingcat") == "postgresql://alice:***@db.internal/tradingcat"
-    assert _redact_dsn("postgresql:///tradingcat") == "postgresql:///tradingcat"
 
-
-def test_build_startup_preflight_redacts_postgres_dsn(monkeypatch, tmp_path):
-    monkeypatch.setenv("TRADINGCAT_POSTGRES_ENABLED", "true")
-    monkeypatch.setenv("TRADINGCAT_POSTGRES_DSN", "postgresql://alice:s3cr3t@db.internal/tradingcat")
-    monkeypatch.setenv("TRADINGCAT_DATA_DIR", str(tmp_path))
-
-    payload = build_startup_preflight(AppConfig.from_env())
-
-    assert payload["postgres"]["dsn"] == "postgresql://alice:***@db.internal/tradingcat"

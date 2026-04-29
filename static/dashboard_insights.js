@@ -121,6 +121,7 @@
           '<span class="meta-text">' + escapeHtml(ts) + "</span>" +
         "</div>" +
         '<div class="insight-card-actions">' +
+          '<a class="button button-xs" href="/dashboard/insights/' + escapeHtml(insight.id) + '">详情</a> ' +
           '<button class="button button-xs" onclick="DashboardInsights._toggleEvidence(\'' + expandedId + '\')">展开</button> ' +
           (action === "pending" ? (
             '<button class="button button-xs" onclick="DashboardInsights._ack(\'' + escapeHtml(insight.id) + '\')">已读</button> ' +

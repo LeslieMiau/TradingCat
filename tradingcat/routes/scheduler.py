@@ -16,7 +16,6 @@ _CYCLE_JOB_IDS = {
     "pre_market_briefing", "pre_market_briefing_us", "pre_market_briefing_hk",
     "intraday_insight_scan",
     "post_market_reflection", "post_market_reflection_us", "post_market_reflection_hk",
-    "self_iteration_weekly",
 }
 
 

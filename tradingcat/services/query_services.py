@@ -194,7 +194,7 @@ class ReadinessQueryService:
         run_market_data_smoke_test: Callable[..., dict[str, object]],
         preview_execution: Callable[[date], dict[str, object]],
         data_quality_summary: Callable[[], dict[str, object]],
-        operations_rollout: Callable[[], dict[str, object]],
+        execution_policy_gate: Callable[[], dict[str, object]],
         alerts_summary: Callable[[], dict[str, object]],
         compliance_summary: Callable[[], dict[str, object]],
         order_state_summary: Callable[[], dict[str, object]],
@@ -211,7 +211,7 @@ class ReadinessQueryService:
         self._run_market_data_smoke_test = run_market_data_smoke_test
         self._preview_execution = preview_execution
         self._data_quality_summary = data_quality_summary
-        self._operations_rollout = operations_rollout
+        self._execution_policy_gate = execution_policy_gate
         self._alerts_summary = alerts_summary
         self._compliance_summary = compliance_summary
         self._order_state_summary = order_state_summary
@@ -315,7 +315,7 @@ class ReadinessQueryService:
         validation_payload = validation or self.base_validation_snapshot(evaluation_date)
         diagnostics = validation_payload["diagnostics"]
         research_readiness = validation_payload["preflight"].get("research_readiness", {})
-        rollout = self._operations_rollout()
+        policy_gate = self._execution_policy_gate()
         execution_readiness = self._operations_execution_readiness(
             state_counts=self._order_state_summary(),
             authorization=self._execution_authorization_summary(),
@@ -324,13 +324,12 @@ class ReadinessQueryService:
         reasons = list(diagnostics["findings"])
         reasons.extend(str(item) for item in research_readiness.get("blocking_reasons", []))
         reasons.extend(execution_readiness["blockers"])
-        if not rollout["ready_for_rollout"]:
-            reasons.extend(blocker for blocker in rollout["blockers"])
+        reasons.extend(policy_gate["blockers"])
         reasons = list(dict.fromkeys(str(reason) for reason in reasons))
         ready = (
             bool(diagnostics["ready"])
             and bool(research_readiness.get("ready", True))
-            and rollout["ready_for_rollout"]
+            and policy_gate["ready"]
             and execution_readiness["ready"]
         )
         return {
@@ -339,7 +338,8 @@ class ReadinessQueryService:
             "should_block": not ready,
             "reasons": reasons,
             "next_actions": list(diagnostics["next_actions"]),
-            "recommended_stage": rollout["current_recommendation"],
+            "recommended_stage": policy_gate["mode"],
+            "policy_stage": policy_gate["mode"],
             "preflight": validation_payload["preflight"],
             "broker_validation": validation_payload["broker_validation"],
             "market_data": validation_payload["market_data"],
