@@ -51,6 +51,11 @@ def dashboard_journal_page(request: Request):
     return render_template(request, "journal.html")
 
 
+@router.get("/daily-log", response_class=HTMLResponse)
+def daily_log_page(request: Request):
+    return render_template(request, "daily_log.html")
+
+
 @router.get("/operations", response_class=HTMLResponse)
 def dashboard_operations_page(request: Request):
     return render_template(request, "operations.html")
