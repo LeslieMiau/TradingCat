@@ -43,6 +43,57 @@
 
   <section class="panel">
     <div class="panel-header">
+      <div>
+        <h2>值班健康</h2>
+        <span class="meta-text">broker / account / orders / data / scheduler / reconcile</span>
+      </div>
+      <span id="today-heartbeat-status" class="badge">加载中</span>
+    </div>
+    <div id="today-heartbeat" class="cards-grid three">
+      <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>行动队列</h2>
+        <span class="meta-text">待审批 / 待对账 / 数据 / 风控 / 调度</span>
+      </div>
+      <span id="today-action-count" class="badge">加载中</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead>
+          <tr>
+            <th>优先级</th>
+            <th>动作</th>
+            <th>来源</th>
+            <th>入口</th>
+          </tr>
+        </thead>
+        <tbody id="today-action-queue">
+          <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Live Readiness</h2>
+        <span class="meta-text">实盘前最后只读门禁</span>
+      </div>
+      <span id="today-live-status" class="badge">加载中</span>
+    </div>
+    <div id="today-live-readiness" class="summary-grid">
+      <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
       <h2>阻塞项</h2>
       <span class="meta-text">来源可追溯</span>
     </div>

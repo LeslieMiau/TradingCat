@@ -60,8 +60,18 @@ def test_today_cockpit_frontend_is_get_only_and_no_execution_mutations():
         "method: 'DELETE'",
         'method: "DELETE"',
         "approvalApprove",
+        "approvalReject",
+        "approvalExpireStale",
+        "schedulerRun",
+        "ordersManual",
         "ordersCancelOpen",
+        "orderCancel",
         "executionRun",
+        "killSwitchToggle",
+        "brokerRecover",
+        "insightsRun",
+        "insightAck",
+        "insightDismiss",
         "reconcile",
     ]
 

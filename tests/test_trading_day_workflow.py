@@ -147,3 +147,24 @@ def test_trading_day_workflow_builds_read_only_insight_matrix():
     assert row["order"]["status"] == "submitted"
     assert row["approval"]["status"] == "pending"
     assert {item["rule"] for item in row["risk_rules"]} >= {"manual_approval_required", "synthetic_reference"}
+
+    assert set(payload) >= {"action_queue", "heartbeat", "live_readiness"}
+    assert payload["heartbeat"]["overall_status"] in {"ok", "degraded", "stale", "offline", "blocked"}
+    assert all("source_service" in item and "source_field" in item for item in payload["heartbeat"]["components"])
+    assert payload["live_readiness"]["ready"] is False
+    assert all("source_service" in blocker and "source_field" in blocker for blocker in payload["live_readiness"]["blockers"])
+    queue = payload["action_queue"]
+    assert queue["count"] >= 1
+    required_action_fields = {
+        "id",
+        "severity",
+        "category",
+        "title",
+        "detail",
+        "source_service",
+        "source_field",
+        "target_url",
+        "created_at",
+        "status",
+    }
+    assert all(required_action_fields <= set(item) for item in queue["items"])

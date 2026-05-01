@@ -1,9 +1,9 @@
 /* TradingCat — read-only trading-day cockpit. */
 
 function badgeClass(status) {
-  if (status === "ready") return "badge-ok";
-  if (status === "blocked") return "badge-fail";
-  if (status === "no_trade") return "badge-warn";
+  if (status === "ready" || status === "ok" || status === "clear") return "badge-ok";
+  if (status === "blocked" || status === "offline") return "badge-fail";
+  if (status === "no_trade" || status === "degraded" || status === "stale" || status === "open") return "badge-warn";
   return "badge";
 }
 
@@ -45,6 +45,60 @@ function renderMarkets(markets) {
       <p class="meta-text">${escapeHtml(row.source_service)} · ${escapeHtml(row.source_field)}</p>
     </article>`;
   }).join("") || '<article class="detail-card"><span class="detail-empty">暂无市场状态</span></article>';
+}
+
+function renderHeartbeat(heartbeat) {
+  const status = document.getElementById("today-heartbeat-status");
+  if (status) {
+    status.className = `badge ${badgeClass(heartbeat?.overall_status)}`;
+    status.textContent = labelStatus(heartbeat?.overall_status || "unknown");
+  }
+  const root = document.getElementById("today-heartbeat");
+  if (!root) return;
+  const components = heartbeat?.components || [];
+  root.innerHTML = components.map(component => `<article class="detail-card">
+    <div class="panel-header compact-header">
+      <h3>${escapeHtml(component.label || component.id)}</h3>
+      <span class="badge ${badgeClass(component.status)}">${escapeHtml(labelStatus(component.status || "unknown"))}</span>
+    </div>
+    <p class="detail-paragraph">${escapeHtml(component.detail || "暂无详情")}</p>
+    <ul class="detail-list">
+      <li>观测: ${escapeHtml(fmtTime(component.observed_at))}</li>
+      <li>来源: ${escapeHtml(component.source_service || "")} · ${escapeHtml(component.source_field || "")}</li>
+    </ul>
+  </article>`).join("") || '<article class="detail-card"><span class="detail-empty">暂无心跳数据</span></article>';
+}
+
+function renderActionQueue(queue) {
+  const badge = document.getElementById("today-action-count");
+  if (badge) {
+    badge.className = `badge ${badgeClass(queue?.status)}`;
+    badge.textContent = queue?.count ? `${fmt(queue.count)} 项` : "清空";
+  }
+  const tbody = document.getElementById("today-action-queue");
+  if (!tbody) return;
+  const rows = queue?.items || [];
+  tbody.innerHTML = rows.map(item => `<tr>
+    <td><span class="badge ${item.severity === "high" ? "badge-fail" : item.severity === "medium" ? "badge-warn" : "badge"}">${escapeHtml(labelStatus(item.severity || "low"))}</span></td>
+    <td><strong>${escapeHtml(item.title || "")}</strong><br><span class="meta-text">${escapeHtml(item.detail || "")}</span></td>
+    <td>${escapeHtml(item.source_service || "")}<br><code>${escapeHtml(item.source_field || "")}</code></td>
+    <td><a class="button button-xs" href="${escapeHtml(item.target_url || "/dashboard/operations")}">查看</a></td>
+  </tr>`).join("") || '<tr><td colspan="4" class="table-empty">暂无待处理动作</td></tr>';
+}
+
+function renderLiveReadiness(readiness) {
+  const badge = document.getElementById("today-live-status");
+  if (badge) {
+    badge.className = `badge ${badgeClass(readiness?.status)}`;
+    badge.textContent = readiness?.ready ? "可进入实盘" : labelStatus(readiness?.status || "unknown");
+  }
+  const root = document.getElementById("today-live-readiness");
+  if (!root) return;
+  const blockers = readiness?.blockers || [];
+  root.innerHTML = [
+    `<article class="metric-tile"><span>状态</span><strong>${escapeHtml(readiness?.ready ? "通过" : "阻断")}</strong><small>${escapeHtml(readiness?.source_service || "TradingDayWorkflowService")}</small></article>`,
+    `<article class="detail-card"><h3>实盘阻断</h3><ul class="detail-list">${blockers.length ? blockers.slice(0, 6).map(item => `<li>${escapeHtml(item.detail)}<br><span class="meta-text">${escapeHtml(item.source_service)} · ${escapeHtml(item.source_field)}</span></li>`).join("") : '<li class="detail-empty">暂无阻断</li>'}</ul></article>`,
+  ].join("");
 }
 
 function renderBlockers(blockers) {
@@ -102,6 +156,9 @@ async function loadToday() {
     document.getElementById("today-updated").textContent = fmtTime(payload.generated_at);
     renderDecision(payload);
     renderMarkets(payload.markets || []);
+    renderHeartbeat(payload.heartbeat || {});
+    renderActionQueue(payload.action_queue || {});
+    renderLiveReadiness(payload.live_readiness || {});
     renderBlockers(payload.decision?.blockers || []);
     renderWorkflow(payload);
     renderInsightMatrix(payload.intraday?.insight_matrix || {});

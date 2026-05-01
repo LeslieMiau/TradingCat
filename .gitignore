@@ -14,6 +14,7 @@ data/
 PLAN.json
 PROGRESS.md
 .harness/
+.harness-archive/
 
 # 开发配置/计划文件（不应提交到远程）
 .codex/

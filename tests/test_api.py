@@ -1839,17 +1839,67 @@ def test_dashboard_today_data_is_stable_and_read_only():
     reset_runtime_state(app_state)
     orders_before = len(app_state.execution.list_orders())
     approvals_before = len(app_state.approvals.list_requests())
+    kill_switch_before = app_state.risk.kill_switch_status()["enabled"]
+    scheduler_runs_before = len(app_state.scheduler.run_history(limit=1000))
+    snapshot_before = app_state.portfolio.current_snapshot()
+    portfolio_state_before = {
+        "nav": snapshot_before.nav,
+        "cash": snapshot_before.cash,
+        "drawdown": snapshot_before.drawdown,
+        "daily_pnl": snapshot_before.daily_pnl,
+        "weekly_pnl": snapshot_before.weekly_pnl,
+        "positions": [position.model_dump(mode="json") for position in snapshot_before.positions],
+    }
 
     response = client.get("/dashboard/today/data")
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) >= {"as_of", "markets", "decision", "pre_market", "intraday", "post_market", "provenance"}
+    assert set(payload) >= {
+        "as_of",
+        "markets",
+        "decision",
+        "pre_market",
+        "intraday",
+        "post_market",
+        "provenance",
+        "action_queue",
+        "heartbeat",
+        "live_readiness",
+    }
     assert len(payload["markets"]) == 3
     assert isinstance(payload["decision"]["blockers"], list)
     assert all("source_service" in blocker and "source_field" in blocker for blocker in payload["decision"]["blockers"])
+    assert payload["heartbeat"]["overall_status"] in {"ok", "degraded", "stale", "offline", "blocked"}
+    assert all("source_service" in item and "source_field" in item for item in payload["heartbeat"]["components"])
+    assert payload["live_readiness"]["status"] in {"ready", "blocked"}
+    assert all("source_service" in blocker and "source_field" in blocker for blocker in payload["live_readiness"]["blockers"])
+    required_action_fields = {
+        "id",
+        "severity",
+        "category",
+        "title",
+        "detail",
+        "source_service",
+        "source_field",
+        "target_url",
+        "created_at",
+        "status",
+    }
+    assert all(required_action_fields <= set(item) for item in payload["action_queue"]["items"])
     assert len(app_state.execution.list_orders()) == orders_before
     assert len(app_state.approvals.list_requests()) == approvals_before
+    assert app_state.risk.kill_switch_status()["enabled"] == kill_switch_before
+    assert len(app_state.scheduler.run_history(limit=1000)) == scheduler_runs_before
+    snapshot_after = app_state.portfolio.current_snapshot()
+    assert {
+        "nav": snapshot_after.nav,
+        "cash": snapshot_after.cash,
+        "drawdown": snapshot_after.drawdown,
+        "daily_pnl": snapshot_after.daily_pnl,
+        "weekly_pnl": snapshot_after.weekly_pnl,
+        "positions": [position.model_dump(mode="json") for position in snapshot_after.positions],
+    } == portfolio_state_before
 
     intraday = client.get("/dashboard/intraday/data")
     assert intraday.status_code == 200
