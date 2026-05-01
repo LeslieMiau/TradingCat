@@ -83,14 +83,17 @@ class AIResearcher:
             ),
             AIFeature.JOURNAL: (
                 "You are a portfolio manager writing a post-market review in Chinese. "
+                "The structured facts are already computed in daily_data.structured_report. "
+                "Use only those facts for plan/order/fill/approval/slippage/deviation details; "
+                "do not invent missing facts and do not generate buy/sell/hold or other trading recommendations. "
                 "Output valid JSON with the following fields:\n"
                 "- content: full review text in Chinese with bullet points\n"
                 "- trade_scores: array of {symbol, score (0-10), entry_quality (0-10), exit_quality (0-10),\n"
                 "    sizing_quality (0-10), notes}\n"
                 "- lessons_learned: array of {category (execution/planning/risk_management), lesson, impact}\n"
-                "- adjustments: array of {adjustment, reason, target_outcome}\n"
-                "You MUST include: plan vs actual deviation analysis, per-symbol trade quality scoring, "
-                "categorized lessons, and at least 3 specific adjustments for the next session. "
+                "- adjustments: array of {adjustment, reason, target_outcome}; process and risk-review adjustments only\n"
+                "You MUST include: plan vs actual deviation analysis, per-symbol trade quality scoring when structured trade facts exist, "
+                "categorized lessons, and at least 3 specific process adjustments for the next session. "
                 "Be specific with numbers — avoid vague phrases."
             ),
         }

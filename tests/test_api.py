@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
-from tradingcat.domain.models import AssetClass, ExecutionReport, Instrument, ManualFill, Market, OrderIntent, OrderSide, OrderStatus
+from tradingcat.domain.models import AssetClass, DailyTradingPlanNote, ExecutionReport, Instrument, ManualFill, Market, OrderIntent, OrderSide, OrderStatus
 from tradingcat.domain.triggers import SmartOrder, TriggerCondition
 from tradingcat.main import app, app_state
 from tests.support import record_test_alert, reset_runtime_state, seed_execution_fill
@@ -712,9 +712,63 @@ def test_orders_endpoint_exposes_expected_vs_realized_price_context():
 
     assert response.status_code == 200
     payload = response.json()[0]
-    assert payload["expected_price"] == 100.0
+    assert payload["expected_price"] > 0
     assert payload["realized_price"] == 100.5
-    assert payload["reference_source"] == "manual_order_reference"
+    assert payload["reference_source"].startswith("manual_order_reference:")
+
+
+def test_manual_order_rejects_unknown_or_blocked_catalog_entries():
+    app_state.reset_state()
+    try:
+        unknown = client.post(
+            "/orders/manual",
+            json={"symbol": "NOTCAT", "market": "US", "side": "buy", "quantity": 1},
+        )
+        assert unknown.status_code == 400
+        app_state.market_history.upsert_instruments(
+            [
+                Instrument(
+                    symbol="DISABLED",
+                    market=Market.US,
+                    asset_class=AssetClass.STOCK,
+                    currency="USD",
+                    enabled=False,
+                ),
+                Instrument(
+                    symbol="NOQUOTE",
+                    market=Market.US,
+                    asset_class=AssetClass.STOCK,
+                    currency="USD",
+                    quote_permission="missing",
+                ),
+                Instrument(
+                    symbol="0005",
+                    market=Market.HK,
+                    asset_class=AssetClass.STOCK,
+                    currency="HKD",
+                    lot_size=100,
+                ),
+            ]
+        )
+
+        disabled = client.post(
+            "/orders/manual",
+            json={"symbol": "DISABLED", "market": "US", "side": "buy", "quantity": 1},
+        )
+        no_quote = client.post(
+            "/orders/manual",
+            json={"symbol": "NOQUOTE", "market": "US", "side": "buy", "quantity": 1},
+        )
+        bad_lot = client.post(
+            "/orders/manual",
+            json={"symbol": "0005", "market": "HK", "side": "buy", "quantity": 1},
+        )
+
+        assert disabled.status_code == 400
+        assert no_quote.status_code == 400
+        assert bad_lot.status_code == 400
+    finally:
+        app_state.reset_state()
 
 
 def test_manual_fill_endpoint_returns_reconciliation_trace():
@@ -927,7 +981,7 @@ def test_audit_endpoints_expose_order_context_and_transition_chain():
                 "symbol": "600519",
                 "market": "CN",
                 "side": "buy",
-                "quantity": 1,
+                "quantity": 100,
             },
         )
         assert submit.status_code == 200
@@ -1049,7 +1103,7 @@ def test_readiness_and_execution_gate_surface_execution_and_mismatch_blockers():
                 "symbol": "600519",
                 "market": "CN",
                 "side": "buy",
-                "quantity": 1,
+                "quantity": 100,
             },
         )
         assert submit.status_code == 200
@@ -1681,8 +1735,10 @@ def test_dashboard_page_and_assets():
     api_js = client.get("/static/api.js")
     assert api_js.status_code == 200
     assert "/dashboard/summary" in api_js.text
+    assert "/dashboard/today/data" in api_js.text
     assert "/portfolio/rebalance-plan" in api_js.text
     assert "/journal/plans/latest" in api_js.text
+    assert "/research/market-state" in api_js.text
     assert "/research/strategies/" in api_js.text
 
     components_js = client.get("/static/components.js")
@@ -1767,6 +1823,116 @@ def test_dashboard_page_and_assets():
     assert "API.journalSummariesLatest" in journal_js.text
     assert "API.journalDaily" in journal_js.text
     assert "API.journalMarkdownLatest" in journal_js.text
+
+    today_page = client.get("/dashboard/today")
+    assert today_page.status_code == 200
+    assert "交易日 Cockpit" in today_page.text
+    assert "/static/dashboard_today.js" in today_page.text
+
+    today_js = client.get("/static/dashboard_today.js")
+    assert today_js.status_code == 200
+    assert "API.dashboardTodayData" in today_js.text
+    assert "method: \"POST\"" not in today_js.text
+
+
+def test_dashboard_today_data_is_stable_and_read_only():
+    reset_runtime_state(app_state)
+    orders_before = len(app_state.execution.list_orders())
+    approvals_before = len(app_state.approvals.list_requests())
+
+    response = client.get("/dashboard/today/data")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) >= {"as_of", "markets", "decision", "pre_market", "intraday", "post_market", "provenance"}
+    assert len(payload["markets"]) == 3
+    assert isinstance(payload["decision"]["blockers"], list)
+    assert all("source_service" in blocker and "source_field" in blocker for blocker in payload["decision"]["blockers"])
+    assert len(app_state.execution.list_orders()) == orders_before
+    assert len(app_state.approvals.list_requests()) == approvals_before
+
+    intraday = client.get("/dashboard/intraday/data")
+    assert intraday.status_code == 200
+    assert set(intraday.json()) >= {"as_of", "markets", "intraday", "provenance"}
+
+
+def test_dashboard_review_data_exposes_structured_report_without_ai():
+    reset_runtime_state(app_state)
+    as_of = date(2026, 3, 9)
+    instrument = Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD")
+    intent = OrderIntent(
+        id="intent-review-1",
+        signal_id="review:SPY",
+        instrument=instrument,
+        side=OrderSide.BUY,
+        quantity=10,
+        requires_approval=True,
+    )
+    app_state.execution.register_expected_prices(
+        [intent],
+        {"SPY": {"price": 100.0, "source": "unit_test_quote", "quality": "real"}},
+    )
+    approval = app_state.approvals.create_request(intent)
+    app_state.approvals.approve(approval.id, "operator approved")
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id=intent.id,
+            symbol="SPY",
+            side=OrderSide.BUY,
+            filled_quantity=10,
+            average_price=101.0,
+            market=Market.US,
+        )
+    )
+    app_state.execution.reconcile_manual_fill(
+        ManualFill(
+            order_intent_id="intent-review-old-extra",
+            symbol="SPY",
+            side=OrderSide.BUY,
+            filled_quantity=1,
+            average_price=99.0,
+            market=Market.US,
+        )
+    )
+    app_state.trading_journal.save_plan(
+        DailyTradingPlanNote(
+            as_of=as_of,
+            headline="review fixture",
+            counts={"intent_count": 1},
+            items=[
+                {
+                    "intent_id": intent.id,
+                    "strategy_id": "review",
+                    "symbol": "SPY",
+                    "market": "US",
+                    "side": "buy",
+                    "quantity": 10,
+                    "reference_price": 100.0,
+                    "requires_approval": True,
+                }
+            ],
+        )
+    )
+
+    response = client.get("/dashboard/review/data", params={"as_of": as_of.isoformat()})
+
+    assert response.status_code == 200
+    report = response.json()["structured_report"]
+    assert report["plan_item_count"] == 1
+    assert report["scope"]["as_of"] == as_of.isoformat()
+    assert report["scope"]["excluded_order_count"] >= 1
+    assert report["order_count"] == 1
+    assert report["matched_count"] == 1
+    assert report["filled_count"] == 1
+    assert report["fill_rate"] == 1.0
+    assert report["extra_orders"] == []
+    assert report["items"][0]["approval"]["status"] == "approved"
+    assert report["items"][0]["order"]["symbol"] == "SPY"
+    assert report["items"][0]["order"]["fill_source"] == "manual_reconcile"
+    assert report["tca_samples"][0]["reference_source"] == "unit_test_quote"
+    assert report["tca_samples"][0]["deviation_metric"] == "slippage_bps"
+    assert report["tca_samples"][0]["deviation_value"] == 100.0
+    assert report["tca_summary"]["sample_count"] == 1
 
 
 def test_dashboard_summary_endpoint():

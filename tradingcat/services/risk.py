@@ -99,6 +99,7 @@ class RiskEngine:
         market_cash_remaining = dict(available_cash_by_market or {})
         option_premium_risk = 0.0
         for signal in signal_set:
+            self._check_instrument_tradeable(signal.instrument)
             # Fail-closed on broker degradation: refuse new opens (BUY) when the live
             # portfolio snapshot is stale. Closes (SELL) are still permitted because
             # an operator may need to flatten exposure during an outage.
@@ -125,10 +126,11 @@ class RiskEngine:
                 target_notional = min(target_notional, market_cash_remaining[signal.instrument.market])
 
             reference_price = self._resolve_reference_price(signal, prices)
-            lot_size = self._lot_size(signal.instrument.market)
+            lot_size = self._lot_size(signal.instrument)
             quantity = self._quantize_quantity(target_notional, reference_price, lot_size)
             if quantity <= 0:
                 continue
+            self._check_cn_sellable_quantity(signal, quantity)
             option_notional = quantity * reference_price if signal.instrument.asset_class == AssetClass.OPTION else 0.0
             if signal.instrument.asset_class == AssetClass.OPTION:
                 if option_notional > portfolio_nav * self._config.max_daily_option_premium_risk:
@@ -240,8 +242,10 @@ class RiskEngine:
             return self._config.fallback_price_cn_etf if signal.instrument.asset_class == AssetClass.ETF else self._config.fallback_price_cn_stock
         return 100.0
 
-    def _lot_size(self, market: Market) -> float:
-        if market in {Market.HK, Market.CN}:
+    def _lot_size(self, instrument: Instrument) -> float:
+        if instrument.lot_size > 0 and not (instrument.market in {Market.HK, Market.CN} and instrument.lot_size == 1.0):
+            return instrument.lot_size
+        if instrument.market in {Market.HK, Market.CN}:
             return 100.0
         return 1.0
 
@@ -253,6 +257,8 @@ class RiskEngine:
     def _check_cn_market_rules(self, signal: Signal, prices: dict[str, float] | None) -> None:
         if not self._config.cn_market_rules_enabled or signal.instrument.market != Market.CN:
             return
+        if signal.instrument.suspended:
+            raise RiskViolation(f"CN suspension blocks trading for {signal.instrument.symbol}")
         if self._is_st_or_delisting(signal.instrument):
             raise RiskViolation(f"CN risk flag blocks trading for {signal.instrument.symbol}")
 
@@ -266,21 +272,58 @@ class RiskEngine:
         if signal.side.value == "sell" and limit_status in {"down", "limit_down"}:
             raise RiskViolation(f"CN limit-down blocks sell for {signal.instrument.symbol}")
 
-        previous_close = self._metadata_float(metadata.get("previous_close"))
         current_price = self._metadata_float(metadata.get("current_price"))
         if current_price is None and prices is not None:
             current_price = self._metadata_float(prices.get(signal.instrument.symbol))
-        if previous_close is None or current_price is None or previous_close <= 0:
+        previous_close = self._metadata_float(metadata.get("previous_close"))
+        if current_price is None:
             raise RiskViolation(f"CN price data unavailable for {signal.instrument.symbol}")
 
         limit_pct = self._cn_limit_pct(signal.instrument)
-        limit_up = previous_close * (1 + limit_pct)
-        limit_down = previous_close * (1 - limit_pct)
-        tolerance = max(previous_close * 0.0005, 0.001)
+        if (signal.instrument.limit_up is None or signal.instrument.limit_down is None) and (
+            previous_close is None or previous_close <= 0
+        ):
+            raise RiskViolation(f"CN price data unavailable for {signal.instrument.symbol}")
+        limit_up = signal.instrument.limit_up or float(previous_close or 0) * (1 + limit_pct)
+        limit_down = signal.instrument.limit_down or float(previous_close or 0) * (1 - limit_pct)
+        tolerance_base = previous_close if previous_close and previous_close > 0 else current_price
+        tolerance = max(tolerance_base * 0.0005, 0.001)
         if signal.side.value == "buy" and current_price >= limit_up - tolerance:
             raise RiskViolation(f"CN limit-up blocks buy for {signal.instrument.symbol}")
         if signal.side.value == "sell" and current_price <= limit_down + tolerance:
             raise RiskViolation(f"CN limit-down blocks sell for {signal.instrument.symbol}")
+
+    @staticmethod
+    def _check_instrument_tradeable(instrument: Instrument) -> None:
+        if not instrument.enabled:
+            raise RiskViolation(f"Instrument is disabled: {instrument.symbol}")
+        if not instrument.tradable:
+            raise RiskViolation(f"Instrument is not tradable: {instrument.symbol}")
+        permission = str(instrument.quote_permission or "").strip().lower()
+        if permission in {"missing", "none", "denied", "restricted", "no_quote", "unavailable"}:
+            raise RiskViolation(f"Quote permission blocks trading for {instrument.symbol}")
+
+    def _check_cn_sellable_quantity(self, signal: Signal, quantity: float) -> None:
+        if not self._config.cn_market_rules_enabled or signal.instrument.market != Market.CN or signal.side != OrderSide.SELL:
+            return
+        metadata = signal.metadata or {}
+        if bool(metadata.get("t_plus_one_locked")):
+            raise RiskViolation(f"CN T+1 sell lock active for {signal.instrument.symbol}")
+        sellable_raw = (
+            metadata.get("sellable_quantity")
+            if metadata.get("sellable_quantity") is not None
+            else metadata.get("available_sell_quantity")
+            if metadata.get("available_sell_quantity") is not None
+            else metadata.get("available_quantity")
+        )
+        sellable_quantity = self._metadata_float(sellable_raw)
+        if sellable_quantity is None:
+            return
+        if quantity > sellable_quantity + 1e-9:
+            raise RiskViolation(
+                f"CN T+1 sellable quantity exceeded for {signal.instrument.symbol}: "
+                f"requested {quantity}, sellable {sellable_quantity}"
+            )
 
     def _cn_limit_pct(self, instrument: Instrument) -> float:
         if self._is_st_or_delisting(instrument):
@@ -292,6 +335,8 @@ class RiskEngine:
 
     @staticmethod
     def _is_st_or_delisting(instrument: Instrument) -> bool:
+        if instrument.st_status and instrument.st_status.lower() not in {"normal", "none", "clear"}:
+            return True
         text = f"{instrument.symbol} {instrument.name} {' '.join(instrument.tags)}".casefold()
         if re.search(r"\bst\b", text):
             return True

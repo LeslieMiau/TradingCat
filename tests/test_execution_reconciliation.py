@@ -1,3 +1,5 @@
+import pytest
+
 from tradingcat.adapters.broker import ManualExecutionAdapter, SimulatedBrokerAdapter
 from tradingcat.domain.models import (
     AssetClass,
@@ -44,6 +46,40 @@ class _FakeBroker:
 
     def reconcile_fills(self) -> list[ExecutionReport]:
         return list(self._fills)
+
+
+class _CountingLiveBroker(SimulatedBrokerAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.place_order_calls = 0
+
+    def place_order(self, intent: OrderIntent) -> ExecutionReport:
+        self.place_order_calls += 1
+        return super().place_order(intent)
+
+
+def test_execution_service_blocks_cn_auto_order_before_live_broker(tmp_path):
+    live_broker = _CountingLiveBroker()
+    service = ExecutionService(
+        live_broker=live_broker,
+        manual_broker=ManualExecutionAdapter(),
+        approvals=ManualConfirmationService(ApprovalRepository(tmp_path)),
+        repository=OrderRepository(tmp_path),
+        state_repository=ExecutionStateRepository(tmp_path),
+    )
+    intent = OrderIntent(
+        signal_id="cn-auto",
+        instrument=Instrument(symbol="510300", market=Market.CN, asset_class=AssetClass.ETF, currency="CNY"),
+        side=OrderSide.BUY,
+        quantity=100,
+        requires_approval=False,
+    )
+
+    with pytest.raises(RuntimeError, match="CN live auto-order is disabled"):
+        service.submit(intent)
+
+    assert live_broker.place_order_calls == 0
+    assert service.list_orders() == []
 
 
 def test_execution_reconcile_deduplicates_repeated_fills(tmp_path):

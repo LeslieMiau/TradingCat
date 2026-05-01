@@ -24,6 +24,7 @@ class HistorySyncService:
         sync_reports = sync_result.get("reports", []) if isinstance(sync_result, dict) else []
         failure_reports = sync_result.get("failures", []) if isinstance(sync_result, dict) else []
         missing_symbols = [str(report["symbol"]) for report in reports if float(report.get("coverage_ratio", 0.0)) < 0.95]
+        degraded_symbols = [str(symbol) for symbol in coverage_result.get("degraded_symbols", [])] if isinstance(coverage_result, dict) else []
         minimum_coverage_ratio = min((float(report.get("coverage_ratio", 0.0)) for report in reports), default=1.0)
         complete_instruments = int(coverage_result.get("complete_instruments", 0))
         instrument_count = int(sync_result.get("instrument_count", 0))
@@ -32,7 +33,7 @@ class HistorySyncService:
         status = "ok"
         if instrument_count == 0:
             status = "failed"
-        elif missing_symbols or failed_symbols:
+        elif missing_symbols or degraded_symbols or failed_symbols:
             status = "partial"
         run = HistorySyncRun(
             start=sync_result["start"],
@@ -49,7 +50,7 @@ class HistorySyncService:
             missing_symbol_count=len(missing_symbols),
             symbol_stats=self._symbol_stats(sync_reports, failure_reports, reports),
             status=status,
-            notes=self._notes(status, missing_symbols, failed_symbols, complete_instruments, instrument_count),
+            notes=self._notes(status, [*missing_symbols, *degraded_symbols], failed_symbols, complete_instruments, instrument_count),
         )
         self._runs[run.id] = run
         self._repository.save(self._runs)
@@ -64,7 +65,7 @@ class HistorySyncService:
         return {
             "count": len(runs),
             "latest": latest,
-            "healthy": bool(latest is not None and latest.status != "failed" and latest.minimum_coverage_ratio >= 0.95),
+            "healthy": bool(latest is not None and latest.status == "ok" and latest.minimum_coverage_ratio >= 0.95),
             "stale": self._is_stale(latest),
         }
 
@@ -76,7 +77,8 @@ class HistorySyncService:
         }
         repairs = []
         for report in reports:
-            if float(report.get("coverage_ratio", 0.0)) >= 0.95:
+            degraded = bool(report.get("degraded") or report.get("synthetic"))
+            if float(report.get("coverage_ratio", 0.0)) >= 0.95 and not degraded:
                 continue
             symbol = str(report["symbol"])
             priority_rank = priority_order.get(symbol)
@@ -95,8 +97,11 @@ class HistorySyncService:
                     "priority_reason": (
                         "Research target symbol appears in the current strategy universe."
                         if priority_rank is not None
+                        else "Synthetic/degraded history must be refreshed from a real provider."
+                        if degraded
                         else "Coverage gap severity only."
                     ),
+                    "degraded": degraded,
                 }
             )
         repairs.sort(
@@ -162,6 +167,8 @@ class HistorySyncService:
                 status = "failed"
             elif float(coverage_report.get("coverage_ratio", 1.0)) < 0.95 or int(coverage_report.get("missing_count", 0)) > 0:
                 status = "missing"
+            elif coverage_report.get("degraded") or coverage_report.get("synthetic"):
+                status = "degraded"
             else:
                 status = "ok"
             rows.append(

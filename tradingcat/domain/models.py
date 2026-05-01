@@ -144,6 +144,15 @@ class Instrument(BaseModel):
     liquidity_bucket: str = "medium"
     avg_daily_dollar_volume_m: float | None = None
     tags: list[str] = Field(default_factory=list)
+    exchange: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    data_source: str | None = None
+    quote_permission: str | None = None
+    st_status: str | None = None
+    limit_up: float | None = None
+    limit_down: float | None = None
+    suspended: bool = False
 
 
 class OptionContract(BaseModel):
@@ -164,6 +173,9 @@ class Bar(BaseModel):
     low: float
     close: float
     volume: float = 0.0
+    source: str = "unknown"
+    quality: str = "unknown"
+    fetched_at: datetime | None = None
 
 
 class FxRate(BaseModel):
@@ -171,6 +183,9 @@ class FxRate(BaseModel):
     quote_currency: str
     date: date
     rate: float
+    source: str = "unknown"
+    quality: str = "unknown"
+    fetched_at: datetime | None = None
 
 
 class CorporateAction(BaseModel):
@@ -500,6 +515,56 @@ class MarketAwarenessSnapshot(BaseModel):
     market_sentiment: "MarketSentimentSnapshot | None" = None
 
 
+class MarketStateEvidence(BaseModel):
+    source: str
+    label: str
+    value: float | str | int | bool | None = None
+    status: str = "mixed"
+    observed_at: datetime
+    explanation: str = ""
+
+
+class MarketStateGroupSignal(BaseModel):
+    name: str
+    score: float = 0.0
+    members: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class MarketStateSnapshot(BaseModel):
+    market: Market
+    session_date: date
+    observed_at: datetime
+    session_tag: Literal["pre_open", "open", "morning", "afternoon", "close", "manual"] = "manual"
+    bias_label: str = "mixed"
+    risk_score: int = 5
+    confidence: int = 0
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    absolute_view: dict[str, object] = Field(default_factory=dict)
+    relative_view: dict[str, object] = Field(default_factory=dict)
+    focus_groups: list[MarketStateGroupSignal] = Field(default_factory=list)
+    avoid_groups: list[MarketStateGroupSignal] = Field(default_factory=list)
+    evidence: list[MarketStateEvidence] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    research_explanation: dict[str, object] = Field(default_factory=dict)
+
+
+class MarketStateTimelinePoint(BaseModel):
+    market: Market
+    session_date: date
+    observed_at: datetime
+    session_tag: str = "manual"
+    bias_label: str = "mixed"
+    risk_score: int = 5
+    confidence: int = 0
+    focus_groups: list[MarketStateGroupSignal] = Field(default_factory=list)
+    avoid_groups: list[MarketStateGroupSignal] = Field(default_factory=list)
+    evidence: list[MarketStateEvidence] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    changed_from_previous: bool = False
+    changes: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Infrastructure Models
 # ---------------------------------------------------------------------------
@@ -697,7 +762,11 @@ class MarketSession(BaseModel):
     open_time: time
     close_time: time
     is_trading_day: bool
-    phase: str  # "open", "pre_open", "closed"
+    phase: str  # "open", "pre_open", "break", "closed"
+    session_type: str = "regular"
+    calendar_source: str = "static_builtin"
+    calendar_note: str | None = None
+    breaks: list[dict[str, str]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -128,7 +128,17 @@ class DataQualityQueryService:
             target_symbols = self.repair_priority_symbols(as_of=evaluation_date)[:5]
             scope = "research_universe"
         if not target_symbols:
-            return {"ready": True, "scope": scope, "target_symbols": [], "incomplete_count": 0, "reports": [], "blockers": []}
+            return {
+                "ready": True,
+                "scope": scope,
+                "target_symbols": [],
+                "incomplete_count": 0,
+                "reports": [],
+                "blockers": [],
+                "fx_ready": True,
+                "fx_blockers": [],
+                "fx_coverage": {},
+            }
         coverage = self._market_history_getter().summarize_history_coverage(
             symbols=target_symbols,
             start=evaluation_date - timedelta(days=lookback_days),
@@ -136,16 +146,36 @@ class DataQualityQueryService:
         )
         incomplete = [report for report in coverage["reports"] if float(report.get("coverage_ratio", 0.0)) < 0.95]
         blockers = [str(item) for item in coverage.get("blockers", [])]
+        fx_summary: dict[str, object] = {}
+        fx_blockers: list[str] = []
+        quote_currencies = self.baseline_quote_currencies(target_symbols)
+        if quote_currencies:
+            fx_summary = self._market_history_getter().summarize_fx_coverage(
+                self._config.base_currency,
+                quote_currencies,
+                evaluation_date - timedelta(days=lookback_days),
+                evaluation_date,
+                fetch_missing=False,
+            )
+            fx_blockers = [
+                str(item)
+                for item in fx_summary.get("blockers", [])
+                if "synthetic/degraded" in str(item).lower()
+            ]
         return {
-            "ready": not incomplete and not blockers,
+            "ready": not incomplete and not blockers and not fx_blockers,
             "scope": scope,
             "target_symbols": target_symbols,
             "incomplete_count": len(incomplete),
             "minimum_coverage_ratio": coverage.get("minimum_coverage_ratio", 1.0),
             "minimum_required_ratio": coverage.get("minimum_required_ratio", 0.95),
             "missing_symbols": coverage.get("missing_symbols", []),
-            "blockers": blockers,
+            "degraded_symbols": coverage.get("degraded_symbols", []),
+            "blockers": blockers + fx_blockers,
             "reports": coverage["reports"],
+            "fx_ready": not fx_blockers,
+            "fx_blockers": fx_blockers,
+            "fx_coverage": fx_summary,
         }
 
     def repair_priority_symbols(self, symbols: list[str] | None = None, as_of: date | None = None) -> list[str]:
@@ -604,6 +634,7 @@ class DashboardQueryService:
                     "expected_price": price_context.get("expected_price"),
                     "realized_price": price_context.get("realized_price"),
                     "reference_source": price_context.get("reference_source"),
+                    "reference_quality": price_context.get("reference_quality"),
                 }
             )
         return rows

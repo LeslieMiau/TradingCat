@@ -3,6 +3,7 @@ from datetime import UTC, datetime, time
 from tradingcat.domain.models import Market
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.scheduler import SchedulerService
+from tradingcat.services.trading_session import TradingPhase, TradingSessionService
 
 
 def test_market_session_reports_open_phase():
@@ -13,6 +14,60 @@ def test_market_session_reports_open_phase():
 
     assert session.is_trading_day is True
     assert session.phase == "open"
+    assert session.calendar_source
+
+
+def test_market_calendar_uses_hk_and_us_holidays():
+    service = MarketCalendarService()
+
+    hk_labour_day = service.get_session(Market.HK, now=datetime(2026, 5, 1, 2, 0, tzinfo=UTC))
+    us_thanksgiving = service.get_session(Market.US, now=datetime(2026, 11, 26, 15, 0, tzinfo=UTC))
+
+    assert hk_labour_day.is_trading_day is False
+    assert hk_labour_day.phase == "closed"
+    assert hk_labour_day.session_type == "holiday"
+    assert hk_labour_day.calendar_note == "Labour Day"
+    assert "HKEX" in hk_labour_day.calendar_source
+    assert us_thanksgiving.is_trading_day is False
+    assert us_thanksgiving.session_type == "holiday"
+    assert us_thanksgiving.calendar_note == "Thanksgiving Day"
+    assert "NYSE" in us_thanksgiving.calendar_source
+
+
+def test_market_calendar_uses_us_half_day_close():
+    service = MarketCalendarService()
+
+    early_session = service.get_session(Market.US, now=datetime(2026, 11, 27, 17, 0, tzinfo=UTC))
+    closed_after_early_close = service.get_session(Market.US, now=datetime(2026, 11, 27, 19, 0, tzinfo=UTC))
+
+    assert early_session.is_trading_day is True
+    assert early_session.session_type == "half_day"
+    assert early_session.close_time == time(13, 0)
+    assert early_session.phase == "open"
+    assert closed_after_early_close.phase == "closed"
+
+
+def test_market_calendar_marks_cn_hk_lunch_break_non_open():
+    service = MarketCalendarService()
+
+    cn_lunch = service.get_session(Market.CN, now=datetime(2026, 3, 9, 4, 0, tzinfo=UTC))
+    hk_lunch = service.get_session(Market.HK, now=datetime(2026, 3, 9, 4, 0, tzinfo=UTC))
+
+    assert cn_lunch.phase == "break"
+    assert hk_lunch.phase == "break"
+    assert cn_lunch.breaks == [{"start": "11:30", "end": "13:00"}]
+    assert TradingSessionService(service).get_phase(Market.CN, now=datetime(2026, 3, 9, 4, 0, tzinfo=UTC)).phase == TradingPhase.BREAK
+
+
+def test_market_calendar_fails_closed_when_year_not_explicitly_loaded():
+    service = MarketCalendarService()
+
+    session = service.get_session(Market.US, now=datetime(2027, 1, 4, 15, 0, tzinfo=UTC))
+
+    assert session.is_trading_day is False
+    assert session.phase == "closed"
+    assert session.session_type == "calendar_unavailable"
+    assert "No explicit exchange calendar" in (session.calendar_note or "")
 
 
 def test_scheduler_computes_next_run_and_executes_handler():

@@ -276,6 +276,8 @@ class FutuBrokerAdapter:
         return self._contexts[market]
 
     def place_order(self, intent: OrderIntent) -> ExecutionReport:
+        if intent.instrument.market == Market.CN:
+            raise RuntimeError("CN live auto-order is disabled; A-share orders must be handled through manual approval")
         context = self._context_for(intent.instrument.market)
         order_type = self._ft.OrderType.NORMAL if intent.order_type == "limit" else self._ft.OrderType.MARKET
         trd_side = self._ft.TrdSide.BUY if intent.side == OrderSide.BUY else self._ft.TrdSide.SELL

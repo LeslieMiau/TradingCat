@@ -79,6 +79,32 @@
           </div>
         </section>
 
+        <section id="market-state-widget" class="panel panel-highlight">
+          <div class="panel-header">
+            <h2>市场结构快照</h2>
+            <div class="tabs">
+              <button class="tab is-active" data-market-state-market="CN" type="button">A股</button>
+              <button class="tab" data-market-state-market="HK" type="button">港股</button>
+              <button class="tab" data-market-state-market="US" type="button">美股</button>
+              <button class="button button-sm" data-market-state-run type="button">刷新快照</button>
+            </div>
+          </div>
+          <div data-market-state-metrics class="cards-grid four">
+            <article class="metric-tile loading"><span>加载中...</span></article>
+          </div>
+          <div data-market-state-body></div>
+        </section>
+
+        <section id="market-state-timeline-widget" class="panel">
+          <div class="panel-header">
+            <h2>市场结构时间线</h2>
+            <span data-market-state-count class="meta-text">加载中</span>
+          </div>
+          <div data-market-state-timeline>
+            <p class="detail-empty">加载中...</p>
+          </div>
+        </section>
+
         <section id="research-market-sentiment-panel" class="panel panel-highlight" aria-label="市场情绪面板">
           <div class="panel-header">
             <h2>市场情绪</h2>
@@ -719,5 +745,6 @@
     <script src="/static/components.js"></script>
     <script src="/static/hotkeys.js"></script>
     <script src="/static/research.js"></script>
+    <script src="/static/market_state.js"></script>
     <script src="/static/research_quant.js"></script>
 {% endblock %}

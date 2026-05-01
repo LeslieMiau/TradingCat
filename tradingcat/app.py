@@ -27,6 +27,7 @@ from tradingcat.domain.models import (
 )
 from tradingcat.facades import AlertsFacade, DashboardFacade, JournalFacade, OperationsFacade, ResearchFacade
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
+from tradingcat.repositories.market_state_store import MarketStateStore
 from tradingcat.repositories.research import BacktestExperimentRepository, DashboardSnapshotRepository
 from tradingcat.repositories.state import (
     AlertRepository,
@@ -64,6 +65,7 @@ from tradingcat.services.execution import ExecutionService
 from tradingcat.services.execution_policy import ExecutionPolicyService
 from tradingcat.services.market_calendar import MarketCalendarService
 from tradingcat.services.market_data import MarketDataService
+from tradingcat.services.market_state import MarketStateService
 from tradingcat.services.execution_analysis import ExecutionAnalysisService
 from tradingcat.services.operations import OperationsJournalService, RecoveryService
 from tradingcat.services.portfolio import PortfolioService
@@ -81,6 +83,7 @@ from tradingcat.services.rule_engine import RuleEngine
 from tradingcat.services.scheduler import SchedulerRunHistory, SchedulerService
 from tradingcat.services.selection import StrategySelectionService
 from tradingcat.services.trading_journal import TradingJournalService
+from tradingcat.services.trading_day_workflow import TradingDayWorkflowService
 from tradingcat.services.trade_ledger_reconciliation import TradeLedgerReconciliationService
 from tradingcat.runtime import ApplicationRuntime, ApplicationRuntimeManager
 from tradingcat.scheduler_runtime import ApplicationSchedulerRuntime
@@ -131,6 +134,7 @@ class TradingCatApplication:
 
         self.instrument_catalog_repository = InstrumentCatalogRepository(self.config)
         self.market_history_repository = HistoricalMarketDataRepository(self.config)
+        self.market_state_store = MarketStateStore(self.config)
         self.backtest_repository = BacktestExperimentRepository(self.config)
         self.dashboard_snapshot_repository = DashboardSnapshotRepository(self.config)
         self.order_repository = OrderRepository(self.config)
@@ -167,6 +171,11 @@ class TradingCatApplication:
             data_dir=self.config.data_dir,
             plan_factory=lambda as_of: self.generate_daily_trading_plan(as_of),
             summary_factory=lambda as_of: self.generate_daily_trading_summary(as_of),
+            orders_reader=lambda: self.execution.list_orders(),
+            approvals_reader=lambda: self.approvals.list_requests(),
+            intent_context_resolver=lambda intent_id: self.execution.resolve_intent_context(intent_id),
+            price_context_resolver=lambda intent_id: self.execution.resolve_price_context(intent_id),
+            authorization_context_resolver=lambda intent_id: self.execution.resolve_authorization_context(intent_id),
         )
         # compat alias for routes that still reference self.trading_journal
         self.trading_journal = tj
@@ -249,6 +258,7 @@ class TradingCatApplication:
         )
 
         self.runtime_manager.initialize()
+        self._wire_runtime_read_models()
         self.scheduler_runtime.register_jobs()
 
         # Analysis pipeline wraps insight engine + explicit alert emission.
@@ -424,9 +434,21 @@ class TradingCatApplication:
 
     def _build_runtime_components(self) -> None:
         self.runtime_manager.initialize()
+        self._wire_runtime_read_models()
 
     def recover_runtime(self, trigger: str = "manual") -> dict[str, object]:
-        return self.runtime_manager.recover(trigger)
+        result = self.runtime_manager.recover(trigger)
+        self._wire_runtime_read_models()
+        return result
+
+    def _wire_runtime_read_models(self) -> None:
+        self.market_state = MarketStateService(
+            market_history=self.market_history,
+            market_awareness=self.market_awareness,
+            store=self.market_state_store,
+            ai_researcher=self.ai_researcher,
+        )
+        self.trading_day_workflow = TradingDayWorkflowService(self)
 
     def strategy_by_id(self, strategy_id: str):
         try:
@@ -487,14 +509,21 @@ class TradingCatApplication:
             result.append(signal.instrument)
         return result
 
-    def _load_prices(self, signals: list[Signal]) -> dict[str, float]:
+    def _load_quote_details(self, signals: list[Signal]) -> dict[str, dict[str, object]]:
         instruments = self._dedupe_instruments(signals)
         if not instruments:
             return {}
-        prices = self.market_history.fetch_quotes(instruments, fallback_to_synthetic=True)
-        if not prices:
+        quote_details = self.market_history.fetch_quote_details(instruments, fallback_to_synthetic=True)
+        if not quote_details:
             logger.warning("No live prices available for current execution preview")
-        return prices
+        return quote_details
+
+    def _load_prices(self, signals: list[Signal]) -> dict[str, float]:
+        return {
+            symbol: float(row["price"])
+            for symbol, row in self._load_quote_details(signals).items()
+            if row.get("price") is not None
+        }
 
     def _available_cash_by_market(self) -> dict[Market, float]:
         if hasattr(self._live_broker, "get_cash_by_market"):
@@ -511,7 +540,12 @@ class TradingCatApplication:
 
     def preview_execution(self, as_of: date) -> dict[str, object]:
         signals = self._execution_signals_with_fallback(as_of)
-        prices = self._load_prices(signals)
+        quote_details = self._load_quote_details(signals)
+        prices = {
+            symbol: float(row["price"])
+            for symbol, row in quote_details.items()
+            if row.get("price") is not None
+        }
         snapshot = self.portfolio.current_snapshot()
         intents = self.risk.check(
             signals,
@@ -531,6 +565,13 @@ class TradingCatApplication:
             "intent_count": len(intents),
             "manual_count": manual_count,
             "prices": prices,
+            "quote_quality": quote_details,
+            "synthetic_quote_symbols": [
+                symbol
+                for symbol, row in quote_details.items()
+                if str(row.get("quality", "")).lower() in {"synthetic", "degraded", "fallback"}
+                or str(row.get("source", "")).lower() == "synthetic"
+            ],
             "order_intents": intents,
         }
 
@@ -540,7 +581,16 @@ class TradingCatApplication:
             return gate
         preview = self.preview_execution(as_of)
         intents = list(preview["order_intents"])
-        self.execution.register_expected_prices(intents, dict(preview["prices"]), source="execution_preview_quote")
+        quote_quality = preview.get("quote_quality", {}) if isinstance(preview, dict) else {}
+        expected_prices = {
+            symbol: {
+                "price": price,
+                "source": (quote_quality.get(symbol, {}) if isinstance(quote_quality, dict) else {}).get("source", "execution_preview_quote"),
+                "quality": (quote_quality.get(symbol, {}) if isinstance(quote_quality, dict) else {}).get("quality", "unknown"),
+            }
+            for symbol, price in dict(preview["prices"]).items()
+        }
+        self.execution.register_expected_prices(intents, expected_prices, source="execution_preview_quote")
         submitted = []
         failed = []
         approval_count = 0
@@ -698,6 +748,7 @@ class TradingCatApplication:
             str(symbol): float(price)
             for symbol, price in dict(preview.get("prices", {})).items()
         }
+        quote_quality = dict(preview.get("quote_quality", {}) or {})
         items: list[dict[str, object]] = []
         for intent in preview.get("order_intents", []):
             if not isinstance(intent, OrderIntent):
@@ -716,6 +767,8 @@ class TradingCatApplication:
                     "quantity": intent.quantity,
                     "target_weight": signal.target_weight if signal is not None else None,
                     "reference_price": prices.get(intent.instrument.symbol),
+                    "reference_source": dict(quote_quality.get(intent.instrument.symbol, {}) or {}).get("source"),
+                    "reference_quality": dict(quote_quality.get(intent.instrument.symbol, {}) or {}).get("quality"),
                     "requires_approval": intent.requires_approval,
                     "reason": intent.notes or (signal.reason if signal is not None else None),
                 }
@@ -1306,6 +1359,9 @@ class TradingCatApplication:
     def dashboard_summary(self, as_of: date | None = None) -> dict[str, object]:
         return self.dashboard_facade.build_summary(as_of).model_dump(mode="json")
 
+    def trading_day_snapshot(self, as_of: date | None = None) -> dict[str, object]:
+        return self.trading_day_workflow.snapshot(as_of)
+
     def submit_manual_order(
         self,
         *,
@@ -1331,8 +1387,31 @@ class TradingCatApplication:
             None,
         )
         if instrument is None:
-            instrument = Instrument(symbol=normalized_symbol, market=requested_market, asset_class=AssetClass.STOCK)
-        price = self.market_history.fetch_quotes([instrument], fallback_to_synthetic=True).get(instrument.symbol)
+            raise ValueError(
+                f"Instrument {requested_market.value}:{normalized_symbol} is not in the persisted instrument catalog"
+            )
+        if not instrument.enabled:
+            raise ValueError(f"Instrument {requested_market.value}:{normalized_symbol} is disabled")
+        if not instrument.tradable:
+            raise ValueError(f"Instrument {requested_market.value}:{normalized_symbol} is not tradable")
+        quote_permission = str(instrument.quote_permission or "").strip().lower()
+        if quote_permission in {"missing", "none", "denied", "restricted", "no_quote", "unavailable"}:
+            raise ValueError(f"Quote permission blocks manual order for {requested_market.value}:{normalized_symbol}")
+        if instrument.market in {Market.HK, Market.CN}:
+            lot_size = instrument.lot_size if instrument.lot_size > 0 else 100.0
+            if quantity % lot_size:
+                raise ValueError(
+                    f"Quantity for {requested_market.value}:{normalized_symbol} must be a multiple of catalog lot size {lot_size:g}"
+                )
+        reference_source = "market_quote"
+        reference_quality = "real"
+        quote_details = self.market_history.fetch_quote_details([instrument], fallback_to_synthetic=True)
+        quote_row = quote_details.get(instrument.symbol, {})
+        price = quote_row.get("price")
+        if price is not None and float(price) > 0:
+            price = float(price)
+            reference_source = str(quote_row.get("source") or reference_source)
+            reference_quality = str(quote_row.get("quality") or reference_quality)
         if price is None or price <= 0:
             fallback_signal = Signal(
                 strategy_id="manual_trader",
@@ -1342,6 +1421,8 @@ class TradingCatApplication:
                 target_weight=0.0,
             )
             price = self.risk.fallback_reference_price(fallback_signal)
+            reference_source = "risk_fallback_reference"
+            reference_quality = "synthetic"
         implicit_weight = (quantity * price) / snapshot.nav if snapshot.nav > 0 else 0.0
         signal = Signal(
             strategy_id="manual_trader",
@@ -1375,7 +1456,16 @@ class TradingCatApplication:
             algo=algo,
             notes=emotional_tag,
         )
-        self.execution.register_expected_prices([intent], {instrument.symbol: price}, source="manual_order_reference")
+        self.execution.register_expected_prices(
+            [intent],
+            {
+                instrument.symbol: {
+                    "price": price,
+                    "source": f"manual_order_reference:{reference_source}",
+                    "quality": reference_quality,
+                }
+            },
+        )
         report = self.execution.submit(intent)
         report = self.execution.update_order_report(intent.id, emotional_tag=emotional_tag)
         authorization_context = self.execution.resolve_authorization_context(intent.id)
@@ -1395,6 +1485,8 @@ class TradingCatApplication:
                     "emotional_tag": emotional_tag,
                     "requires_approval": requires_approval,
                     "strategy": algo_strategy or "DIRECT",
+                    "reference_source": reference_source,
+                    "reference_quality": reference_quality,
                 },
             ),
         )

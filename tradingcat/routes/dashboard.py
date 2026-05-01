@@ -28,6 +28,28 @@ def dashboard_summary(request: Request, as_of: date | None = None):
     return get_app_state(request).dashboard_summary(as_of)
 
 
+@router.get("/today", response_class=HTMLResponse)
+def dashboard_today_page(request: Request):
+    return render_template(request, "dashboard_today.html")
+
+
+@router.get("/today/data")
+def dashboard_today_data(request: Request, as_of: date | None = None):
+    return get_app_state(request).trading_day_snapshot(as_of)
+
+
+@router.get("/intraday/data")
+def dashboard_intraday_data(request: Request, as_of: date | None = None):
+    snapshot = get_app_state(request).trading_day_snapshot(as_of)
+    return {
+        "as_of": snapshot.get("as_of"),
+        "generated_at": snapshot.get("generated_at"),
+        "markets": snapshot.get("markets", []),
+        "intraday": snapshot.get("intraday", {}),
+        "provenance": snapshot.get("provenance", []),
+    }
+
+
 @router.get("/strategies/{strategy_id}", response_class=HTMLResponse)
 def dashboard_strategy_page(request: Request, strategy_id: str):
     get_app_state(request).strategy_by_id(strategy_id)
@@ -156,6 +178,7 @@ def review_data(request: Request, as_of: date | None = None, market: str = Query
         "market": target_market.value,
         "plan": plan_dict,
         "summary": summary_dict,
+        "structured_report": result.structured_report,
         "deviations": result.deviations,
         "unresolved_insight_count": result.unresolved_insight_count,
         "ai_journal_text": ai_content,

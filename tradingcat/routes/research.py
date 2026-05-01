@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, Query
 
 from tradingcat.api.schemas import AssetCorrelationPayload, ResearchNewsSummaryPayload
 from tradingcat.api.view_models import MarketAwarenessResponse, ResearchReportResponse, ResearchScorecardResponse, StrategyDetailResponse
+from tradingcat.domain.models import Market
 from tradingcat.routes.common import get_app_state
 
 
@@ -82,6 +83,48 @@ def research_recommendations_run(request: Request, as_of: date | None = None):
 def research_market_awareness(request: Request, as_of: date | None = None):
     app = get_app_state(request)
     return app.research_facade.market_awareness(as_of or date.today())
+
+
+@router.get("/market-state")
+def research_market_state(
+    request: Request,
+    market: str = Query("CN"),
+    as_of: date | None = None,
+    include_ai: bool = False,
+):
+    app = get_app_state(request)
+    return app.research_facade.market_state(
+        market=Market(market),
+        as_of=as_of,
+        include_ai=include_ai,
+    )
+
+
+@router.post("/market-state/run")
+def research_market_state_run(
+    request: Request,
+    market: str = Query("CN"),
+    as_of: date | None = None,
+    session_tag: str | None = None,
+    include_ai: bool = False,
+):
+    app = get_app_state(request)
+    return app.research_facade.run_market_state(
+        market=Market(market),
+        as_of=as_of or date.today(),
+        session_tag=session_tag,
+        include_ai=include_ai,
+    )
+
+
+@router.get("/market-state/timeline")
+def research_market_state_timeline(
+    request: Request,
+    market: str = Query("CN"),
+    session_date: date | None = None,
+):
+    app = get_app_state(request)
+    return app.research_facade.market_state_timeline(market=Market(market), session_date=session_date)
 
 
 @router.post("/ideas/run")

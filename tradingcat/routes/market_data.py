@@ -62,6 +62,15 @@ def data_instruments_upsert(request: Request, payload: InstrumentCatalogPayload)
             liquidity_bucket=item.liquidity_bucket,
             avg_daily_dollar_volume_m=item.avg_daily_dollar_volume_m,
             tags=item.tags,
+            exchange=item.exchange,
+            sector=item.sector,
+            industry=item.industry,
+            data_source=item.data_source,
+            quote_permission=item.quote_permission,
+            st_status=item.st_status,
+            limit_up=item.limit_up,
+            limit_down=item.limit_down,
+            suspended=item.suspended,
         )
         for item in payload.instruments
     ]
@@ -153,6 +162,10 @@ def data_fx_rates(request: Request, base_currency: str, quote_currency: str, sta
         "status": report.get("status", "unknown"),
         "rate_count": report.get("rate_count", 0),
         "missing_quote_currencies": summary.get("missing_quote_currencies", []),
+        "degraded_quote_currencies": summary.get("degraded_quote_currencies", []),
+        "sources": report.get("sources", []),
+        "qualities": report.get("qualities", []),
+        "synthetic": report.get("synthetic", False),
         "blockers": summary.get("blockers", []),
         "rates": app.market_history.get_fx_rates(base_currency, quote_currency, start, end),
     }

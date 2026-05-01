@@ -42,6 +42,7 @@ class DailyLogReviewResult:
     unresolved_insight_count: int = 0
     deviations: list[str] = field(default_factory=list)
     parameter_hints: list[str] = field(default_factory=list)
+    structured_report: dict[str, object] = field(default_factory=dict)
 
 
 class DailyLogService:
@@ -64,6 +65,11 @@ class DailyLogService:
         data_dir: str | Path = "data",
         plan_factory: Callable[[date], DailyTradingPlanNote] | None = None,
         summary_factory: Callable[[date], DailyTradingSummaryNote] | None = None,
+        orders_reader: Callable[[], list[object]] | None = None,
+        approvals_reader: Callable[[], list[object]] | None = None,
+        intent_context_resolver: Callable[[str], dict[str, object] | None] | None = None,
+        price_context_resolver: Callable[[str], dict[str, object]] | None = None,
+        authorization_context_resolver: Callable[[str], dict[str, object]] | None = None,
     ) -> None:
         self._journal = trading_journal
         self._ai_getter = ai_researcher
@@ -74,6 +80,11 @@ class DailyLogService:
         self._data_dir = Path(data_dir)
         self._plan_factory = plan_factory
         self._summary_factory = summary_factory
+        self._orders_reader = orders_reader
+        self._approvals_reader = approvals_reader
+        self._intent_context_resolver = intent_context_resolver
+        self._price_context_resolver = price_context_resolver
+        self._authorization_context_resolver = authorization_context_resolver
 
     # ── Journal passthrough (TradingJournalService compat) ──────────────────
 
@@ -190,8 +201,21 @@ class DailyLogService:
         if plan and summary:
             deviations = self._compare_plan_to_actual(plan, summary)
 
-        unresolved = self._insight_store_getter().list(include_dismissed=False)
+        insight_store = self._insight_store_getter()
+        unresolved = insight_store.list(include_dismissed=False)
         unresolved_count = len(unresolved)
+        structured_report = self._build_structured_review(
+            plan,
+            as_of=as_of,
+            unresolved_count=unresolved_count,
+            insight_summary=self._insight_summary(insight_store),
+        )
+        structured_deviations = [
+            str(item.get("detail") or item.get("type") or item)
+            for item in structured_report.get("deviations", [])
+            if isinstance(item, dict)
+        ]
+        deviations = list(dict.fromkeys([*deviations, *structured_deviations]))
 
         parameter_hints: list[str] = []
         if unresolved_count > 0:
@@ -200,7 +224,7 @@ class DailyLogService:
         ai_journal = None
         if self._ai_getter().enabled:
             try:
-                daily_data = self._build_journal_data(as_of, plan, summary, unresolved_count, deviations)
+                daily_data = self._build_journal_data(as_of, plan, summary, unresolved_count, deviations, structured_report)
                 ai_journal = self._ai_getter().journal(daily_data=daily_data)
                 self._ai_getter().save_analysis(ai_journal)
             except Exception as exc:
@@ -216,6 +240,7 @@ class DailyLogService:
             unresolved_insight_count=unresolved_count,
             deviations=deviations,
             parameter_hints=parameter_hints,
+            structured_report=structured_report,
         )
 
     # ── Internal helpers ───────────────────────────────────────────────────
@@ -232,6 +257,363 @@ class DailyLogService:
             deviations.append("今日計劃因執行門禁阻塞")
         return deviations
 
+    def _build_structured_review(
+        self,
+        plan: DailyTradingPlanNote | None,
+        *,
+        as_of: date,
+        unresolved_count: int,
+        insight_summary: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        plan_items = list(getattr(plan, "items", []) or [])
+        plan_intent_ids = {
+            str(item.get("intent_id"))
+            for item in plan_items
+            if isinstance(item, dict) and item.get("intent_id")
+        }
+        all_orders = self._orders_reader() if self._orders_reader else []
+        all_approvals = self._approvals_reader() if self._approvals_reader else []
+        orders = [
+            order
+            for order in all_orders
+            if self._review_order_in_scope(order, plan_intent_ids=plan_intent_ids, as_of=as_of)
+        ]
+        approvals = [
+            approval
+            for approval in all_approvals
+            if self._review_approval_in_scope(approval, plan_intent_ids=plan_intent_ids, as_of=as_of)
+        ]
+        orders_by_intent = {
+            str(getattr(order, "order_intent_id", "")): order
+            for order in orders
+            if getattr(order, "order_intent_id", "")
+        }
+        approvals_by_intent = {
+            str(getattr(getattr(approval, "order_intent", None), "id", "")): approval
+            for approval in approvals
+            if getattr(getattr(approval, "order_intent", None), "id", "")
+        }
+
+        rows: list[dict[str, object]] = []
+        unexecuted: list[dict[str, object]] = []
+        tca_samples: list[dict[str, object]] = []
+        deviations: list[dict[str, object]] = []
+        approval_delays: list[dict[str, object]] = []
+        fill_latencies: list[float] = []
+
+        for item in plan_items:
+            if not isinstance(item, dict):
+                continue
+            intent_id = str(item.get("intent_id") or "")
+            order = orders_by_intent.get(intent_id)
+            approval = approvals_by_intent.get(intent_id)
+            price_context = self._resolve_price_context(intent_id)
+            authorization_context = self._resolve_authorization_context(intent_id)
+            order_row = self._serialize_order(order)
+            if order_row is not None:
+                order_row = self._enrich_order_from_plan_item(order_row, item)
+            approval_row = self._serialize_approval(approval)
+            tca = self._build_tca_sample(item, order_row, price_context)
+            if tca:
+                tca_samples.append(tca)
+            latency = self._fill_latency_seconds(order_row, approval_row)
+            if latency is not None:
+                fill_latencies.append(latency)
+            row = {
+                "plan_item": item,
+                "order": order_row,
+                "approval": approval_row,
+                "authorization": authorization_context,
+                "tca": tca,
+                "reference": price_context,
+            }
+            rows.append(row)
+            if not intent_id:
+                deviations.append({"type": "plan_item_missing_intent", "detail": f"{item.get('symbol', 'unknown')} 缺少 intent_id"})
+                continue
+            if order is None:
+                unexecuted.append(item)
+                deviations.append({"type": "unexecuted_plan_item", "detail": f"{item.get('symbol', intent_id)} 计划条目未找到订单记录"})
+            elif order_row.get("status") not in {"filled", "partially_filled"}:
+                deviations.append({"type": "order_not_filled", "detail": f"{item.get('symbol', intent_id)} 订单状态为 {order_row.get('status')}"})
+            if approval_row and approval_row.get("status") in {"pending", "rejected", "expired"}:
+                deviations.append({"type": "approval_not_completed", "detail": f"{item.get('symbol', intent_id)} 审批状态为 {approval_row.get('status')}"})
+            if approval_row and approval_row.get("decision_latency_minutes") is not None:
+                approval_delays.append({
+                    "intent_id": intent_id,
+                    "symbol": item.get("symbol"),
+                    "decision_latency_minutes": approval_row["decision_latency_minutes"],
+                    "status": approval_row.get("status"),
+                })
+            if self._is_degraded_reference(price_context):
+                deviations.append({"type": "synthetic_reference", "detail": f"{item.get('symbol', intent_id)} 使用 synthetic/degraded reference"})
+
+        extra_orders = [
+            self._serialize_order(order)
+            for order in orders
+            if str(getattr(order, "order_intent_id", "")) not in plan_intent_ids
+        ]
+        for order in extra_orders:
+            deviations.append({"type": "extra_order", "detail": f"{order.get('symbol') or order.get('order_intent_id')} 不在计划条目中"})
+        if unresolved_count:
+            deviations.append({"type": "unhandled_insights", "detail": f"{unresolved_count} 条洞察未处理"})
+        filled_count = sum(1 for row in rows if (row.get("order") or {}).get("status") in {"filled", "partially_filled"})
+        matched_count = sum(1 for row in rows if row.get("order"))
+        tca_values = [float(row["deviation_value"]) for row in tca_samples if row.get("deviation_value") is not None]
+
+        return {
+            "scope": {
+                "as_of": as_of.isoformat(),
+                "account": getattr(plan, "account", None),
+                "included_order_count": len(orders),
+                "excluded_order_count": max(0, len(all_orders) - len(orders)),
+                "included_approval_count": len(approvals),
+                "excluded_approval_count": max(0, len(all_approvals) - len(approvals)),
+            },
+            "plan_item_count": len(plan_items),
+            "order_count": len(orders),
+            "matched_count": matched_count,
+            "filled_count": filled_count,
+            "fill_rate": round(filled_count / len(plan_items), 4) if plan_items else 0.0,
+            "avg_time_to_fill_seconds": round(sum(fill_latencies) / len(fill_latencies), 2) if fill_latencies else None,
+            "plan_vs_actual": {
+                "planned_items": len(plan_items),
+                "matched_orders": matched_count,
+                "filled_orders": filled_count,
+                "unexecuted_items": len(unexecuted),
+                "extra_orders": len(extra_orders),
+                "approval_delay_count": len(approval_delays),
+            },
+            "items": rows,
+            "unexecuted_plan_items": unexecuted,
+            "extra_orders": extra_orders,
+            "approval_delays": approval_delays,
+            "tca_samples": tca_samples,
+            "tca_summary": {
+                "sample_count": len(tca_samples),
+                "avg_slippage_bps": round(sum(tca_values) / len(tca_values), 2) if tca_values else None,
+                "max_abs_slippage_bps": round(max((abs(value) for value in tca_values), default=0.0), 2) if tca_values else None,
+            },
+            "deviations": deviations,
+            "unresolved_insight_count": unresolved_count,
+            "insight_summary": insight_summary or {"unresolved": unresolved_count},
+            "ai_role": "AI narrative may summarize only these structured facts; it must not create facts or trading recommendations.",
+        }
+
+    def _insight_summary(self, insight_store: object) -> dict[str, object]:
+        try:
+            insights = insight_store.list(include_dismissed=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("review: insight summary unavailable (%s)", exc)
+            return {}
+        counts: dict[str, int] = {}
+        for insight in insights:
+            action = getattr(getattr(insight, "user_action", None), "value", getattr(insight, "user_action", None))
+            label = str(action or "unknown")
+            counts[label] = counts.get(label, 0) + 1
+        return {
+            "total": len(insights),
+            "by_user_action": counts,
+            "unresolved": counts.get("pending", 0),
+            "dismissed": counts.get("dismissed", 0),
+            "acknowledged": counts.get("acknowledged", 0),
+        }
+
+    @staticmethod
+    def _review_order_in_scope(order: object, *, plan_intent_ids: set[str], as_of: date) -> bool:
+        intent_id = str(getattr(order, "order_intent_id", "") or "")
+        if intent_id and intent_id in plan_intent_ids:
+            return True
+        return DailyLogService._same_day(getattr(order, "timestamp", None), as_of)
+
+    @staticmethod
+    def _review_approval_in_scope(approval: object, *, plan_intent_ids: set[str], as_of: date) -> bool:
+        intent_id = str(getattr(getattr(approval, "order_intent", None), "id", "") or "")
+        if intent_id and intent_id in plan_intent_ids:
+            return True
+        return any(
+            DailyLogService._same_day(getattr(approval, attr, None), as_of)
+            for attr in ("created_at", "decided_at", "expires_at")
+        )
+
+    @staticmethod
+    def _same_day(value: object, target: date) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, datetime):
+            return value.date() == target
+        if isinstance(value, date):
+            return value == target
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).date() == target
+            except ValueError:
+                try:
+                    return date.fromisoformat(value) == target
+                except ValueError:
+                    return False
+        return False
+
+    def _resolve_price_context(self, intent_id: str) -> dict[str, object]:
+        if not intent_id or self._price_context_resolver is None:
+            return {}
+        try:
+            return dict(self._price_context_resolver(intent_id) or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("review: price context unavailable for %s (%s)", intent_id, exc)
+            return {"error": str(exc)}
+
+    def _resolve_authorization_context(self, intent_id: str) -> dict[str, object]:
+        if not intent_id or self._authorization_context_resolver is None:
+            return {}
+        try:
+            return dict(self._authorization_context_resolver(intent_id) or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("review: authorization context unavailable for %s (%s)", intent_id, exc)
+            return {"error": str(exc)}
+
+    def _resolve_intent_context(self, intent_id: str) -> dict[str, object]:
+        if not intent_id or self._intent_context_resolver is None:
+            return {}
+        try:
+            return dict(self._intent_context_resolver(intent_id) or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("review: intent context unavailable for %s (%s)", intent_id, exc)
+            return {"error": str(exc)}
+
+    def _serialize_order(self, order: object | None) -> dict[str, object] | None:
+        if order is None:
+            return None
+        intent_id = str(getattr(order, "order_intent_id", "") or "")
+        intent_context = self._resolve_intent_context(intent_id)
+        authorization_context = self._resolve_authorization_context(intent_id)
+        raw_status = getattr(order, "status", None)
+        return {
+            "id": getattr(order, "id", None),
+            "order_intent_id": getattr(order, "order_intent_id", None),
+            "broker_order_id": getattr(order, "broker_order_id", None),
+            "fill_id": getattr(order, "fill_id", None),
+            "status": getattr(raw_status, "value", raw_status),
+            "filled_quantity": getattr(order, "filled_quantity", 0.0),
+            "average_price": getattr(order, "average_price", None),
+            "symbol": intent_context.get("symbol"),
+            "market": intent_context.get("market") or getattr(getattr(order, "market", None), "value", getattr(order, "market", None)),
+            "asset_class": intent_context.get("asset_class"),
+            "currency": intent_context.get("currency"),
+            "side": intent_context.get("side"),
+            "strategy_id": intent_context.get("strategy_id"),
+            "message": getattr(order, "message", None),
+            "timestamp": getattr(order, "timestamp", None),
+            "slippage": getattr(order, "slippage", None),
+            "fill_source": self._fill_source(order, authorization_context),
+        }
+
+    @staticmethod
+    def _enrich_order_from_plan_item(order: dict[str, object], plan_item: dict[str, object]) -> dict[str, object]:
+        enriched = dict(order)
+        for key in ("symbol", "market", "side", "strategy_id"):
+            if not enriched.get(key) and plan_item.get(key):
+                enriched[key] = plan_item.get(key)
+        return enriched
+
+    @staticmethod
+    def _fill_source(order: object, authorization_context: dict[str, object]) -> str | None:
+        external_source = authorization_context.get("external_source")
+        if external_source:
+            return str(external_source)
+        fill_id = str(getattr(order, "fill_id", "") or "")
+        broker_order_id = str(getattr(order, "broker_order_id", "") or "")
+        if fill_id.startswith("manual-") or broker_order_id.startswith("manual-"):
+            return "manual"
+        if broker_order_id:
+            return "broker"
+        raw_status = getattr(order, "status", None)
+        status = str(getattr(raw_status, "value", raw_status) or "")
+        if status in {"filled", "partially_filled"}:
+            return "recorded"
+        return None
+
+    @staticmethod
+    def _serialize_approval(approval: object | None) -> dict[str, object] | None:
+        if approval is None:
+            return None
+        created_at = getattr(approval, "created_at", None)
+        decided_at = getattr(approval, "decided_at", None)
+        latency = None
+        if created_at is not None and decided_at is not None:
+            latency = round((decided_at - created_at).total_seconds() / 60.0, 2)
+        raw_status = getattr(approval, "status", None)
+        return {
+            "id": getattr(approval, "id", None),
+            "intent_id": getattr(getattr(approval, "order_intent", None), "id", None),
+            "status": getattr(raw_status, "value", raw_status),
+            "created_at": created_at,
+            "decided_at": decided_at,
+            "decision_latency_minutes": latency,
+            "decision_reason": getattr(approval, "decision_reason", None),
+            "expires_at": getattr(approval, "expires_at", None),
+        }
+
+    @staticmethod
+    def _build_tca_sample(
+        plan_item: dict[str, object],
+        order: dict[str, object] | None,
+        price_context: dict[str, object],
+    ) -> dict[str, object] | None:
+        if not order:
+            return None
+        reference_price = price_context.get("reference_price") or price_context.get("expected_price") or plan_item.get("reference_price")
+        average_price = order.get("average_price")
+        if reference_price in (None, 0) or average_price in (None, 0):
+            return None
+        ref = float(reference_price)
+        avg = float(average_price)
+        side = str(plan_item.get("side") or "").lower()
+        signed_ratio = (avg - ref) / ref if side != "sell" else (ref - avg) / ref
+        return {
+            "intent_id": order.get("order_intent_id"),
+            "symbol": plan_item.get("symbol"),
+            "side": side or None,
+            "reference_price": ref,
+            "average_price": avg,
+            "deviation_metric": "slippage_bps",
+            "deviation_value": round(signed_ratio * 10_000, 2),
+            "recorded_slippage": order.get("slippage"),
+            "reference_source": price_context.get("reference_source") or price_context.get("source"),
+            "reference_quality": price_context.get("reference_quality") or price_context.get("quality"),
+        }
+
+    @staticmethod
+    def _fill_latency_seconds(order: dict[str, object] | None, approval: dict[str, object] | None) -> float | None:
+        if not order or order.get("status") not in {"filled", "partially_filled"}:
+            return None
+        order_time = DailyLogService._coerce_datetime(order.get("timestamp"))
+        if order_time is None:
+            return None
+        approval_time = None
+        if approval:
+            approval_time = DailyLogService._coerce_datetime(approval.get("decided_at")) or DailyLogService._coerce_datetime(approval.get("created_at"))
+        if approval_time is None:
+            return None
+        return max(0.0, (order_time - approval_time).total_seconds())
+
+    @staticmethod
+    def _coerce_datetime(value: object) -> datetime | None:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _is_degraded_reference(price_context: dict[str, object]) -> bool:
+        quality = str(price_context.get("reference_quality") or price_context.get("quality") or "").lower()
+        source = str(price_context.get("reference_source") or price_context.get("source") or "").lower()
+        return any(token in quality for token in ("synthetic", "degraded")) or any(token in source for token in ("synthetic", "fallback"))
+
     @staticmethod
     def _build_journal_data(
         as_of: date,
@@ -239,6 +621,7 @@ class DailyLogService:
         summary: DailyTradingSummaryNote | None,
         unresolved_count: int,
         deviations: list[str],
+        structured_report: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return {
             "as_of": str(as_of),
@@ -247,6 +630,7 @@ class DailyLogService:
             "summary_headline": summary.headline if summary else "N/A",
             "unresolved_insight_count": unresolved_count,
             "deviations": deviations,
+            "structured_report": structured_report or {},
         }
 
     # ── Fallback content (when AI is unavailable) ─────────────────────────

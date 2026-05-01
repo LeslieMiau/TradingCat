@@ -68,7 +68,7 @@
       button.disabled = true;
       button.textContent = "刷新中...";
     }
-    apiFetch(API.researchMarketStateRun(MarketState.market, false), { method: "POST", body: {} })
+    apiFetch(API.researchMarketStateRun(MarketState.market, false), { method: "POST" })
       .then((resp) => {
         if (!resp.ok) throw new Error(resp.error || "刷新失败");
         showToast("市场结构快照已刷新");

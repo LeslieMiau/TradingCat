@@ -39,6 +39,15 @@ class InstrumentPayload(BaseModel):
     liquidity_bucket: str = "medium"
     avg_daily_dollar_volume_m: float | None = None
     tags: list[str] = Field(default_factory=list)
+    exchange: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    data_source: str | None = None
+    quote_permission: str | None = None
+    st_status: str | None = None
+    limit_up: float | None = None
+    limit_down: float | None = None
+    suspended: bool = False
 
 
 class InstrumentCatalogPayload(BaseModel):

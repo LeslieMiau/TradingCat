@@ -217,6 +217,7 @@ registerCommand("A股账户", "切换到A股视图", () => { state.activeAccount
 registerCommand("港股账户", "切换到港股视图", () => { state.activeAccount = "HK"; renderDashboard(); }, "账户");
 registerCommand("美股账户", "切换到美股视图", () => { state.activeAccount = "US"; renderDashboard(); }, "账户");
 registerCommand("日报", "打开日报页面", () => { window.location.href = "/dashboard/journal"; }, "导航");
+registerCommand("今日", "打开今日工作台", () => { window.location.href = "/dashboard/today"; }, "导航");
 registerCommand("研究", "打开研究页面", () => { window.location.href = "/dashboard/research"; }, "导航");
 registerCommand("运营", "打开运营页面", () => { window.location.href = "/dashboard/operations"; }, "导航");
 registerCommand("极速下单", "打开快速下单面板（Ctrl+B）", () => showQuickTradeModal(), "交易");
@@ -243,7 +244,6 @@ const CYCLE_BUTTONS = [
   ["cycle-run-briefing", "pre_market_briefing", "盘前简报"],
   ["cycle-run-scan", "intraday_insight_scan", "洞察扫描"],
   ["cycle-run-reflection", "post_market_reflection", "盘后回顾"],
-  ["cycle-run-iteration", "self_iteration_weekly", "自我迭代"],
 ];
 CYCLE_BUTTONS.forEach(([btnId, jobId, label]) => {
   document.getElementById(btnId)?.addEventListener("click", () => {

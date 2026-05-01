@@ -1,6 +1,8 @@
 const API = {
   /* ── Dashboard & Portfolio ── */
   dashboardSummary: "/dashboard/summary",
+  dashboardTodayData: (asOf) => asOf ? `/dashboard/today/data?as_of=${encodeURIComponent(asOf)}` : "/dashboard/today/data",
+  dashboardIntradayData: (asOf) => asOf ? `/dashboard/intraday/data?as_of=${encodeURIComponent(asOf)}` : "/dashboard/intraday/data",
   portfolioRebalancePlan: "/portfolio/rebalance-plan",
   portfolioReconcile: "/portfolio/reconcile",
 
@@ -51,6 +53,22 @@ const API = {
   researchCandidatesScorecard: "/research/candidates/scorecard",
   researchCorrelation: "/research/correlation",
   researchMarketAwareness: "/research/market-awareness",
+  researchMarketState: (market = "CN", includeAi = false, asOf = null) => {
+    const params = new URLSearchParams({ market, include_ai: String(includeAi) });
+    if (asOf) params.set("as_of", asOf);
+    return `/research/market-state?${params.toString()}`;
+  },
+  researchMarketStateRun: (market = "CN", includeAi = false, asOf = null, sessionTag = null) => {
+    const params = new URLSearchParams({ market, include_ai: String(includeAi) });
+    if (asOf) params.set("as_of", asOf);
+    if (sessionTag) params.set("session_tag", sessionTag);
+    return `/research/market-state/run?${params.toString()}`;
+  },
+  researchMarketStateTimeline: (market = "CN", sessionDate = null) => {
+    const params = new URLSearchParams({ market });
+    if (sessionDate) params.set("session_date", sessionDate);
+    return `/research/market-state/timeline?${params.toString()}`;
+  },
   researchAlphaRadar: (count = 15) => `/research/alpha-radar?count=${encodeURIComponent(count)}`,
   researchMacroCalendar: (days = 7) => `/research/macro-calendar?days=${encodeURIComponent(days)}`,
 

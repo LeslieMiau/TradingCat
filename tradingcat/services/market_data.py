@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 import math
 
 from tradingcat.adapters.base import MarketDataAdapter
@@ -162,6 +162,50 @@ class MarketDataService:
         synthetic_quotes = self._synthetic_adapter.fetch_quotes(missing)
         return {**synthetic_quotes, **quotes}
 
+    def fetch_quote_details(
+        self,
+        instruments_or_symbols: list[Instrument] | list[str],
+        *,
+        fallback_to_synthetic: bool = False,
+    ) -> dict[str, dict[str, object]]:
+        instruments = self._resolve_instruments(instruments_or_symbols)
+        if not instruments:
+            return {}
+        try:
+            quotes = self._adapter.fetch_quotes(instruments)
+        except Exception:
+            logger.exception("Failed to fetch quote details", extra={"symbols": [instrument.symbol for instrument in instruments]})
+            quotes = {}
+        adapter_source, adapter_quality = self._quote_adapter_provenance()
+        details = {
+            instrument.symbol: self._quote_detail(
+                instrument,
+                price=float(quotes[instrument.symbol]),
+                source=adapter_source,
+                quality=adapter_quality,
+            )
+            for instrument in instruments
+            if instrument.symbol in quotes and quotes[instrument.symbol] > 0
+        }
+        missing = [instrument for instrument in instruments if instrument.symbol not in details]
+        if fallback_to_synthetic and missing:
+            synthetic_quotes = self._synthetic_adapter.fetch_quotes(missing)
+            details.update(
+                {
+                    instrument.symbol: {
+                        "price": float(synthetic_quotes[instrument.symbol]),
+                        "source": "synthetic",
+                        "quality": "synthetic",
+                        "provider": "StaticMarketDataAdapter",
+                        "fetched_at": datetime.now(UTC).isoformat(),
+                        "quote_permission": instrument.quote_permission,
+                    }
+                    for instrument in missing
+                    if instrument.symbol in synthetic_quotes and synthetic_quotes[instrument.symbol] > 0
+                }
+            )
+        return details
+
     async def fetch_quotes_async(self, instruments_or_symbols: list[Instrument] | list[str]) -> dict[str, float]:
         return await asyncio.to_thread(self.fetch_quotes, instruments_or_symbols)
 
@@ -177,7 +221,8 @@ class MarketDataService:
     def fetch_bars(self, symbol: str, start: date, end: date) -> list[Bar]:
         instrument = self._resolve_instrument(symbol)
         try:
-            return self._adapter.fetch_bars(instrument, start, end)
+            source, quality = self._history_adapter_provenance()
+            return self._tag_bars(self._adapter.fetch_bars(instrument, start, end), source=source, quality=quality)
         except Exception:
             logger.exception(
                 "Failed to fetch bars",
@@ -206,7 +251,8 @@ class MarketDataService:
 
         for instrument in targets:
             try:
-                bars = self._adapter.fetch_bars(instrument, start_date, end_date)
+                source, quality = self._history_adapter_provenance()
+                bars = self._tag_bars(self._adapter.fetch_bars(instrument, start_date, end_date), source=source, quality=quality)
                 self._history.save_bars(instrument, bars)
                 actions = self._adapter.fetch_corporate_actions(instrument, start_date, end_date) if include_corporate_actions else []
                 if include_corporate_actions:
@@ -217,6 +263,9 @@ class MarketDataService:
                         "market": instrument.market,
                         "bar_count": len(bars),
                         "corporate_action_count": len(actions),
+                        "source": source,
+                        "quality": quality,
+                        "degraded": any(self._is_degraded_bar(bar) for bar in bars),
                     }
                 )
             except Exception as exc:
@@ -261,6 +310,7 @@ class MarketDataService:
         }
 
         reports: list[dict[str, object]] = []
+        degraded_symbols: list[str] = []
         for instrument in targets:
             bars = self._history.load_bars(instrument, start_date, end_date)
             available_dates = sorted({bar.timestamp.date().isoformat() for bar in bars})
@@ -272,10 +322,16 @@ class MarketDataService:
                 if expected_dates_for_instrument
                 else 1.0
             )
+            sources = sorted({bar.source or "unknown" for bar in bars})
+            qualities = sorted({bar.quality or "unknown" for bar in bars})
+            degraded = any(self._is_degraded_bar(bar) for bar in bars)
+            if degraded:
+                degraded_symbols.append(instrument.symbol)
             reports.append(
                 {
                     "symbol": instrument.symbol,
                     "market": instrument.market,
+                    "status": "synthetic" if degraded else ("available" if available_dates else "missing"),
                     "bar_count": len(available_dates),
                     "expected_count": len(expected_dates_for_instrument),
                     "coverage_ratio": coverage_ratio,
@@ -283,6 +339,10 @@ class MarketDataService:
                     "missing_preview": missing_dates[:10],
                     "first_bar_date": available_dates[0] if available_dates else None,
                     "last_bar_date": available_dates[-1] if available_dates else None,
+                    "sources": sources,
+                    "qualities": qualities,
+                    "synthetic": any(source == "synthetic" for source in sources) or "synthetic" in qualities,
+                    "degraded": degraded,
                 }
             )
 
@@ -308,6 +368,7 @@ class MarketDataService:
         blockers = self._coverage_blockers(
             minimum_coverage_ratio=minimum_coverage_ratio,
             missing_symbols=missing_symbols,
+            degraded_symbols=degraded_symbols,
             start_date=start_date,
             end_date=end_date,
         )
@@ -320,6 +381,7 @@ class MarketDataService:
             "minimum_coverage_ratio": minimum_coverage_ratio,
             "minimum_required_ratio": self._COVERAGE_THRESHOLD,
             "missing_symbols": missing_symbols,
+            "degraded_symbols": sorted(dict.fromkeys(degraded_symbols)),
             "missing_windows": missing_windows,
             "blocked": bool(blockers),
             "blocker_count": len(blockers),
@@ -371,16 +433,25 @@ class MarketDataService:
         *,
         minimum_coverage_ratio: float,
         missing_symbols: list[str],
+        degraded_symbols: list[str] | None = None,
         start_date: date,
         end_date: date,
     ) -> list[str]:
-        if not missing_symbols:
-            return []
-        return [
-            f"Minimum history coverage is {minimum_coverage_ratio:.2%}, below the {self._COVERAGE_THRESHOLD:.0%} requirement.",
-            f"Missing history detected for: {', '.join(missing_symbols[:5])}.",
-            f"Run POST /data/history/sync for the affected symbols between {start_date.isoformat()} and {end_date.isoformat()}, then recheck GET /data/history/coverage.",
-        ]
+        blockers: list[str] = []
+        if missing_symbols:
+            blockers.extend(
+                [
+                    f"Minimum history coverage is {minimum_coverage_ratio:.2%}, below the {self._COVERAGE_THRESHOLD:.0%} requirement.",
+                    f"Missing history detected for: {', '.join(missing_symbols[:5])}.",
+                    f"Run POST /data/history/sync for the affected symbols between {start_date.isoformat()} and {end_date.isoformat()}, then recheck GET /data/history/coverage.",
+                ]
+            )
+        if degraded_symbols:
+            blockers.append(
+                "History coverage uses synthetic/degraded bars for "
+                f"{', '.join(sorted(dict.fromkeys(degraded_symbols))[:5])}; refresh from a real provider before live readiness."
+            )
+        return blockers
 
     def _repair_recheck(self, before: dict[str, object], after: dict[str, object]) -> dict[str, object]:
         before_reports = {
@@ -392,7 +463,13 @@ class MarketDataService:
             for report in after.get("reports", [])
         }
         improved_symbols = []
-        remaining_symbols = list(after.get("missing_symbols", []))
+        remaining_symbols = sorted(
+            {
+                *[str(symbol) for symbol in after.get("missing_symbols", [])],
+                *[str(symbol) for symbol in after.get("degraded_symbols", [])],
+            }
+        )
+        remaining_degraded_symbols = [str(symbol) for symbol in after.get("degraded_symbols", [])]
         for symbol, after_report in after_reports.items():
             before_report = before_reports.get(symbol, {})
             if int(after_report.get("missing_count", 0)) < int(before_report.get("missing_count", 0)):
@@ -403,6 +480,7 @@ class MarketDataService:
             "improved_count": len(improved_symbols),
             "remaining_symbols": remaining_symbols,
             "remaining_count": len(remaining_symbols),
+            "remaining_degraded_symbols": remaining_degraded_symbols,
             "minimum_coverage_ratio_before": round(float(before.get("minimum_coverage_ratio", 0.0)), 4),
             "minimum_coverage_ratio_after": round(float(after.get("minimum_coverage_ratio", 0.0)), 4),
         }
@@ -426,7 +504,8 @@ class MarketDataService:
         if self._local_history_only_depth > 0 or not fetch_missing:
             return bars
         try:
-            fetched = self._adapter.fetch_bars(instrument, start, end)
+            source, quality = self._history_adapter_provenance()
+            fetched = self._tag_bars(self._adapter.fetch_bars(instrument, start, end), source=source, quality=quality)
         except Exception:
             logger.exception(
                 "Failed to fetch bars for custom instrument",
@@ -548,7 +627,7 @@ class MarketDataService:
         if quote_currencies:
             currencies = [currency.upper() for currency in quote_currencies if currency.upper() != base_currency.upper()]
         collected: list[FxRate] = []
-        source = "synthetic"
+        sources: set[str] = set()
         for quote_currency in currencies:
             adapter_rates: list[FxRate] = []
             if hasattr(self._adapter, "fetch_fx_rates"):
@@ -557,16 +636,20 @@ class MarketDataService:
                 except Exception:
                     logger.exception("Adapter fetch_fx_rates failed for %s/%s, falling back to synthetic", base_currency, quote_currency)
             if adapter_rates:
-                collected.extend(adapter_rates)
-                source = "adapter"
+                tagged_rates = [self._tag_fx_rate(rate, source="adapter", quality="real") for rate in adapter_rates]
+                collected.extend(tagged_rates)
+                sources.update({rate.source for rate in tagged_rates})
             else:
-                collected.extend(self._generate_fx_series(base_currency.upper(), quote_currency, start_date, end_date))
+                generated_rates = self._generate_fx_series(base_currency.upper(), quote_currency, start_date, end_date)
+                collected.extend(generated_rates)
+                sources.update({rate.source for rate in generated_rates})
         self._history.save_fx_rates(collected)
         return {
             "base_currency": base_currency.upper(),
             "quote_currencies": currencies,
             "rate_count": len(collected),
-            "source": source,
+            "source": "mixed" if len(sources) > 1 else next(iter(sources), "unknown"),
+            "sources": sorted(sources),
             "start": start_date,
             "end": end_date,
         }
@@ -603,6 +686,7 @@ class MarketDataService:
         reports: list[dict[str, object]] = []
         available_quote_currencies: list[str] = []
         missing_quote_currencies: list[str] = []
+        degraded_quote_currencies: list[str] = []
 
         for quote_currency in normalized:
             rates = self._history.load_fx_rates(base_currency.upper(), quote_currency, start, end)
@@ -614,11 +698,17 @@ class MarketDataService:
             if rates:
                 rates_by_pair[pair] = rates
                 available_quote_currencies.append(quote_currency)
-                status = "available"
+                if any(self._is_degraded_fx_rate(rate) for rate in rates):
+                    degraded_quote_currencies.append(quote_currency)
+                    status = "synthetic"
+                else:
+                    status = "available"
             else:
                 missing_quote_currencies.append(quote_currency)
                 status = "missing"
 
+            sources = sorted({rate.source for rate in rates if rate.source})
+            qualities = sorted({rate.quality for rate in rates if rate.quality})
             reports.append(
                 {
                     "pair": pair,
@@ -628,17 +718,25 @@ class MarketDataService:
                     "rate_count": len(rates),
                     "first_date": rates[0].date if rates else None,
                     "last_date": rates[-1].date if rates else None,
+                    "sources": sources,
+                    "qualities": qualities,
+                    "synthetic": status == "synthetic",
                 }
             )
 
         blockers = self._fx_blockers(base_currency.upper(), missing_quote_currencies)
+        blockers.extend(
+            f"FX coverage into {base_currency.upper()} uses synthetic/degraded rates for {currency}; refresh from a real provider before live readiness."
+            for currency in degraded_quote_currencies
+        )
         return {
             "base_currency": base_currency.upper(),
             "quote_currencies": normalized,
             "available_quote_currencies": available_quote_currencies,
             "missing_quote_currencies": missing_quote_currencies,
-            "ready": not missing_quote_currencies,
-            "status": "blocked" if missing_quote_currencies else "ready",
+            "degraded_quote_currencies": degraded_quote_currencies,
+            "ready": not missing_quote_currencies and not degraded_quote_currencies,
+            "status": "blocked" if missing_quote_currencies or degraded_quote_currencies else "ready",
             "blocker_count": len(blockers),
             "blockers": blockers,
             "reports": reports,
@@ -668,7 +766,11 @@ class MarketDataService:
             instrument = self._resolve_instrument(symbol, strict=False)
             if instrument is None:
                 continue
-            synthetic[symbol] = self._synthetic_adapter.fetch_bars(instrument, start, end)
+            synthetic[symbol] = self._tag_bars(
+                self._synthetic_adapter.fetch_bars(instrument, start, end),
+                source="synthetic",
+                quality="synthetic",
+            )
         return synthetic
 
     def _load_history(
@@ -797,6 +899,9 @@ class MarketDataService:
                     quote_currency=quote_currency.upper(),
                     date=rate_date,
                     rate=round(close, 6),
+                    source="yfinance",
+                    quality="real",
+                    fetched_at=datetime.now(UTC),
                 ))
             if rates:
                 logger.info("Fetched %d real FX rates for %s from yfinance", len(rates), ticker)
@@ -834,6 +939,9 @@ class MarketDataService:
                     quote_currency=quote_currency.upper(),
                     date=effective_date,
                     rate=rate,
+                    source="synthetic",
+                    quality="synthetic",
+                    fetched_at=datetime.now(UTC),
                 )
             )
             month_index += 1
@@ -892,3 +1000,62 @@ class MarketDataService:
             f"FX coverage into {base_currency} is unavailable for: {joined}.",
             f"Run POST /data/fx/sync for the missing quote currencies against {base_currency}, then recheck GET /data/fx/rates.",
         ]
+
+    def _history_adapter_provenance(self, adapter: MarketDataAdapter | None = None) -> tuple[str, str]:
+        selected = adapter or self._adapter
+        if isinstance(selected, StaticMarketDataAdapter):
+            return "synthetic", "synthetic"
+        name = selected.__class__.__name__
+        source = name.replace("MarketDataAdapter", "").replace("Adapter", "").lower() or "adapter"
+        return source, "real"
+
+    def _quote_adapter_provenance(self) -> tuple[str, str]:
+        return self._history_adapter_provenance(self._adapter)
+
+    @staticmethod
+    def _quote_detail(instrument: Instrument, *, price: float, source: str, quality: str) -> dict[str, object]:
+        permission = str(instrument.quote_permission or "").strip().lower()
+        blocked_permission = permission in {"missing", "none", "denied", "restricted", "no_quote", "unavailable"}
+        return {
+            "price": price,
+            "source": source,
+            "quality": "degraded" if blocked_permission else quality,
+            "provider": source,
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "quote_permission": instrument.quote_permission,
+            "degraded_reason": "quote_permission" if blocked_permission else None,
+        }
+
+    @staticmethod
+    def _tag_bars(bars: list[Bar], *, source: str, quality: str) -> list[Bar]:
+        fetched_at = datetime.now(UTC)
+        tagged: list[Bar] = []
+        for bar in bars:
+            update: dict[str, object] = {}
+            if not bar.source or bar.source == "unknown":
+                update["source"] = source
+            if not bar.quality or bar.quality == "unknown":
+                update["quality"] = quality
+            if bar.fetched_at is None:
+                update["fetched_at"] = fetched_at
+            tagged.append(bar.model_copy(update=update) if update else bar)
+        return tagged
+
+    @staticmethod
+    def _is_degraded_bar(bar: Bar) -> bool:
+        source = (bar.source or "").lower()
+        quality = (bar.quality or "").lower()
+        return source == "synthetic" or quality in {"synthetic", "degraded", "fallback"}
+
+    @staticmethod
+    def _tag_fx_rate(rate: FxRate, *, source: str, quality: str) -> FxRate:
+        update: dict[str, object] = {"fetched_at": rate.fetched_at or datetime.now(UTC)}
+        if rate.source == "unknown":
+            update["source"] = source
+        if rate.quality == "unknown":
+            update["quality"] = quality
+        return rate.model_copy(update=update)
+
+    @staticmethod
+    def _is_degraded_fx_rate(rate: FxRate) -> bool:
+        return rate.source == "synthetic" or rate.quality in {"synthetic", "degraded", "fallback"}

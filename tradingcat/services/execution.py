@@ -4,7 +4,7 @@ import logging
 import threading
 
 from tradingcat.adapters.base import BrokerAdapter
-from tradingcat.domain.models import ExecutionReport, ManualFill, OrderIntent, OrderStatus, PortfolioSnapshot, ReconciliationSummary
+from tradingcat.domain.models import ExecutionReport, ManualFill, Market, OrderIntent, OrderStatus, PortfolioSnapshot, ReconciliationSummary
 from tradingcat.repositories.state import ExecutionStateRepository, OrderRepository
 from tradingcat.services.manual_confirmation import ManualConfirmationService
 from tradingcat.services.order_state_machine import OrderStateMachine
@@ -59,9 +59,11 @@ class ExecutionService:
                 if isinstance(reference_raw, dict):
                     reference_price = reference_raw.get("price", reference_raw.get("reference_price"))
                     reference_source = str(reference_raw.get("source") or source)
+                    reference_quality = str(reference_raw.get("quality") or reference_raw.get("reference_quality") or "unknown")
                 else:
                     reference_price = reference_raw
                     reference_source = source
+                    reference_quality = "unknown"
                 if reference_price is None or reference_price <= 0:
                     continue
                 self._expected_prices[intent.id] = {
@@ -71,6 +73,7 @@ class ExecutionService:
                     "side": intent.side.value,
                     "reference_price": float(reference_price),
                     "reference_source": reference_source,
+                    "reference_quality": reference_quality,
                 }
                 updated = True
             if updated:
@@ -78,6 +81,12 @@ class ExecutionService:
 
     def submit(self, intent: OrderIntent) -> ExecutionReport:
         with self._lock:
+            if self._is_blocked_cn_live_order(intent):
+                logger.error(
+                    "Blocked CN live order before broker submission",
+                    extra={"order_intent_id": intent.id, "symbol": intent.instrument.symbol},
+                )
+                raise RuntimeError("CN live auto-order is disabled; A-share orders must require manual approval")
             self._intents[intent.id] = intent
             self._register_intent_metadata(intent)
             if intent.requires_approval:
@@ -110,6 +119,10 @@ class ExecutionService:
             self._orders[intent.id] = report
             self._save_state()
             return report
+
+    @staticmethod
+    def _is_blocked_cn_live_order(intent: OrderIntent) -> bool:
+        return intent.instrument.market == Market.CN and not intent.requires_approval
 
     def submit_approved(self, request_id: str) -> ExecutionReport:
         with self._lock:
@@ -263,8 +276,10 @@ class ExecutionService:
         report = self._orders.get(order_intent_id)
         return {
             "expected_price": expected.get("reference_price"),
+            "reference_price": expected.get("reference_price"),
             "realized_price": report.average_price if report is not None else None,
             "reference_source": expected.get("reference_source"),
+            "reference_quality": expected.get("reference_quality"),
             "recorded_slippage": report.slippage if report is not None else None,
         }
 

@@ -15,6 +15,7 @@ class TradingPhase(str, Enum):
     SLEEP = "sleep"
     PRE_MARKET = "pre_market"
     OPENING = "opening"
+    BREAK = "break"
     INTRADAY = "intraday"
     CLOSING = "closing"
     POST_MARKET = "post_market"
@@ -72,6 +73,8 @@ class TradingSessionService:
                 phase = TradingPhase.CLOSING
             else:
                 phase = TradingPhase.INTRADAY
+        elif base.phase == "break":
+            phase = TradingPhase.BREAK
         else:
             phase = TradingPhase.POST_MARKET if base.is_trading_day else TradingPhase.SLEEP
 

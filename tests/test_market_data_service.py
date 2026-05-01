@@ -1,12 +1,17 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from tradingcat.adapters.market import StaticMarketDataAdapter
 from tradingcat.config import AppConfig, DuckDbConfig
-from tradingcat.domain.models import AssetClass, Instrument, Market
+from tradingcat.domain.models import AssetClass, Bar, Instrument, Market
 from tradingcat.repositories.market_data import HistoricalMarketDataRepository, InstrumentCatalogRepository
 from tradingcat.repositories.state import HistorySyncRunRepository
 from tradingcat.services.data_sync import HistorySyncService
 from tradingcat.services.market_data import MarketDataService
+
+
+class EmptyQuoteAdapter(StaticMarketDataAdapter):
+    def fetch_quotes(self, instruments):
+        return {}
 
 
 def test_market_data_service_syncs_and_reads_history_json(tmp_path):
@@ -24,7 +29,45 @@ def test_market_data_service_syncs_and_reads_history_json(tmp_path):
     assert sync["reports"][0]["bar_count"] == 3
     assert len(service.list_instruments()) >= 4
     assert len(bars) == 3
+    assert bars[0].source == "synthetic"
+    assert bars[0].quality == "synthetic"
     assert actions == []
+
+
+def test_quote_details_mark_synthetic_fallback(tmp_path):
+    service = MarketDataService(
+        adapter=EmptyQuoteAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    details = service.fetch_quote_details(["SPY"], fallback_to_synthetic=True)
+
+    assert details["SPY"]["price"] > 0
+    assert details["SPY"]["source"] == "synthetic"
+    assert details["SPY"]["quality"] == "synthetic"
+    assert details["SPY"]["provider"] == "StaticMarketDataAdapter"
+
+
+def test_quote_details_mark_permission_degraded(tmp_path):
+    instrument = Instrument(
+        symbol="NOQUOTE",
+        market=Market.US,
+        asset_class=AssetClass.STOCK,
+        currency="USD",
+        quote_permission="missing",
+    )
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+    service.upsert_instruments([instrument])
+
+    details = service.fetch_quote_details(["NOQUOTE"], fallback_to_synthetic=False)
+
+    assert details["NOQUOTE"]["quality"] == "degraded"
+    assert details["NOQUOTE"]["degraded_reason"] == "quote_permission"
 
 
 def test_market_data_service_persists_filtered_research_universe(tmp_path):
@@ -222,6 +265,92 @@ def test_market_data_service_exports_duckdb_parquet(tmp_path):
     assert (tmp_path / "parquet" / "corporate_actions.parquet").exists()
 
 
+def test_duckdb_price_bars_preserve_source_quality(tmp_path):
+    config = AppConfig(
+        data_dir=tmp_path,
+        duckdb=DuckDbConfig(
+            enabled=True,
+            path=tmp_path / "research.duckdb",
+            parquet_dir=tmp_path / "parquet",
+        ),
+    )
+    repository = HistoricalMarketDataRepository(config)
+    instrument = Instrument(symbol="SPY", market=Market.US, asset_class=AssetClass.ETF, currency="USD")
+    fetched_at = datetime(2026, 3, 2, 1, 2, 3, tzinfo=UTC)
+
+    repository.save_bars(
+        instrument,
+        [
+            Bar(
+                instrument=instrument,
+                timestamp=datetime(2026, 3, 2, tzinfo=UTC),
+                open=100,
+                high=101,
+                low=99,
+                close=100.5,
+                volume=1_000,
+                source="yfinance",
+                quality="real",
+                fetched_at=fetched_at,
+            )
+        ],
+    )
+
+    loaded = repository.load_bars(instrument, date(2026, 3, 2), date(2026, 3, 2))
+
+    assert loaded[0].source == "yfinance"
+    assert loaded[0].quality == "real"
+    assert loaded[0].fetched_at is not None
+
+
+def test_duckdb_instrument_catalog_preserves_trading_metadata(tmp_path):
+    config = AppConfig(
+        data_dir=tmp_path,
+        duckdb=DuckDbConfig(
+            enabled=True,
+            path=tmp_path / "research.duckdb",
+            parquet_dir=tmp_path / "parquet",
+        ),
+    )
+    repository = InstrumentCatalogRepository(config)
+    instrument = Instrument(
+        symbol="510300",
+        market=Market.CN,
+        asset_class=AssetClass.ETF,
+        currency="CNY",
+        lot_size=100,
+        enabled=False,
+        tradable=False,
+        liquidity_bucket="high",
+        avg_daily_dollar_volume_m=1900,
+        tags=["core_cn_equity", "lot_checked"],
+        exchange="SSE",
+        sector="broad_index",
+        data_source="manual_seed",
+        quote_permission="local",
+        limit_up=5.5,
+        limit_down=4.5,
+        suspended=True,
+    )
+
+    repository.save({"CN:510300": instrument})
+    loaded = repository.load()["CN:510300"]
+
+    assert loaded.lot_size == 100
+    assert loaded.enabled is False
+    assert loaded.tradable is False
+    assert loaded.liquidity_bucket == "high"
+    assert loaded.avg_daily_dollar_volume_m == 1900
+    assert loaded.tags == ["core_cn_equity", "lot_checked"]
+    assert loaded.exchange == "SSE"
+    assert loaded.sector == "broad_index"
+    assert loaded.data_source == "manual_seed"
+    assert loaded.quote_permission == "local"
+    assert loaded.limit_up == 5.5
+    assert loaded.limit_down == 4.5
+    assert loaded.suspended is True
+
+
 def test_market_data_service_summarizes_history_coverage(tmp_path):
     service = MarketDataService(
         adapter=StaticMarketDataAdapter(),
@@ -238,7 +367,9 @@ def test_market_data_service_summarizes_history_coverage(tmp_path):
     assert coverage["reports"][0]["coverage_ratio"] == 1.0
     assert coverage["minimum_coverage_ratio"] == 1.0
     assert coverage["missing_symbols"] == []
-    assert coverage["blockers"] == []
+    assert coverage["degraded_symbols"] == ["SPY"]
+    assert coverage["reports"][0]["synthetic"] is True
+    assert any("synthetic/degraded bars" in blocker for blocker in coverage["blockers"])
 
 
 def test_market_data_service_repairs_missing_history(tmp_path):
@@ -254,7 +385,8 @@ def test_market_data_service_repairs_missing_history(tmp_path):
     assert repaired["repaired_symbols"] == ["SPY"]
     assert repaired["coverage_before"]["minimum_coverage_ratio"] < 0.95
     assert repaired["coverage_after"]["minimum_coverage_ratio"] == 1.0
-    assert repaired["recheck"]["ready"] is True
+    assert repaired["recheck"]["ready"] is False
+    assert repaired["recheck"]["remaining_degraded_symbols"] == ["SPY"]
     assert repaired["recheck"]["improved_symbols"] == ["SPY"]
 
 
@@ -368,6 +500,29 @@ def test_market_data_service_syncs_and_reads_fx_rates(tmp_path):
     assert rates[0].quote_currency == "USD"
 
 
+def test_synthetic_fx_rates_are_marked_and_not_live_ready(tmp_path):
+    service = MarketDataService(
+        adapter=StaticMarketDataAdapter(),
+        instruments=InstrumentCatalogRepository(tmp_path),
+        history=HistoricalMarketDataRepository(tmp_path),
+    )
+
+    service.sync_fx_rates(
+        base_currency="CNY",
+        quote_currencies=["USD"],
+        start=date(2026, 3, 2),
+        end=date(2026, 3, 6),
+    )
+    coverage = service.summarize_fx_coverage("CNY", ["USD"], date(2026, 3, 2), date(2026, 3, 6), fetch_missing=False)
+    rates = service.get_fx_rates("CNY", "USD", date(2026, 3, 2), date(2026, 3, 6))
+
+    assert rates[0].source == "synthetic"
+    assert rates[0].quality == "synthetic"
+    assert coverage["ready"] is False
+    assert coverage["degraded_quote_currencies"] == ["USD"]
+    assert any("synthetic/degraded" in blocker for blocker in coverage["blockers"])
+
+
 def test_market_data_service_summarizes_missing_fx_coverage(tmp_path):
     class MissingFxMarketDataService(MarketDataService):
         def sync_fx_rates(self, base_currency="CNY", quote_currencies=None, start=None, end=None):
@@ -414,16 +569,17 @@ def test_history_sync_service_records_runs_and_repair_plan(tmp_path):
     summary = history_sync.summary()
     repair = history_sync.repair_plan(coverage)
 
-    assert run.status == "ok"
+    assert run.status == "partial"
     assert run.successful_symbols == ["SPY"]
     assert run.failed_symbols == []
     assert run.failed_symbol_count == 0
     assert run.missing_symbol_count == 0
     assert run.symbol_stats[0]["symbol"] == "SPY"
-    assert run.symbol_stats[0]["status"] == "ok"
+    assert run.symbol_stats[0]["status"] == "degraded"
     assert summary["count"] == 1
-    assert summary["healthy"] is True
-    assert repair["repair_count"] == 0
+    assert summary["healthy"] is False
+    assert repair["repair_count"] == 1
+    assert repair["repairs"][0]["degraded"] is True
 
 
 def test_history_sync_service_records_symbol_level_failures(tmp_path):

@@ -69,6 +69,53 @@ def test_risk_engine_accepts_cn_fallback_signal_with_available_prices():
     assert cn_intent.requires_approval is True
 
 
+def test_risk_engine_uses_instrument_lot_size_for_cn_orders():
+    engine = RiskEngine(RiskConfig(cn_market_rules_enabled=False))
+    signal = Signal(
+        strategy_id="cn_lot",
+        generated_at=datetime(2026, 3, 7, tzinfo=UTC),
+        instrument=Instrument(symbol="510300", market=Market.CN, asset_class=AssetClass.ETF, currency="CNY", lot_size=200),
+        side=OrderSide.BUY,
+        target_weight=0.01,
+    )
+
+    intents = engine.check(
+        [signal],
+        portfolio_nav=1_000_000,
+        drawdown=0.0,
+        daily_pnl=0.0,
+        weekly_pnl=0.0,
+        prices={"510300": 4.8},
+    )
+
+    assert intents[0].quantity % 200 == 0
+
+
+def test_risk_engine_blocks_disabled_or_unquoted_instruments():
+    engine = RiskEngine(RiskConfig())
+    disabled = Signal(
+        strategy_id="blocked",
+        generated_at=datetime(2026, 3, 7, tzinfo=UTC),
+        instrument=Instrument(symbol="BLOCK", market=Market.US, asset_class=AssetClass.STOCK, currency="USD", enabled=False),
+        side=OrderSide.BUY,
+        target_weight=0.01,
+    )
+    no_quote = disabled.model_copy(update={
+        "instrument": Instrument(
+            symbol="NOQUOTE",
+            market=Market.US,
+            asset_class=AssetClass.STOCK,
+            currency="USD",
+            quote_permission="missing",
+        )
+    })
+
+    with pytest.raises(RiskViolation, match="disabled"):
+        engine.check([disabled], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"BLOCK": 100})
+    with pytest.raises(RiskViolation, match="Quote permission"):
+        engine.check([no_quote], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"NOQUOTE": 100})
+
+
 def test_risk_engine_respects_market_cash_budget():
     engine = RiskEngine(RiskConfig())
     signal = EquityMomentumStrategy().generate_signals(date(2026, 3, 7))[0]
@@ -137,6 +184,30 @@ def test_cn_risk_blocks_limit_up_buy_and_limit_down_sell():
         )
 
 
+def test_cn_risk_uses_catalog_limit_prices_without_previous_close():
+    engine = RiskEngine(RiskConfig())
+    signal = Signal(
+        strategy_id="cn_limit_catalog",
+        generated_at=datetime(2026, 3, 7, tzinfo=UTC),
+        instrument=Instrument(
+            symbol="600000",
+            market=Market.CN,
+            asset_class=AssetClass.STOCK,
+            currency="CNY",
+            limit_up=11.0,
+            limit_down=9.0,
+        ),
+        side=OrderSide.BUY,
+        target_weight=0.02,
+    )
+
+    intents = engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 10.5})
+    assert intents
+
+    with pytest.raises(RiskViolation, match="limit-up"):
+        engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 11.0})
+
+
 def test_cn_risk_uses_growth_board_twenty_percent_limit():
     engine = RiskEngine(RiskConfig())
     signal = _cn_signal(symbol="300308", metadata={"previous_close": 100.0})
@@ -167,6 +238,17 @@ def test_cn_risk_blocks_t_plus_one_sell_lock():
     signal = _cn_signal(side=OrderSide.SELL, metadata={"last_buy_date": "2026-03-07"})
 
     with pytest.raises(RiskViolation, match="T\\+1"):
+        engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 10.0})
+
+
+def test_cn_risk_blocks_sell_above_sellable_quantity():
+    engine = RiskEngine(RiskConfig())
+    signal = _cn_signal(
+        side=OrderSide.SELL,
+        metadata={"previous_close": 10.0, "available_sell_quantity": 100.0},
+    )
+
+    with pytest.raises(RiskViolation, match="sellable quantity"):
         engine.check([signal], portfolio_nav=1_000_000, drawdown=0, daily_pnl=0, weekly_pnl=0, prices={"600000": 10.0})
 
 

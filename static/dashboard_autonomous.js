@@ -43,7 +43,6 @@ const DashboardAutonomous = (() => {
     if (jid.startsWith("pre_market_briefing")) return '<a href="/dashboard/briefing" class="button button-xs">详情</a>';
     if (jid.startsWith("post_market_reflection")) return '<a href="/dashboard/review" class="button button-xs">详情</a>';
     if (jid === "intraday_insight_scan") return '<a href="/dashboard/insights" class="button button-xs">详情</a>';
-    if (jid === "self_iteration_weekly") return "";
     return "";
   }
 
@@ -55,7 +54,6 @@ const DashboardAutonomous = (() => {
       "pre_market_briefing", "pre_market_briefing_us", "pre_market_briefing_hk",
       "intraday_insight_scan",
       "post_market_reflection", "post_market_reflection_us", "post_market_reflection_hk",
-      "self_iteration_weekly",
     ];
 
     const rows = ordered.map(jid => {

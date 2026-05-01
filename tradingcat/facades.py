@@ -400,6 +400,50 @@ class ResearchFacade:
     def market_awareness(self, as_of: date) -> MarketAwarenessResponse:
         return MarketAwarenessResponse.model_validate(self._app.research_queries.market_awareness(as_of))
 
+    def market_state(
+        self,
+        *,
+        market: Market,
+        as_of: date | None = None,
+        include_ai: bool = False,
+    ) -> dict[str, object]:
+        snapshot = self._app.market_state.latest_or_snapshot(market=market, as_of=as_of)
+        if include_ai:
+            snapshot = snapshot.model_copy(
+                update={"research_explanation": self._app.market_state.research_explanation(snapshot)}
+            )
+        return {
+            **snapshot.model_dump(mode="json"),
+            "persisted": False,
+            "backend": self._app.market_state.backend,
+            "guardrail": "research_only_no_trade_instruction",
+        }
+
+    def run_market_state(
+        self,
+        *,
+        market: Market,
+        as_of: date | None = None,
+        session_tag: str | None = None,
+        include_ai: bool = False,
+    ) -> dict[str, object]:
+        snapshot = self._app.market_state.snapshot(
+            market=market,
+            as_of=as_of,
+            session_tag=session_tag,
+            include_ai=include_ai,
+            persist=True,
+        )
+        return {
+            **snapshot.model_dump(mode="json"),
+            "persisted": True,
+            "backend": self._app.market_state.backend,
+            "guardrail": "research_only_no_trade_instruction",
+        }
+
+    def market_state_timeline(self, *, market: Market, session_date: date | None = None) -> dict[str, object]:
+        return self._app.market_state.timeline(market=market, session_date=session_date)
+
     # ---- Phase 1-3 services ----
 
     def _fetch_bars_for_symbol(self, symbol: str, days: int = 180) -> list:

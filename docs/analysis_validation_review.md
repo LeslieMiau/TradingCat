@@ -225,24 +225,7 @@ Reviewer stance：agree。
 
 ### 7. Self-Iteration Service
 
-`ANALYSIS.md` 结论：系统自己分析 insight 质量并给 tuning hints 价值低。
-
-Reviewer stance：agree。
-
-主要代码：
-
-- `tradingcat/services/self_iteration.py`：136 行
-- `TradingCatApplication.run_self_iteration_weekly()`
-- `SchedulerRuntime.run_self_iteration_weekly_job()`
-- dashboard 按钮 `cycle-run-iteration`
-- `tests/test_autonomous_cycle.py` 中相关测试
-
-代码量估算：5-7 个文件，约 250-450 行影响面。
-
-实际影响：
-
-- 不影响执行、风控、组合、订单。
-- 通过 scheduler job 和 dashboard 手动按钮触发，是研究/运营附加功能。
+2026-05-01 决策：`self_iteration_weekly` 不属于当前产品面，已从 scheduler 期望、dashboard 按钮和测试契约中移除。未来如需自迭代能力，按新功能重新设计，不保留空按钮或假 job。
 
 删除后是否影响核心交易流水线：不影响。
 
@@ -638,7 +621,7 @@ Reviewer opinion：agree。
 3. 将 `ApprovalService` 重命名或包装成 `ManualConfirmationService`，但保留 `ApprovalRepository` 兼容迁移。
 4. 删除 `AIResearcher.analyze_insight_trading_action()`，或改成 `explain_insight_evidence()` 风格，不输出 action/entry/target/stop。
 5. 从 runtime 移除 `MLPipeline` 构造，避免应用启动默认加载实验 ML 依赖。
-6. 删除 `self_iteration_weekly` scheduler registration 和 dashboard button。
+6. 保持 `self_iteration_weekly` 从 scheduler、dashboard 和测试契约中移除。
 7. 新建 `ExecutionAnalysisService`，让 `/execution/quality`、`/execution/authorization`、`/ops/tca`、`/ops/execution-metrics` 共享同一 read model。
 8. 新建 `DailyLogService`，把 trading plan、daily summary、pre-market briefing、post-market reflection 收到同一聚合。
 9. 新建 `DuckDbStateStore` 后移除 PostgreSQL 分支。

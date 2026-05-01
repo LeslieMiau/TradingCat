@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set active_page = "dashboard" %}
 
-{% block page_title %}TradingCat 控制台{% endblock %}
+{% block page_title %}TradingCat Dashboard{% endblock %}
 
 {% block shell %}
 <header class="hero hero-compact">
@@ -53,7 +53,7 @@
         <!-- 资金异动雷达 -->
         <section class="panel panel-highlight" style="border-left: 3px solid var(--accent);">
           <div class="panel-header">
-            <h2>资金异动雷达 <span style="font-size: 11px; padding: 2px 6px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; vertical-align: middle; margin-left: 8px;">实时</span></h2>
+            <h2>资金异动雷达 Alpha Radar <span style="font-size: 11px; padding: 2px 6px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; vertical-align: middle; margin-left: 8px;">实时</span></h2>
             <span class="meta-text">期权大单与暗池资金流入模拟流</span>
           </div>
           <div class="table-wrap" style="max-height: 300px; overflow-y: auto;">
@@ -212,7 +212,6 @@
               <button id="cycle-run-briefing" class="button button-sm" type="button">运行盘前简报</button>
               <button id="cycle-run-scan" class="button button-sm" type="button">运行洞察扫描</button>
               <button id="cycle-run-reflection" class="button button-sm" type="button">运行盘后回顾</button>
-              <button id="cycle-run-iteration" class="button button-sm" type="button">运行自我迭代</button>
             </div>
           </div>
         </section>

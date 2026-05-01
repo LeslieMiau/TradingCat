@@ -195,3 +195,17 @@ def test_futu_broker_adapter_routes_cancel_and_probes(fake_futu_sdk):
     assert len(fills) == 3
     assert probe["status"] == "ok"
     assert probe["orders"] == 3
+
+
+def test_futu_broker_adapter_rejects_cn_live_order(fake_futu_sdk):
+    adapter = FutuBrokerAdapter(FutuConfig(enabled=True))
+    intent = OrderIntent(
+        signal_id="cn-live",
+        instrument=Instrument(symbol="510300", market=Market.CN, asset_class=AssetClass.ETF, currency="CNY"),
+        side=OrderSide.BUY,
+        quantity=100,
+        requires_approval=False,
+    )
+
+    with pytest.raises(RuntimeError, match="CN live auto-order is disabled"):
+        adapter.place_order(intent)

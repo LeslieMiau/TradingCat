@@ -281,6 +281,16 @@ def summarize_validation_diagnostics(
                 f"Execution preview produced {execution_preview.get('intent_count', 0)} order intents "
                 f"({execution_preview.get('manual_count', 0)} manual approvals)."
             )
+            synthetic_quote_symbols = list(execution_preview.get("synthetic_quote_symbols", []) or [])
+            if synthetic_quote_symbols:
+                category = "quote_quality_degraded" if category == "ready_for_validation" else category
+                severity = "error"
+                ready = False
+                findings.append(
+                    "Execution preview used synthetic/degraded quote references for "
+                    f"{', '.join(str(symbol) for symbol in synthetic_quote_symbols[:5])}."
+                )
+                next_actions.append("Refresh real-time quote permissions/data before live readiness or execution promotion.")
 
     if checks.get("env_file", {}).get("ok") is False:
         findings.append("The project is running without a local .env file.")

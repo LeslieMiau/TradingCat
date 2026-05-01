@@ -3,7 +3,6 @@ from tradingcat.main import TradingCatApplication
 
 
 EXPECTED_JOB_IDS = {
-    "acceptance_evidence_capture",
     "approval_expiry_sweep",
     "broker_auto_recovery",
     "daily_trading_plan_archive",
@@ -23,7 +22,6 @@ EXPECTED_JOB_IDS = {
     "pre_market_briefing_us",
     "research_backtest_refresh",
     "research_selection_review",
-    "self_iteration_weekly",
     "sentiment_history_persist",
     "trade_ledger_reconciliation_daily",
     "us_signal_generation",

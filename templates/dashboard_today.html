@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% set active_page = "today" %}
+
+{% block page_title %}TradingCat 今日工作台{% endblock %}
+
+{% block shell %}
+<header class="hero hero-compact">
+  <div class="hero-copy">
+    <p class="eyebrow">TradingCat 今日工作台</p>
+    <h1>交易日 Cockpit</h1>
+  </div>
+  <div class="hero-actions">
+    <button id="refresh-today" class="button button-primary button-sm" type="button">刷新</button>
+    <a class="button button-sm" href="/dashboard/briefing">盘前</a>
+    <a class="button button-sm" href="/dashboard/insights">盘中</a>
+    <a class="button button-sm" href="/dashboard/review">盘后</a>
+  </div>
+</header>
+
+<main class="dashboard-grid">
+  <section class="panel panel-highlight">
+    <div class="panel-header">
+      <div>
+        <h2>今日决策</h2>
+        <span id="today-updated" class="meta-text">加载中</span>
+      </div>
+      <span id="today-status" class="badge">加载中</span>
+    </div>
+    <div id="today-decision" class="summary-grid">
+      <article class="metric-tile loading"><span>加载中...</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>市场状态</h2>
+      <span class="meta-text">CN / HK / US</span>
+    </div>
+    <div id="today-markets" class="cards-grid three">
+      <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>阻塞项</h2>
+      <span class="meta-text">来源可追溯</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead>
+          <tr>
+            <th>原因</th>
+            <th>服务</th>
+            <th>字段</th>
+          </tr>
+        </thead>
+        <tbody id="today-blockers">
+          <tr><td colspan="3" class="table-empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>盘前 / 盘中 / 盘后</h2>
+      <span class="meta-text">只读聚合</span>
+    </div>
+    <div id="today-workflow" class="summary-grid">
+      <article class="detail-card"><span class="detail-empty">加载中...</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>盘中矩阵</h2>
+      <span class="meta-text">insight / position / plan / order / approval</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead>
+          <tr>
+            <th>标的</th>
+            <th>洞察</th>
+            <th>持仓</th>
+            <th>计划/订单</th>
+            <th>风险</th>
+          </tr>
+        </thead>
+        <tbody id="today-insight-matrix">
+          <tr><td colspan="5" class="table-empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/common.js"></script>
+  <script src="/static/api.js"></script>
+  <script src="/static/components.js"></script>
+  <script src="/static/dashboard_today.js"></script>
+{% endblock %}

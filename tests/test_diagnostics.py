@@ -56,4 +56,24 @@ def test_diagnostics_summary_marks_ready_path():
     assert payload["ready"] is True
 
 
+def test_diagnostics_summary_blocks_synthetic_execution_quotes():
+    payload = summarize_validation_diagnostics(
+        preflight={
+            "futu": {"enabled": True},
+            "checks": [
+                {"name": "env_file", "ok": True},
+                {"name": "futu_sdk", "ok": True, "detail": "installed"},
+                {"name": "futu_environment", "ok": True, "detail": "SIMULATE"},
+            ],
+        },
+        broker_validation={"checks": {"quote": {"status": "ok"}, "trade": {"status": "ok"}}},
+        market_data={"symbols": ["SPY"]},
+        execution_preview={"intent_count": 1, "manual_count": 0, "synthetic_quote_symbols": ["SPY"]},
+    )
+
+    assert payload["category"] == "quote_quality_degraded"
+    assert payload["severity"] == "error"
+    assert payload["ready"] is False
+    assert any("synthetic/degraded quote" in item for item in payload["findings"])
+
 

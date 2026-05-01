@@ -30,9 +30,45 @@ class DuckDbMarketDataStore:
                     asset_class TEXT NOT NULL,
                     currency TEXT NOT NULL,
                     name TEXT,
+                    lot_size DOUBLE DEFAULT 1,
+                    enabled BOOLEAN DEFAULT TRUE,
+                    tradable BOOLEAN DEFAULT TRUE,
+                    liquidity_bucket TEXT DEFAULT 'medium',
+                    avg_daily_dollar_volume_m DOUBLE,
+                    tags_json TEXT DEFAULT '[]',
+                    exchange TEXT,
+                    sector TEXT,
+                    industry TEXT,
+                    data_source TEXT,
+                    quote_permission TEXT,
+                    st_status TEXT,
+                    limit_up DOUBLE,
+                    limit_down DOUBLE,
+                    suspended BOOLEAN DEFAULT FALSE,
                     PRIMARY KEY (symbol, market)
                 )
                 """
+            )
+            self._ensure_columns(
+                conn,
+                "instruments",
+                {
+                    "lot_size": "DOUBLE DEFAULT 1",
+                    "enabled": "BOOLEAN DEFAULT TRUE",
+                    "tradable": "BOOLEAN DEFAULT TRUE",
+                    "liquidity_bucket": "TEXT DEFAULT 'medium'",
+                    "avg_daily_dollar_volume_m": "DOUBLE",
+                    "tags_json": "TEXT DEFAULT '[]'",
+                    "exchange": "TEXT",
+                    "sector": "TEXT",
+                    "industry": "TEXT",
+                    "data_source": "TEXT",
+                    "quote_permission": "TEXT",
+                    "st_status": "TEXT",
+                    "limit_up": "DOUBLE",
+                    "limit_down": "DOUBLE",
+                    "suspended": "BOOLEAN DEFAULT FALSE",
+                },
             )
             conn.execute(
                 """
@@ -48,9 +84,21 @@ class DuckDbMarketDataStore:
                     low DOUBLE NOT NULL,
                     close DOUBLE NOT NULL,
                     volume DOUBLE NOT NULL,
+                    source TEXT DEFAULT 'unknown',
+                    quality TEXT DEFAULT 'unknown',
+                    fetched_at TIMESTAMP,
                     PRIMARY KEY (symbol, market, timestamp)
                 )
                 """
+            )
+            self._ensure_columns(
+                conn,
+                "price_bars",
+                {
+                    "source": "TEXT DEFAULT 'unknown'",
+                    "quality": "TEXT DEFAULT 'unknown'",
+                    "fetched_at": "TIMESTAMP",
+                },
             )
             conn.execute(
                 """
@@ -70,16 +118,37 @@ class DuckDbMarketDataStore:
                     quote_currency TEXT NOT NULL,
                     effective_date DATE NOT NULL,
                     rate DOUBLE NOT NULL,
+                    source TEXT DEFAULT 'unknown',
+                    quality TEXT DEFAULT 'unknown',
+                    fetched_at TIMESTAMP,
                     PRIMARY KEY (base_currency, quote_currency, effective_date)
                 )
                 """
             )
+            self._ensure_columns(
+                conn,
+                "fx_rates",
+                {
+                    "source": "TEXT DEFAULT 'unknown'",
+                    "quality": "TEXT DEFAULT 'unknown'",
+                    "fetched_at": "TIMESTAMP",
+                },
+            )
+
+    @staticmethod
+    def _ensure_columns(conn, table: str, columns: dict[str, str]) -> None:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info('{table}')").fetchall()}
+        for name, ddl in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     def load_instruments(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT symbol, market, asset_class, currency, name
+                SELECT symbol, market, asset_class, currency, name,
+                    lot_size, enabled, tradable, liquidity_bucket, avg_daily_dollar_volume_m, tags_json,
+                    exchange, sector, industry, data_source, quote_permission, st_status, limit_up, limit_down, suspended
                 FROM instruments
                 ORDER BY market, symbol
                 """
@@ -91,6 +160,21 @@ class DuckDbMarketDataStore:
                 "asset_class": row[2],
                 "currency": row[3],
                 "name": row[4],
+                "lot_size": row[5] if row[5] is not None else 1.0,
+                "enabled": bool(row[6]) if row[6] is not None else True,
+                "tradable": bool(row[7]) if row[7] is not None else True,
+                "liquidity_bucket": row[8] or "medium",
+                "avg_daily_dollar_volume_m": row[9],
+                "tags": json.loads(row[10] or "[]"),
+                "exchange": row[11],
+                "sector": row[12],
+                "industry": row[13],
+                "data_source": row[14],
+                "quote_permission": row[15],
+                "st_status": row[16],
+                "limit_up": row[17],
+                "limit_down": row[18],
+                "suspended": bool(row[19]) if row[19] is not None else False,
             }
             for row in rows
         ]
@@ -100,8 +184,14 @@ class DuckDbMarketDataStore:
             for instrument in instruments:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO instruments (symbol, market, asset_class, currency, name)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO instruments (
+                        symbol, market, asset_class, currency, name,
+                        lot_size, enabled, tradable, liquidity_bucket,
+                        avg_daily_dollar_volume_m, tags_json,
+                        exchange, sector, industry, data_source, quote_permission,
+                        st_status, limit_up, limit_down, suspended
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         instrument["symbol"],
@@ -109,6 +199,21 @@ class DuckDbMarketDataStore:
                         instrument["asset_class"],
                         instrument["currency"],
                         instrument.get("name"),
+                        instrument.get("lot_size", 1.0),
+                        bool(instrument.get("enabled", True)),
+                        bool(instrument.get("tradable", True)),
+                        instrument.get("liquidity_bucket", "medium"),
+                        instrument.get("avg_daily_dollar_volume_m"),
+                        json.dumps(instrument.get("tags", []), ensure_ascii=True),
+                        instrument.get("exchange"),
+                        instrument.get("sector"),
+                        instrument.get("industry"),
+                        instrument.get("data_source"),
+                        instrument.get("quote_permission"),
+                        instrument.get("st_status"),
+                        instrument.get("limit_up"),
+                        instrument.get("limit_down"),
+                        bool(instrument.get("suspended", False)),
                     ),
                 )
             self._export(conn)
@@ -120,8 +225,8 @@ class DuckDbMarketDataStore:
                     """
                     INSERT OR REPLACE INTO price_bars (
                         symbol, market, asset_class, currency, name, timestamp,
-                        open, high, low, close, volume
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        open, high, low, close, volume, source, quality, fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         instrument["symbol"],
@@ -135,6 +240,9 @@ class DuckDbMarketDataStore:
                         bar["low"],
                         bar["close"],
                         bar["volume"],
+                        bar.get("source", "unknown"),
+                        bar.get("quality", "unknown"),
+                        bar.get("fetched_at"),
                     ),
                 )
             self._export(conn)
@@ -143,7 +251,8 @@ class DuckDbMarketDataStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT symbol, market, asset_class, currency, name, timestamp, open, high, low, close, volume
+                SELECT symbol, market, asset_class, currency, name, timestamp,
+                    open, high, low, close, volume, source, quality, fetched_at
                 FROM price_bars
                 WHERE symbol = ? AND market = ? AND DATE(timestamp) BETWEEN ? AND ?
                 ORDER BY timestamp
@@ -165,6 +274,9 @@ class DuckDbMarketDataStore:
                 "low": row[8],
                 "close": row[9],
                 "volume": row[10],
+                "source": row[11] or "unknown",
+                "quality": row[12] or "unknown",
+                "fetched_at": row[13],
             }
             for row in rows
         ]
@@ -207,14 +319,19 @@ class DuckDbMarketDataStore:
             for rate in rates:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO fx_rates (base_currency, quote_currency, effective_date, rate)
-                    VALUES (?, ?, ?, ?)
+                    INSERT OR REPLACE INTO fx_rates (
+                        base_currency, quote_currency, effective_date, rate, source, quality, fetched_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         rate["base_currency"],
                         rate["quote_currency"],
                         rate["date"],
                         rate["rate"],
+                        rate.get("source", "unknown"),
+                        rate.get("quality", "unknown"),
+                        rate.get("fetched_at"),
                     ),
                 )
             self._export(conn)
@@ -223,7 +340,7 @@ class DuckDbMarketDataStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT base_currency, quote_currency, effective_date, rate
+                SELECT base_currency, quote_currency, effective_date, rate, source, quality, fetched_at
                 FROM fx_rates
                 WHERE base_currency = ? AND quote_currency = ? AND effective_date BETWEEN ? AND ?
                 ORDER BY effective_date
@@ -236,6 +353,9 @@ class DuckDbMarketDataStore:
                 "quote_currency": row[1],
                 "date": row[2],
                 "rate": row[3],
+                "source": row[4] or "unknown",
+                "quality": row[5] or "unknown",
+                "fetched_at": row[6],
             }
             for row in rows
         ]
