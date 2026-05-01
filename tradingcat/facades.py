@@ -129,9 +129,11 @@ class DashboardFacade:
     ) -> dict[str, object]:
         raw_metrics = getattr(plan_note, "metrics", {})
         metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
-        market_awareness = metrics.get("market_awareness") if isinstance(metrics, dict) else None
+        market_awareness = market_awareness_snapshot if isinstance(market_awareness_snapshot, dict) and market_awareness_snapshot else None
         if not isinstance(market_awareness, dict) or not market_awareness:
-            market_awareness = market_awareness_snapshot if isinstance(market_awareness_snapshot, dict) else {}
+            market_awareness = metrics.get("market_awareness") if isinstance(metrics, dict) else None
+        if not isinstance(market_awareness, dict) or not market_awareness:
+            market_awareness = {}
         return {
             "status": plan_note.status,
             "headline": plan_note.headline,
@@ -171,12 +173,26 @@ class DashboardFacade:
         }
 
     def _details_summary(self, gate: dict[str, object], dashboard_context: dict[str, object]) -> dict[str, object]:
-        policy = dashboard_context["rollout"]
+        live_acceptance = dashboard_context["live_acceptance"]
+        rollout = dashboard_context["rollout"]
+        acceptance_progress = {
+            "current_clean_day_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_day_streak"),
+            "current_clean_week_streak": live_acceptance.get("acceptance_evidence", {}).get("current_clean_week_streak"),
+            "remaining_clean_days": live_acceptance.get("next_requirement", {}).get("remaining_clean_days"),
+            "remaining_clean_weeks": live_acceptance.get("next_requirement", {}).get("remaining_clean_weeks"),
+            "next_requirement": live_acceptance.get("next_requirement", {}),
+            "blockers": list(live_acceptance.get("blockers", [])) or list(rollout.get("blockers", [])),
+        }
         return {
             "execution_gate": gate,
-            "policy_mode": policy.get("mode", "paper"),
-            "max_allocation_ratio": policy.get("max_allocation_ratio", 0.0),
-            "manual_confirmation_required": policy.get("manual_confirmation_required", False),
+            "live_acceptance": live_acceptance,
+            "acceptance_progress": acceptance_progress,
+            "policy_mode": live_acceptance.get("mode", rollout.get("policy_mode", "paper")),
+            "max_allocation_ratio": live_acceptance.get("max_allocation_ratio", rollout.get("max_allocation_ratio", 0.0)),
+            "manual_confirmation_required": live_acceptance.get(
+                "manual_confirmation_required",
+                rollout.get("manual_confirmation_required", False),
+            ),
             "data_quality": dashboard_context["data_quality"],
             "market_awareness": dashboard_context.get("market_awareness", {}),
             "operations": dashboard_context["operations"],

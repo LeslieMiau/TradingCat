@@ -244,8 +244,8 @@ class TradingCatApplication:
             market_awareness_getter=lambda: self.market_awareness,
             execution_gate_summary=self.execution_gate_summary,
             operations_period_report=self.operations_period_report,
-            live_acceptance_summary=lambda _as_of: self.execution_policy.summary(),
-            operations_rollout=self.execution_policy.summary,
+            live_acceptance_summary=lambda as_of: self.live_acceptance_summary(as_of),
+            operations_rollout=self.operations_rollout,
             operations_readiness=self.operations_readiness,
             data_quality_summary=self.data_quality_summary,
             active_execution_strategy_ids_getter=self.active_execution_strategy_ids,
@@ -1187,6 +1187,69 @@ class TradingCatApplication:
             ("operations_readiness", date.today().isoformat()),
             self._build_operations_readiness,
         )
+
+    def operations_rollout(self) -> dict[str, object]:
+        return self._cached_summary(
+            ("operations_rollout", date.today().isoformat()),
+            self._build_operations_rollout,
+        )
+
+    def _build_operations_rollout(self) -> dict[str, object]:
+        rollout = self.operations.rollout_summary(
+            readiness=self.operations_readiness(),
+            compliance_summary=self.compliance.summary(),
+            alerts_summary=self.alerts.latest_summary(),
+        )
+        policy = self.execution_policy.summary()
+        return {
+            **rollout,
+            "policy_mode": policy.get("mode", "paper"),
+            "max_allocation_ratio": policy.get("max_allocation_ratio", 0.0),
+            "manual_confirmation_required": policy.get("manual_confirmation_required", False),
+        }
+
+    def live_acceptance_summary(self, as_of: date | None = None, incident_window_days: int = 14) -> dict[str, object]:
+        evaluation_date = as_of or date.today()
+        return self._cached_summary(
+            ("live_acceptance_summary", evaluation_date.isoformat(), incident_window_days),
+            lambda: self._build_live_acceptance_summary(evaluation_date, incident_window_days),
+        )
+
+    def _build_live_acceptance_summary(self, evaluation_date: date, incident_window_days: int) -> dict[str, object]:
+        policy = self.execution_policy.summary()
+        rollout = self.operations_rollout()
+        metrics = self.operations_execution_metrics()
+        alerts = filter_recent_items(self.alerts.list_alerts(), timestamp_attr="created_at", window_days=incident_window_days)
+        acceptance = self.operations.acceptance_summary()
+        evidence = acceptance.get("evidence", {}) if isinstance(acceptance, dict) else {}
+        next_requirement = self.operations.acceptance_timeline(window_days=max(30, incident_window_days)).get("next_requirement", {})
+
+        blockers = list(policy.get("blockers", [])) + list(rollout.get("blockers", []))
+        if policy.get("mode") != "live":
+            blockers.append(f"Execution mode is {policy.get('mode', 'paper')}; live execution is not enabled.")
+        if not metrics.get("authorization_ok", False):
+            blockers.append("Execution authorization summary is not clean.")
+        if not metrics.get("slippage_within_limits", False):
+            blockers.append("Execution quality is outside the configured thresholds.")
+        incident_days = int((evidence.get("counts") or {}).get("incident_day", 0)) if isinstance(evidence, dict) else 0
+        if incident_days > 0:
+            blockers.append(f"{incident_days} incident day(s) remain in the acceptance evidence history.")
+
+        blockers = list(dict.fromkeys(str(blocker) for blocker in blockers))
+        return {
+            "as_of": evaluation_date,
+            "ready_for_live": policy.get("mode") == "live" and len(blockers) == 0,
+            "incident_count": len(alerts),
+            "blockers": blockers,
+            "mode": policy.get("mode", "paper"),
+            "max_allocation_ratio": policy.get("max_allocation_ratio", 0.0),
+            "manual_confirmation_required": policy.get("manual_confirmation_required", False),
+            "authorization_ok": bool(metrics.get("authorization_ok", False)),
+            "slippage_within_limits": bool(metrics.get("slippage_within_limits", False)),
+            "acceptance_evidence": evidence,
+            "next_requirement": next_requirement,
+            "rollout": rollout,
+        }
 
     def _build_operations_readiness(self) -> dict[str, object]:
         evaluation_date = date.today()
