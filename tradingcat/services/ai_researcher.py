@@ -147,7 +147,12 @@ class AIResearcher:
             content=parsed.get("content", raw or "Briefing unavailable"),
             summary=parsed.get("summary", "Pre-market briefing"),
             confidence=parsed.get("confidence", "medium"),
-            metadata={"market_data_snapshot": bool(market_data)},
+            metadata={
+                "market_data_snapshot": bool(market_data),
+                "support_resistance": parsed.get("support_resistance", []),
+                "sector_rotation": parsed.get("sector_rotation", []),
+                "observations": parsed.get("observations", []),
+            },
         )
 
     def analyze_anomaly(self, symbol: str, price: float, volume: float,

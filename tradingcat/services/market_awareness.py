@@ -99,7 +99,7 @@ def _realized_volatility(closes: list[float], window: int = 20) -> float | None:
         return None
     avg = mean(returns)
     variance = mean((value - avg) ** 2 for value in returns)
-    return round(math.sqrt(variance), 4)
+    return round(math.sqrt(max(0.0, variance)), 4)
 
 
 def _clamp(value: float, lower: float = -1.0, upper: float = 1.0) -> float:

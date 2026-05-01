@@ -83,14 +83,14 @@ def briefing_data(request: Request, as_of: date | None = None, market: str = Que
     result = app.daily_log.run_briefing(as_of=as_of, market=target_market)
     awareness_dict = _safe_asdict(result.awareness_snapshot) if hasattr(result, "awareness_snapshot") else {}
     ai_content = None
-    recommendations = []
+    observations = []
     support_resistance = []
     sector_rotation = []
     if result.ai_briefing is not None:
         ai_content = getattr(result.ai_briefing, "content", None)
         meta = getattr(result.ai_briefing, "metadata", {}) or {}
         if isinstance(meta, dict):
-            recommendations = meta.get("recommendations", []) or []
+            observations = meta.get("observations", []) or []
             support_resistance = meta.get("support_resistance", []) or []
             sector_rotation = meta.get("sector_rotation", []) or []
     # Load AI briefing from saved file if available
@@ -103,7 +103,7 @@ def briefing_data(request: Request, as_of: date | None = None, market: str = Que
                 briefing_text = report_data.get("content", "")
                 meta = report_data.get("metadata", {}) or {}
                 if isinstance(meta, dict):
-                    recommendations = meta.get("recommendations", []) or recommendations
+                    observations = meta.get("observations", []) or observations
                     support_resistance = meta.get("support_resistance", []) or support_resistance
                     sector_rotation = meta.get("sector_rotation", []) or sector_rotation
         except Exception as exc:
@@ -116,7 +116,7 @@ def briefing_data(request: Request, as_of: date | None = None, market: str = Que
         "insight_count": result.insight_count,
         "awareness_snapshot": awareness_dict,
         "briefing_text": briefing_text,
-        "recommendations": recommendations,
+        "observations": observations,
         "support_resistance": support_resistance,
         "sector_rotation": sector_rotation,
     }
@@ -181,13 +181,29 @@ def insight_detail_page(request: Request, insight_id: str):
 
 def _safe_asdict(obj: object) -> dict:
     if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
-    if hasattr(obj, "__dataclass_fields__"):
+        result = obj.model_dump(mode="json")
+    elif hasattr(obj, "__dataclass_fields__"):
         from dataclasses import fields as dc_fields
-        return {f.name: getattr(obj, f.name) for f in dc_fields(obj)}
-    if isinstance(obj, dict):
+        result = {f.name: getattr(obj, f.name) for f in dc_fields(obj)}
+    elif isinstance(obj, dict):
+        result = obj
+    else:
+        try:
+            result = json.loads(json.dumps(obj, default=str))
+        except Exception:
+            return {"_raw": str(obj)}
+    return _sanitize_json(result)
+
+
+def _sanitize_json(obj: object) -> object:
+    """Recursively replace NaN/Infinity with None so the value is JSON-safe."""
+    import math as _math
+    if isinstance(obj, float):
+        if _math.isnan(obj) or _math.isinf(obj):
+            return None
         return obj
-    try:
-        return json.loads(json.dumps(obj, default=str))
-    except Exception:
-        return {"_raw": str(obj)}
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_json(v) for v in obj]
+    return obj

@@ -73,8 +73,8 @@
     var a = data.awareness_snapshot || {};
     var regimeClass = { bullish: "badge-ok", neutral: "badge-warn", caution: "badge-warn", risk_off: "badge-fail" }[a.overall_regime] || "";
     var regimeLabel = { bullish: "看涨", neutral: "中性", caution: "谨慎", risk_off: "避险" }[a.overall_regime] || a.overall_regime || "N/A";
-    var riskClass = { aggressive: "badge-warn", moderate: "badge-info", conservative: "badge-ok", halted: "badge-fail" }[a.risk_posture] || "";
-    var riskLabel = { aggressive: "激进", moderate: "稳健", conservative: "保守", halted: "停止" }[a.risk_posture] || a.risk_posture || "N/A";
+    var riskClass = { build_risk: "badge-ok", hold_pace: "badge-info", reduce_risk: "badge-warn", pause_new_adds: "badge-fail" }[a.risk_posture] || "";
+    var riskLabel = { build_risk: "加仓", hold_pace: "稳健", reduce_risk: "减仓", pause_new_adds: "暂停" }[a.risk_posture] || a.risk_posture || "N/A";
 
     document.getElementById("briefing-overview").innerHTML = [
       metricTile("市场体制", '<span class="badge ' + regimeClass + '">' + regimeLabel + "</span>", a.overall_regime || ""),
@@ -105,27 +105,37 @@
       sectorsEl.innerHTML = '<p class="detail-empty">暂无板块轮动数据</p>';
     }
 
-    // Recommendations
-    var recs = data.recommendations || [];
+    // AI observations
+    var obs = data.observations || [];
     var recsEl = document.getElementById("briefing-recommendations");
-    if (recs.length) {
-      recsEl.innerHTML = recs.map(function (r) {
-        return '<article class="detail-card"><h4>' + escapeHtml(r.title || r.action || "观察") + '</h4><p>' + escapeHtml(r.detail || r.rationale || "—") + "</p></article>";
+    if (obs.length) {
+      recsEl.innerHTML = obs.map(function (o) {
+        var confPct = Math.round((o.confidence || 0.5) * 100);
+        var horizonLabel = { intraday: "日内", short_term: "短期", medium_term: "中期" }[o.time_horizon] || "";
+        return '<article class="detail-card" style="border-left:3px solid var(--accent);">'
+          + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'
+          + '<strong>' + escapeHtml(o.symbol || "") + '</strong>'
+          + (horizonLabel ? '<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:var(--surface-2);">' + horizonLabel + '</span>' : "")
+          + '<span style="font-size:11px;color:var(--text-muted);">置信度: ' + confPct + '%</span>'
+          + '</div>'
+          + '<p style="font-size:13px;margin:0;">' + escapeHtml(o.observation || o.rationale || "") + '</p>'
+          + '</article>';
       }).join("");
     } else {
       recsEl.innerHTML = '<p class="detail-empty">暂无市场观察</p>';
     }
 
-    // AI analysis
+    // AI analysis (markdown rendered)
     var aiEl = document.getElementById("briefing-ai");
     var aiText = data.briefing_text || "";
     if (aiText) {
-      aiEl.innerHTML = '<div style="white-space:pre-wrap">' + escapeHtml(aiText) + "</div>";
+      aiEl.innerHTML = '<div class="markdown-body">' + renderMarkdown(aiText) + "</div>";
     } else {
       aiEl.innerHTML = '<p class="detail-empty">AI 分析尚未生成，点击「运行简报」触发</p>';
     }
 
-    // Awareness raw
+    // Awareness charts (ECharts radar + bar) + raw data
+    renderAwarenessPanel("briefing-awareness-chart", a);
     var awarenessEl = document.getElementById("briefing-awareness");
     awarenessEl.textContent = JSON.stringify(a, null, 2);
   }
@@ -162,8 +172,9 @@
       ? devs.map(function (d) { return "<li>" + escapeHtml(d) + "</li>"; }).join("")
       : '<li class="detail-empty">无偏差</li>';
 
-    // Trade scores
+    // Trade scores (chart + table)
     var scores = data.trade_scores || [];
+    renderTradeScoresChart("review-scores-chart", scores);
     var scoresTbody = document.getElementById("review-scores");
     if (scores.length) {
       scoresTbody.innerHTML = scores.map(function (s) {
@@ -195,11 +206,11 @@
       adjEl.innerHTML = '<p class="detail-empty">暂无建议调整</p>';
     }
 
-    // AI journal
+    // AI journal (markdown rendered)
     var journalEl = document.getElementById("review-ai-journal");
     var aiJournal = data.ai_journal_text || "";
     if (aiJournal) {
-      journalEl.innerHTML = '<div style="white-space:pre-wrap">' + escapeHtml(aiJournal) + "</div>";
+      journalEl.innerHTML = '<div class="markdown-body">' + renderMarkdown(aiJournal) + "</div>";
     } else {
       journalEl.innerHTML = '<p class="detail-empty">AI 日志尚未生成</p>';
     }
@@ -216,8 +227,9 @@
     // Today's summary metrics
     var planCount = (latestPlan.items || []).length || (latestPlan.counts || {}).intent_count || 0;
     var summaryOrderCount = (latestSummary.metrics || {}).order_count || 0;
+    var statusBadge = { planned: '<span class="badge badge-info">已计划</span>', no_trade: '<span class="badge badge-warn">不交易</span>', blocked: '<span class="badge badge-fail">阻塞</span>' }[latestPlan.status] || escapeHtml(latestPlan.status || "—");
     document.getElementById("journal-metrics").innerHTML = [
-      metricTile("计划状态", latestPlan.status || "—", ""),
+      metricTile("计划状态", statusBadge, ""),
       metricTile("计划条目", planCount, "条"),
       metricTile("总结订单", summaryOrderCount, "笔"),
       metricTile("归档天数", plans.length > 0 ? plans.length : "—", "天"),
@@ -226,7 +238,14 @@
     document.getElementById("journal-plan-headline").textContent = latestPlan.headline || "暂无今日计划";
     var planItems = latestPlan.items || [];
     document.getElementById("journal-plan-body").innerHTML = planItems.length
-      ? planItems.map(function (i) { return "<li>" + escapeHtml(i.symbol || i.intent_id || JSON.stringify(i)) + "</li>"; }).join("")
+      ? planItems.map(function (i) {
+          var parts = ["<strong>" + escapeHtml(i.symbol || "") + "</strong>"];
+          if (i.direction) parts.push("方向: " + escapeHtml(i.direction));
+          if (i.target_weight != null) parts.push("目标权重: " + i.target_weight);
+          if (i.target) parts.push("目标: " + escapeHtml(String(i.target)));
+          if (i.reason) parts.push("理由: " + escapeHtml(i.reason));
+          return "<li>" + parts.join(" &nbsp;|&nbsp; ") + "</li>";
+        }).join("")
       : '<li class="detail-empty">暂无计划条目</li>';
 
     document.getElementById("journal-summary-headline").textContent = latestSummary.headline || "暂无今日总结";
@@ -253,12 +272,17 @@
       metricTile("完整度", daysWithPlan > 0 && daysWithSummary > 0 ? Math.round(Math.min(daysWithPlan, daysWithSummary) / Math.max(sortedDates.length, 1) * 100) + "%" : "0%", ""),
     ].join("");
 
+    // 7-day trend chart
+    renderJournalTimeline("journal-timeline-chart", plans, summaries);
+
+    var statusBadgeMap = { planned: '<span class="badge badge-info">已计划</span>', no_trade: '<span class="badge badge-warn">不交易</span>', blocked: '<span class="badge badge-fail">阻塞</span>' };
     var timelineTbody = document.getElementById("journal-timeline");
     if (sortedDates.length) {
       timelineTbody.innerHTML = sortedDates.map(function (d) {
         var p = allDates[d].plan || {};
         var s = allDates[d].summary || {};
-        return "<tr><td>" + d + "</td><td>" + escapeHtml(p.status || "—") + "</td><td>" + ((p.items || []).length || (p.counts || {}).intent_count || "—") + "</td><td>" + escapeHtml((s.blockers || [])[0] || "—") + "</td><td>" + escapeHtml((s.next_actions || [])[0] || "—") + "</td></tr>";
+        var st = p.status || "—";
+        return "<tr><td>" + d + "</td><td>" + (statusBadgeMap[st] || escapeHtml(st)) + "</td><td>" + ((p.items || []).length || (p.counts || {}).intent_count || "—") + "</td><td>" + escapeHtml((s.blockers || [])[0] || "—") + "</td><td>" + escapeHtml((s.next_actions || [])[0] || "—") + "</td></tr>";
       }).join("");
     } else {
       timelineTbody.innerHTML = '<tr><td colspan="5" class="table-empty">暂无归档数据</td></tr>';

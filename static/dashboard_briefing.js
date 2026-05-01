@@ -44,8 +44,8 @@
     var conf = a.confidence || "N/A";
     var regimeLabel = { bullish: "看涨", neutral: "中性", caution: "谨慎", risk_off: "避险" }[regime] || regime;
     var regimeClass = { bullish: "badge-ok", neutral: "badge-warn", caution: "badge-warn", risk_off: "badge-fail" }[regime] || "";
-    var riskClass = { aggressive: "badge-warn", moderate: "badge-info", conservative: "badge-ok", halted: "badge-fail" }[risk] || "";
-    var riskLabel = { aggressive: "激进", moderate: "稳健", conservative: "保守", halted: "停止" }[risk] || risk;
+    var riskClass = { build_risk: "badge-ok", hold_pace: "badge-info", reduce_risk: "badge-warn", pause_new_adds: "badge-fail" }[risk] || "";
+    var riskLabel = { build_risk: "加仓", hold_pace: "稳健", reduce_risk: "减仓", pause_new_adds: "暂停" }[risk] || risk;
 
     el.innerHTML = [
       metricTile("市场体制", '<span class="badge ' + regimeClass + '">' + regimeLabel + "</span>", regime),

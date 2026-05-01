@@ -59,7 +59,11 @@
 
     <section class="panel">
       <div class="panel-header"><h2>感知快照</h2></div>
-      <pre id="briefing-awareness" class="panel-body" style="font-size:12px;max-height:400px;overflow:auto;background:var(--surface-2);padding:12px;border-radius:6px">加载中...</pre>
+      <div id="briefing-awareness-chart" class="panel-body" style="padding:8px 16px;"></div>
+      <details style="margin:0 16px 12px;">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">原始数据</summary>
+        <pre id="briefing-awareness" class="panel-body" style="font-size:11px;max-height:300px;overflow:auto;background:var(--surface-2);padding:8px;border-radius:4px;margin-top:4px;">加载中...</pre>
+      </details>
     </section>
   </div>
 
@@ -92,6 +96,7 @@
 
     <section class="panel">
       <div class="panel-header"><h2>交易质量评分</h2></div>
+      <div id="review-scores-chart" style="width:100%;height:200px;"></div>
       <div class="table-wrap"><table class="data-table compact-table">
         <thead><tr><th>标的</th><th>综合</th><th>入场</th><th>出场</th><th>仓位</th><th>说明</th></tr></thead>
         <tbody id="review-scores"><tr><td colspan="6" class="table-empty">加载中...</td></tr></tbody></table></div>
@@ -138,6 +143,7 @@
       <div id="journal-coverage-metrics" class="cards-grid four compact">
         <article class="metric-tile loading"><span>加载中...</span></article>
       </div>
+      <div id="journal-timeline-chart" style="width:100%;height:220px;"></div>
       <div class="table-wrap"><table class="data-table compact-table">
         <thead><tr><th>日期</th><th>计划状态</th><th>计划数</th><th>阻塞项</th><th>明日动作</th></tr></thead>
         <tbody id="journal-timeline"><tr><td colspan="5" class="table-empty">加载中...</td></tr></tbody></table></div>

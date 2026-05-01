@@ -1623,3 +1623,17 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-body); color: var(--text); }
   .quant-grid { grid-template-columns: 1fr; }
   .quant-control-bar { flex-direction: column; align-items: stretch; }
 }
+
+/* ── Markdown rendered content ── */
+.markdown-body { line-height: 1.7; font-size: 14px; color: var(--text-primary); }
+.markdown-body h2 { font-size: 15px; font-weight: 700; color: var(--accent); margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-color); }
+.markdown-body h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; color: var(--text-primary); }
+.markdown-body p { margin: 2px 0; }
+.markdown-body ul { margin: 4px 0; padding-left: 18px; }
+.markdown-body li { margin: 2px 0; font-size: 13px; }
+.markdown-body strong { color: var(--accent); }
+
+/* ── Awareness chart ── */
+.awareness-score-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.awareness-score-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+.awareness-metric-card { flex: 1; min-width: 100px; background: var(--surface-2); border-radius: 6px; padding: 8px 12px; }
